@@ -71,6 +71,12 @@ const showingNavigationDropdown = ref(false);
                     จัดการผู้ใช้ (Users)
                 </Link>
 
+                <Link :href="route('audit-logs.index')"
+                    class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                    :class="route().current('audit-logs.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                    <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                    Audit Logs
+                </Link>
             </nav>
 
             <div class="p-4 border-t border-purple-800/50 bg-[#380d6b] hover:bg-[#2d0a56] transition-colors cursor-pointer">

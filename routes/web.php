@@ -6,6 +6,7 @@ use App\Http\Controllers\WorkItemController;
 use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ReportController;
+use App\Http\Controllers\AuditLogController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -60,7 +61,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // หน้ารายการโครงการทั้งหมด
     Route::get('/projects', [WorkItemController::class, 'list'])->defaults('type', 'project')->name('projects.index');
 
-
+    // Audit Logs
+    Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
 });
 
 require __DIR__.'/auth.php';
