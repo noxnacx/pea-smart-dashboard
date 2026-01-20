@@ -63,6 +63,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // Audit Logs
     Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
+
+    // --- Comments ---
+    Route::post('/work-items/{workItem}/comments', [\App\Http\Controllers\CommentController::class, 'store'])->name('comments.store');
 });
 
 require __DIR__.'/auth.php';

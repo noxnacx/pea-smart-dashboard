@@ -102,7 +102,8 @@ class WorkItem extends Model
 
     public function attachments()
     {
-        return $this->hasMany(WorkItemAttachment::class)->latest();
+        // เปลี่ยนจาก WorkItemAttachment เป็น Attachment
+        return $this->hasMany(Attachment::class);
     }
 
     public function recalculateProgress()
@@ -130,5 +131,12 @@ class WorkItem extends Model
             $this->parent->recalculateProgress();
         }
 }
+
+// เพิ่มฟังก์ชันนี้ลงไปใน Class WorkItem
+public function comments()
+{
+    return $this->hasMany(Comment::class)->orderBy('created_at', 'desc');
+}
+
 
 }

@@ -10,7 +10,7 @@ class GlobalObserver
 {
     public function created(Model $model)
     {
-        $this->recordLog($model, 'CREATE', null);
+        $this->recordLog($model, 'CREATE', ['after' => $model->toArray()]);
     }
 
     public function updated(Model $model)

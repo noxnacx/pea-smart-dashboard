@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\WorkItem;
+use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
 use Inertia\Inertia;
@@ -35,7 +36,6 @@ class WorkItemController extends Controller
             'planned_end_date' => 'nullable|date',
         ]);
 
-        // Fix null values
         $validated['progress'] = $validated['progress'] ?? 0;
         $validated['budget'] = $validated['budget'] ?? 0;
         $validated['status'] = $validated['status'] ?? 'pending';
@@ -62,20 +62,9 @@ class WorkItemController extends Controller
             $validated['progress'] = 0;
         }
 
-        // 1. อัปเดตข้อมูลหลัก
+        // Observer จะบันทึก Log อัตโนมัติ
         $workItem->update($validated);
 
-        // 2. บันทึก Log
-        if ($request->has('progress')) {
-            $workItem->logs()->create([
-                'log_date' => now(),
-                'progress' => $workItem->progress,
-                'actual_cost' => 0,
-                'created_by' => auth()->id(),
-            ]);
-        }
-
-        // 3. สั่งให้คำนวณแม่ใหม่ (ถ้ามีแม่)
         if ($workItem->parent) {
             $workItem->parent->recalculateProgress();
         }
@@ -95,18 +84,16 @@ class WorkItemController extends Controller
         $workItem->load([
             'parent',
             'attachments.uploader',
-            'logs.uploader',
             'children' => function($q) { $q->orderBy('order_index')->with('attachments'); },
             'children.children' => function($q) { $q->orderBy('order_index'); },
             'children.children.children'
         ]);
 
-        // 2. เตรียมข้อมูลสำหรับ S-Curve
+        // 2. คำนวณ S-Curve (เหมือนเดิม)
         $months = [];
         $plannedData = [];
         $actualData = [];
 
-        // หาจุดเริ่มต้นและจุดสิ้นสุดของกราฟ
         $startDate = $workItem->planned_start_date
             ? $workItem->planned_start_date->copy()->startOfMonth()
             : now()->startOfYear();
@@ -115,12 +102,8 @@ class WorkItemController extends Controller
             ? $workItem->planned_end_date->copy()->endOfMonth()
             : now()->endOfYear();
 
-        // ป้องกันกรณีวันเริ่มกับวันจบใกล้กันเกินไป
-        if ($endDate->lt($startDate)) {
-            $endDate = $startDate->copy()->addMonths(1);
-        }
+        if ($endDate->lt($startDate)) $endDate = $startDate->copy()->addMonths(1);
 
-        // รวบรวมลูกหลานทั้งหมดเพื่อคำนวณ (Flatten Tree)
         $allChildren = collect([$workItem]);
         $tempQueue = [$workItem];
         while(count($tempQueue) > 0) {
@@ -133,51 +116,64 @@ class WorkItemController extends Controller
             }
         }
 
-        // Loop สร้างแกน X
         $currentDate = $startDate->copy();
-
         while ($currentDate->lte($endDate)) {
-            // สร้าง Label แกน X เป็นภาษาไทย
-            $thaiMonths = [
-                1 => 'ม.ค.', 2 => 'ก.พ.', 3 => 'มี.ค.', 4 => 'เม.ย.', 5 => 'พ.ค.', 6 => 'มิ.ย.',
-                7 => 'ก.ค.', 8 => 'ส.ค.', 9 => 'ก.ย.', 10 => 'ต.ค.', 11 => 'พ.ย.', 12 => 'ธ.ค.'
-            ];
-            $monthName = $thaiMonths[$currentDate->month];
-            $yearThai = $currentDate->year + 543;
-            $yearShort = substr($yearThai, -2);
-
-            $months[] = "$monthName $yearShort";
-
+            $thaiMonths = [1 => 'ม.ค.', 2 => 'ก.พ.', 3 => 'มี.ค.', 4 => 'เม.ย.', 5 => 'พ.ค.', 6 => 'มิ.ย.', 7 => 'ก.ค.', 8 => 'ส.ค.', 9 => 'ก.ย.', 10 => 'ต.ค.', 11 => 'พ.ย.', 12 => 'ธ.ค.'];
+            $months[] = $thaiMonths[$currentDate->month] . ' ' . substr($currentDate->year + 543, -2);
             $calcDate = $currentDate->copy()->endOfMonth();
 
-            // --- คำนวณ Planned Value (PV) ---
             $pv = $allChildren->sum(function($item) use ($calcDate) {
                 if (!$item->planned_start_date || !$item->planned_end_date || $item->budget <= 0) return 0;
-
                 if ($calcDate->lt($item->planned_start_date)) return 0;
                 if ($calcDate->gt($item->planned_end_date)) return $item->budget;
-
                 $totalDays = $item->planned_start_date->diffInDays($item->planned_end_date) + 1;
                 $passedDays = $item->planned_start_date->diffInDays($calcDate) + 1;
-                $percent = $passedDays / max(1, $totalDays);
-
-                return $item->budget * $percent;
+                return $item->budget * ($passedDays / max(1, $totalDays));
             });
             $plannedData[] = round($pv, 2);
 
-            // --- คำนวณ Earned Value (EV) ---
             if ($calcDate->lte(now()->endOfMonth())) {
-                $ev = $allChildren->sum(function($item) {
-                   return $item->budget * ($item->progress / 100);
-                });
+                $ev = $allChildren->sum(fn($item) => $item->budget * ($item->progress / 100));
                 $actualData[] = round($ev, 2);
             }
-
             $currentDate->addMonth();
         }
 
+        // 3. *** ส่วนที่แก้ไข: Timeline รวมศูนย์ (Logs + Comments) ***
+
+        // 3.1 ดึง Audit Logs
+        $logs = AuditLog::with('user')
+            ->where(function($q) use ($workItem) {
+                $q->where('model_type', 'WorkItem')->where('model_id', $workItem->id);
+            })
+            ->orWhere(function($q) use ($workItem) {
+                $q->where('model_type', 'Attachment')
+                  ->where(function($sq) use ($workItem) {
+                      $sq->where('changes->work_item_id', $workItem->id)
+                         ->orWhere('changes->after->work_item_id', $workItem->id);
+                  });
+            })
+            ->get()
+            ->map(function ($item) {
+                $item->timeline_type = 'log'; // แปะป้ายว่าเป็น Log
+                return $item;
+            });
+
+        // 3.2 ดึง Comments
+        $comments = $workItem->comments()
+            ->with('user')
+            ->get()
+            ->map(function ($item) {
+                $item->timeline_type = 'comment'; // แปะป้ายว่าเป็น Comment
+                return $item;
+            });
+
+        // 3.3 รวมร่างและเรียงตามเวลา (ใหม่ล่าสุดขึ้นก่อน)
+        $timeline = $logs->concat($comments)->sortByDesc('created_at')->values();
+
         return Inertia::render('Project/Detail', [
             'item' => $workItem,
+            'historyLogs' => $timeline, // ส่ง Timeline รวมไป
             'chartData' => [
                 'categories' => $months,
                 'planned' => $plannedData,
@@ -188,34 +184,18 @@ class WorkItemController extends Controller
 
     public function list(Request $request, $type)
     {
-        // 1. เริ่ม Query โดยเลือกเฉพาะ Type ที่ต้องการ
         $query = WorkItem::where('type', $type);
 
-        // 2. ตัวกรอง: ค้นหาจากชื่อ (Search)
-        if ($request->filled('search')) {
-            // ใช้ ilike เพื่อค้นหาแบบ Case-Insensitive (PostgreSQL)
-            $query->where('name', 'ilike', '%' . $request->search . '%');
-        }
+        if ($request->filled('search')) $query->where('name', 'ilike', '%' . $request->search . '%');
+        if ($request->filled('status')) $query->where('status', $request->status);
+        if ($request->filled('year')) $query->whereYear('planned_start_date', $request->year);
 
-        // 3. ตัวกรอง: สถานะ (Status)
-        if ($request->filled('status')) {
-            $query->where('status', $request->status);
-        }
-
-        // 4. ตัวกรอง: ปีงบประมาณ (Year)
-        if ($request->filled('year')) {
-            $query->whereYear('planned_start_date', $request->year);
-        }
-
-        // 5. การเรียงลำดับ (Sorting)
         $sortField = $request->input('sort_by', 'created_at');
         $sortDir = $request->input('sort_dir', 'desc');
-
         if(in_array($sortField, ['name', 'budget', 'progress', 'planned_start_date', 'created_at'])) {
             $query->orderBy($sortField, $sortDir);
         }
 
-        // 6. ดึงข้อมูลแบบแบ่งหน้า (Pagination)
         $items = $query->paginate(10)->withQueryString();
 
         return Inertia::render('WorkItem/List', [

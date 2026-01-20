@@ -8,6 +8,7 @@ use App\Models\WorkItem; // import
 use App\Policies\WorkItemPolicy; // import
 use Illuminate\Support\Facades\Gate; // import
 use App\Models\User;     // import
+use App\Models\Attachment;
 use App\Observers\GlobalObserver; // import
 
 class AppServiceProvider extends ServiceProvider
@@ -29,5 +30,6 @@ class AppServiceProvider extends ServiceProvider
         Gate::policy(WorkItem::class, WorkItemPolicy::class);
         WorkItem::observe(GlobalObserver::class);
         User::observe(GlobalObserver::class);
+        Attachment::observe(GlobalObserver::class);
     }
 }
