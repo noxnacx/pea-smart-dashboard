@@ -15,7 +15,7 @@ const form = useForm({
     email: '',
     password: '',
     password_confirmation: '',
-    role: 'staff' // default
+    role: 'staff'
 });
 
 const openCreateModal = () => {
@@ -33,7 +33,6 @@ const openEditModal = (user) => {
     form.name = user.name;
     form.email = user.email;
     form.role = user.role;
-    // Password เว้นว่างไว้ ถ้าไม่แก้
     showModal.value = true;
 };
 
@@ -49,6 +48,15 @@ const submit = () => {
 const deleteUser = (user) => {
     if (confirm(`ยืนยันการลบผู้ใช้ ${user.name}?`)) {
         useForm({}).delete(route('users.destroy', user.id));
+    }
+};
+
+// ฟังก์ชันเลือกสีป้ายตาม Role
+const getRoleBadge = (role) => {
+    switch(role) {
+        case 'admin': return 'bg-purple-100 text-[#7A2F8F] border border-purple-200';
+        case 'pm': return 'bg-orange-100 text-orange-700 border border-orange-200'; // สีสำหรับ PM
+        default: return 'bg-green-100 text-green-700 border border-green-200';
     }
 };
 </script>
@@ -83,22 +91,23 @@ const deleteUser = (user) => {
                     <tbody class="divide-y divide-gray-100 text-sm">
                         <tr v-for="user in users" :key="user.id" class="hover:bg-purple-50 transition">
                             <td class="px-6 py-4 font-bold text-gray-700 flex items-center gap-3">
-                                <div class="w-8 h-8 rounded-full bg-purple-100 text-[#7A2F8F] flex items-center justify-center font-bold">
+                                <div class="w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs shadow-sm"
+                                     :class="user.role === 'admin' ? 'bg-[#7A2F8F] text-white' : (user.role === 'pm' ? 'bg-orange-500 text-white' : 'bg-green-500 text-white')">
                                     {{ user.name.charAt(0).toUpperCase() }}
                                 </div>
                                 {{ user.name }}
                             </td>
                             <td class="px-6 py-4 text-gray-600">{{ user.email }}</td>
                             <td class="px-6 py-4 text-center">
-                                <span class="px-3 py-1 rounded-full text-xs font-bold uppercase"
-                                      :class="user.role === 'admin' ? 'bg-purple-100 text-[#7A2F8F]' : 'bg-green-100 text-green-700'">
-                                    {{ user.role }}
+                                <span class="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider"
+                                      :class="getRoleBadge(user.role)">
+                                    {{ user.role === 'pm' ? 'Project Manager' : user.role }}
                                 </span>
                             </td>
                             <td class="px-6 py-4 text-center text-gray-500">{{ new Date(user.created_at).toLocaleDateString('th-TH') }}</td>
                             <td class="px-6 py-4 text-right">
-                                <button @click="openEditModal(user)" class="text-blue-600 hover:text-blue-800 font-bold mr-3">แก้ไข</button>
-                                <button @click="deleteUser(user)" class="text-red-500 hover:text-red-700 font-bold">ลบ</button>
+                                <button @click="openEditModal(user)" class="text-blue-600 hover:text-blue-800 font-bold mr-3 text-xs bg-blue-50 px-2 py-1 rounded">แก้ไข</button>
+                                <button @click="deleteUser(user)" class="text-red-500 hover:text-red-700 font-bold text-xs bg-red-50 px-2 py-1 rounded">ลบ</button>
                             </td>
                         </tr>
                     </tbody>
@@ -125,7 +134,7 @@ const deleteUser = (user) => {
                         <label class="block text-sm font-bold text-gray-700">สิทธิ์การใช้งาน (Role)</label>
                         <select v-model="form.role" class="w-full rounded border-gray-300 mt-1 bg-white">
                             <option value="staff">Staff (ผู้ใช้งานทั่วไป)</option>
-                            <option value="admin">Admin (ผู้ดูแลระบบ)</option>
+                            <option value="pm">PM (ผู้จัดการโครงการ)</option> <option value="admin">Admin (ผู้ดูแลระบบ)</option>
                         </select>
                     </div>
                     <div class="border-t pt-4 mt-2">
