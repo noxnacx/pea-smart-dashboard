@@ -11,17 +11,7 @@ use Carbon\Carbon;
 
 class WorkItemController extends Controller
 {
-    public function index()
-    {
-        $strategies = WorkItem::whereNull('parent_id')
-            ->with('allChildren')
-            ->orderBy('order_index')
-            ->get();
-
-        return Inertia::render('Dashboard/AdminDashboard', [
-            'hierarchy' => $strategies,
-        ]);
-    }
+    // *** ฟังก์ชัน index() ไม่ต้องมีแล้ว เพราะใช้ DashboardController ***
 
     public function store(Request $request)
     {
@@ -62,7 +52,6 @@ class WorkItemController extends Controller
             $validated['progress'] = 0;
         }
 
-        // Observer จะบันทึก Log อัตโนมัติ
         $workItem->update($validated);
 
         if ($workItem->parent) {
@@ -78,32 +67,28 @@ class WorkItemController extends Controller
         return Redirect::route('dashboard')->with('success', 'ลบงานสำเร็จ');
     }
 
+    // หน้า Detail รายละเอียดโครงการ
     public function show(WorkItem $workItem)
     {
-        // 1. โหลดข้อมูลความสัมพันธ์
+        // 1. โหลดข้อมูล (แก้ไข: โหลด parent ย้อน 3 ชั้น และโหลด issues.user เพิ่ม)
         $workItem->load([
-            'parent',
+            'parent.parent.parent',
             'attachments.uploader',
-            'children' => function($q) { $q->orderBy('order_index')->with('attachments'); },
+            'issues.user', // <--- เพิ่มตรงนี้ เพื่อให้หน้าแท็บ Issues แสดงชื่อคนแจ้งได้
+            'children' => function($q) {
+                $q->orderBy('order_index')->with('attachments');
+            },
             'children.children' => function($q) { $q->orderBy('order_index'); },
             'children.children.children'
         ]);
 
-        // 2. คำนวณ S-Curve (เหมือนเดิม)
+        // 2. คำนวณ S-Curve
         $months = [];
         $plannedData = [];
         $actualData = [];
-
-        $startDate = $workItem->planned_start_date
-            ? $workItem->planned_start_date->copy()->startOfMonth()
-            : now()->startOfYear();
-
-        $endDate = $workItem->planned_end_date
-            ? $workItem->planned_end_date->copy()->endOfMonth()
-            : now()->endOfYear();
-
+        $startDate = $workItem->planned_start_date ? $workItem->planned_start_date->copy()->startOfMonth() : now()->startOfYear();
+        $endDate = $workItem->planned_end_date ? $workItem->planned_end_date->copy()->endOfMonth() : now()->endOfYear();
         if ($endDate->lt($startDate)) $endDate = $startDate->copy()->addMonths(1);
-
         $allChildren = collect([$workItem]);
         $tempQueue = [$workItem];
         while(count($tempQueue) > 0) {
@@ -115,13 +100,11 @@ class WorkItemController extends Controller
                 }
             }
         }
-
         $currentDate = $startDate->copy();
         while ($currentDate->lte($endDate)) {
             $thaiMonths = [1 => 'ม.ค.', 2 => 'ก.พ.', 3 => 'มี.ค.', 4 => 'เม.ย.', 5 => 'พ.ค.', 6 => 'มิ.ย.', 7 => 'ก.ค.', 8 => 'ส.ค.', 9 => 'ก.ย.', 10 => 'ต.ค.', 11 => 'พ.ย.', 12 => 'ธ.ค.'];
             $months[] = $thaiMonths[$currentDate->month] . ' ' . substr($currentDate->year + 543, -2);
             $calcDate = $currentDate->copy()->endOfMonth();
-
             $pv = $allChildren->sum(function($item) use ($calcDate) {
                 if (!$item->planned_start_date || !$item->planned_end_date || $item->budget <= 0) return 0;
                 if ($calcDate->lt($item->planned_start_date)) return 0;
@@ -131,7 +114,6 @@ class WorkItemController extends Controller
                 return $item->budget * ($passedDays / max(1, $totalDays));
             });
             $plannedData[] = round($pv, 2);
-
             if ($calcDate->lte(now()->endOfMonth())) {
                 $ev = $allChildren->sum(fn($item) => $item->budget * ($item->progress / 100));
                 $actualData[] = round($ev, 2);
@@ -139,41 +121,33 @@ class WorkItemController extends Controller
             $currentDate->addMonth();
         }
 
-        // 3. *** ส่วนที่แก้ไข: Timeline รวมศูนย์ (Logs + Comments) ***
-
-        // 3.1 ดึง Audit Logs
+        // 3. Timeline รวมศูนย์ (Logs + Comments + Issues + Attachments)
         $logs = AuditLog::with('user')
             ->where(function($q) use ($workItem) {
+                // Log ของตัว WorkItem เอง (แก้ไขชื่อ, งบ, วันที่)
                 $q->where('model_type', 'WorkItem')->where('model_id', $workItem->id);
             })
             ->orWhere(function($q) use ($workItem) {
-                $q->where('model_type', 'Attachment')
-                  ->where(function($sq) use ($workItem) {
-                      $sq->where('changes->work_item_id', $workItem->id)
-                         ->orWhere('changes->after->work_item_id', $workItem->id);
-                  });
+                 // Log ของลูกน้อง (Attachment และ Issue)
+                 // แก้ไข: เพิ่ม 'Issue' เข้าไปใน array
+                 $q->whereIn('model_type', ['Attachment', 'Issue'])
+                   ->where(function($sq) use ($workItem) {
+                       // เช็คว่า Log นี้เป็นของ Project นี้หรือไม่ (ดูจาก work_item_id ใน JSON changes)
+                       $sq->where('changes->work_item_id', $workItem->id)
+                          ->orWhere('changes->after->work_item_id', $workItem->id);
+                   });
             })
             ->get()
-            ->map(function ($item) {
-                $item->timeline_type = 'log'; // แปะป้ายว่าเป็น Log
-                return $item;
-            });
+            ->map(function ($item) { $item->timeline_type = 'log'; return $item; });
 
-        // 3.2 ดึง Comments
-        $comments = $workItem->comments()
-            ->with('user')
-            ->get()
-            ->map(function ($item) {
-                $item->timeline_type = 'comment'; // แปะป้ายว่าเป็น Comment
-                return $item;
-            });
+        $comments = $workItem->comments()->with('user')->get()
+            ->map(function ($item) { $item->timeline_type = 'comment'; return $item; });
 
-        // 3.3 รวมร่างและเรียงตามเวลา (ใหม่ล่าสุดขึ้นก่อน)
         $timeline = $logs->concat($comments)->sortByDesc('created_at')->values();
 
         return Inertia::render('Project/Detail', [
             'item' => $workItem,
-            'historyLogs' => $timeline, // ส่ง Timeline รวมไป
+            'historyLogs' => $timeline,
             'chartData' => [
                 'categories' => $months,
                 'planned' => $plannedData,
@@ -184,7 +158,8 @@ class WorkItemController extends Controller
 
     public function list(Request $request, $type)
     {
-        $query = WorkItem::where('type', $type);
+        // เพิ่ม ->with('issues') เพื่อดึงข้อมูลปัญหามาด้วย
+        $query = WorkItem::where('type', $type)->with('issues');
 
         if ($request->filled('search')) $query->where('name', 'ilike', '%' . $request->search . '%');
         if ($request->filled('status')) $query->where('status', $request->status);
@@ -192,6 +167,7 @@ class WorkItemController extends Controller
 
         $sortField = $request->input('sort_by', 'created_at');
         $sortDir = $request->input('sort_dir', 'desc');
+
         if(in_array($sortField, ['name', 'budget', 'progress', 'planned_start_date', 'created_at'])) {
             $query->orderBy($sortField, $sortDir);
         }
@@ -204,4 +180,5 @@ class WorkItemController extends Controller
             'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir']),
         ]);
     }
+
 }

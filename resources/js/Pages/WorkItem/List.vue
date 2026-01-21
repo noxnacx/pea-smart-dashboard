@@ -29,7 +29,19 @@ watch(filterForm, throttle(() => {
     });
 }, 500), { deep: true });
 
-// --- Modal & Edit/Delete Logic ---
+// --- Helpers: Issues / Risks Logic ---
+const hasActiveIssues = (issues) => issues?.some(i => i.type === 'issue' && i.status !== 'resolved');
+const hasActiveRisks = (issues) => issues?.some(i => i.type === 'risk' && i.status !== 'resolved');
+const getActiveCount = (issues, type) => issues?.filter(i => i.type === type && i.status !== 'resolved').length || 0;
+
+const getSeverityClass = (s) => ({
+    critical: 'bg-red-100 text-red-700 border-red-200',
+    high: 'bg-orange-100 text-orange-700 border-orange-200',
+    medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
+    low: 'bg-green-100 text-green-700 border-green-200'
+}[s] || 'bg-gray-100');
+
+// --- Modal Logic (Edit Item) ---
 const showModal = ref(false);
 const modalTitle = ref('');
 const form = useForm({ id: null, name: '', type: props.type, budget: 0, progress: 0, status: 'pending', planned_start_date: '', planned_end_date: '' });
@@ -57,6 +69,30 @@ const deleteItem = (id) => {
     if (confirm('ยืนยันลบ? ข้อมูลทั้งหมดจะหายไป')) {
         useForm({}).delete(route('work-items.destroy', id));
     }
+};
+
+// --- Modal Logic (Quick View Issues/Risks) [NEW ✨] ---
+const showQuickView = ref(false);
+const quickViewTitle = ref('');
+const quickViewItems = ref([]);
+const quickViewType = ref(''); // 'issue' or 'risk'
+
+const openQuickView = (item, type) => {
+    const activeItems = item.issues?.filter(i => i.type === type && i.status !== 'resolved') || [];
+    if (activeItems.length === 0) return;
+
+    quickViewType.value = type;
+    quickViewTitle.value = type === 'issue'
+        ? `🔥 ปัญหาที่พบ (${activeItems.length}) - ${item.name}`
+        : `⚠️ ความเสี่ยง (${activeItems.length}) - ${item.name}`;
+
+    // เรียงลำดับความรุนแรง (Critical มาก่อน)
+    quickViewItems.value = activeItems.sort((a, b) => {
+        const priority = { critical: 1, high: 2, medium: 3, low: 4 };
+        return (priority[a.severity] || 5) - (priority[b.severity] || 5);
+    });
+
+    showQuickView.value = true;
 };
 
 // --- Helpers ---
@@ -109,14 +145,34 @@ const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', {
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-3">
                                     <div class="w-8 h-8 rounded bg-gray-100 flex items-center justify-center text-[#7A2F8F] font-bold">{{ type === 'plan' ? 'P' : 'J' }}</div>
-                                    <Link :href="route('work-items.show', item.id)" class="font-bold text-gray-800 hover:text-[#7A2F8F] hover:underline truncate max-w-[300px]">{{ item.name }}</Link>
+
+                                    <div>
+                                        <div class="flex items-center gap-2">
+                                            <Link :href="route('work-items.show', item.id)" class="font-bold text-gray-800 hover:text-[#7A2F8F] hover:underline truncate max-w-[300px]">{{ item.name }}</Link>
+
+                                            <button v-if="hasActiveIssues(item.issues)"
+                                                 @click.stop="openQuickView(item, 'issue')"
+                                                 class="flex items-center justify-center w-5 h-5 rounded-full bg-red-100 border border-red-200 cursor-pointer hover:scale-110 transition relative group/tooltip"
+                                                 title="คลิกเพื่อดูรายการปัญหา">
+                                                <div class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div>
+                                            </button>
+
+                                            <button v-if="hasActiveRisks(item.issues)"
+                                                 @click.stop="openQuickView(item, 'risk')"
+                                                 class="flex items-center justify-center w-5 h-5 rounded-full bg-orange-100 border border-orange-200 cursor-pointer hover:scale-110 transition relative group/tooltip"
+                                                 title="คลิกเพื่อดูความเสี่ยง">
+                                                <div class="w-2 h-2 rounded-full bg-orange-400"></div>
+                                            </button>
+                                        </div>
+                                        <p v-if="item.code" class="text-[10px] text-gray-400">{{ item.code }}</p>
+                                    </div>
+
                                 </div>
                             </td>
                             <td class="px-6 py-4 text-center"><span class="px-2 py-1 rounded text-xs font-bold uppercase" :class="statusColor(item.status)">{{ item.status }}</span></td>
                             <td class="px-6 py-4"><div class="flex items-center gap-2"><div class="w-full bg-gray-200 rounded-full h-1.5"><div class="bg-[#7A2F8F] h-1.5 rounded-full" :style="`width: ${item.progress}%`"></div></div><span class="text-xs font-medium">{{ item.progress }}%</span></div></td>
                             <td class="px-6 py-4 text-right font-mono font-bold text-gray-700">{{ Number(item.budget).toLocaleString() }}</td>
                             <td class="px-6 py-4 text-center text-xs text-gray-500">{{ formatDate(item.planned_start_date) }} - {{ formatDate(item.planned_end_date) }}</td>
-
                             <td class="px-6 py-4 text-center">
                                 <div class="flex justify-center gap-2">
                                     <Link :href="route('work-items.show', item.id)" class="p-1.5 rounded-lg hover:bg-blue-50 text-lg transition" title="ดูรายละเอียด">🔍</Link>
@@ -124,7 +180,6 @@ const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', {
                                     <button @click="deleteItem(item.id)" class="p-1.5 rounded-lg hover:bg-red-50 text-lg transition" title="ลบ">🗑️</button>
                                 </div>
                             </td>
-
                         </tr>
                     </tbody>
                 </table>
@@ -142,19 +197,10 @@ const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', {
                     <button @click="showModal = false" class="text-white hover:text-yellow-400 font-bold text-xl">&times;</button>
                 </div>
                 <form @submit.prevent="submit" class="p-6 space-y-4">
-                    <div>
-                        <label class="block text-sm font-bold text-gray-700">ชื่อรายการ</label>
-                        <input v-model="form.name" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F] mt-1" required>
-                    </div>
+                    <div><label class="block text-sm font-bold text-gray-700">ชื่อรายการ</label><input v-model="form.name" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F] mt-1" required></div>
                     <div class="grid grid-cols-2 gap-4">
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700">งบประมาณ</label>
-                            <input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 pr-8 mt-1">
-                        </div>
-                         <div>
-                            <label class="block text-sm font-bold text-gray-700">สถานะ</label>
-                            <select v-model="form.status" class="w-full rounded-lg border-gray-300 mt-1"><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="delayed">Delayed</option></select>
-                        </div>
+                        <div><label class="block text-sm font-bold text-gray-700">งบประมาณ</label><input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 pr-8 mt-1"></div>
+                         <div><label class="block text-sm font-bold text-gray-700">สถานะ</label><select v-model="form.status" class="w-full rounded-lg border-gray-300 mt-1"><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="delayed">Delayed</option></select></div>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div><label class="block text-sm font-bold text-gray-700">เริ่ม</label><input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300 mt-1"></div>
@@ -171,5 +217,39 @@ const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', {
                 </form>
             </div>
         </div>
+
+        <div v-if="showQuickView" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity" @click.self="showQuickView = false">
+            <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl transform transition-all scale-100">
+                <div class="px-6 py-4 flex justify-between items-center" :class="quickViewType === 'issue' ? 'bg-red-500' : 'bg-orange-500'">
+                    <h3 class="text-lg font-bold text-white flex items-center gap-2">
+                        <span>{{ quickViewType === 'issue' ? '🔥' : '⚠️' }}</span>
+                        {{ quickViewTitle }}
+                    </h3>
+                    <button @click="showQuickView = false" class="text-white hover:text-white/80 font-bold text-xl">&times;</button>
+                </div>
+                <div class="p-6 bg-gray-50 max-h-[70vh] overflow-y-auto">
+                    <div v-for="item in quickViewItems" :key="item.id" class="bg-white p-4 rounded-xl border mb-3 shadow-sm last:mb-0 hover:shadow-md transition">
+                        <div class="flex justify-between items-start mb-2">
+                            <span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded border" :class="getSeverityClass(item.severity)">
+                                {{ item.severity }}
+                            </span>
+                            <span class="text-xs text-gray-500 font-mono">{{ item.status }}</span>
+                        </div>
+                        <h4 class="font-bold text-gray-800 text-sm mb-1">{{ item.title }}</h4>
+                        <p class="text-xs text-gray-600 mb-2 line-clamp-2">{{ item.description || 'ไม่มีรายละเอียด' }}</p>
+                        <div v-if="item.solution" class="text-xs bg-gray-100 p-2 rounded text-gray-700 italic border border-gray-200">
+                            💡: {{ item.solution }}
+                        </div>
+                        <div v-if="item.start_date || item.end_date" class="mt-2 pt-2 border-t border-gray-100 text-[10px] text-gray-400 text-right">
+                            📅 {{ formatDate(item.start_date) }} - {{ formatDate(item.end_date) }}
+                        </div>
+                    </div>
+                </div>
+                <div class="p-4 bg-white border-t border-gray-100 text-center">
+                    <button @click="showQuickView = false" class="text-sm text-gray-500 hover:text-gray-700 underline">ปิดหน้าต่าง</button>
+                </div>
+            </div>
+        </div>
+
     </PeaSidebarLayout>
 </template>

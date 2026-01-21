@@ -1,148 +1,182 @@
 <script setup>
-import { Head, useForm } from '@inertiajs/vue3';
-import { ref, computed } from 'vue';
+import { Head, Link, useForm } from '@inertiajs/vue3';
+import { ref } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
-import WorkItemRow from '@/Components/WorkItemRow.vue';
 import VueApexCharts from 'vue3-apexcharts';
 
+// รับค่า Hierarchy, Stats, ChartData, RecentLogs
 const props = defineProps({
     hierarchy: Array,
-    chartData: Object
+    stats: Object,
+    chartData: Object,
+    recentLogs: Array
 });
 
-// --- Chart Config ---
-const chartOptions = computed(() => ({
-    chart: { type: 'line', toolbar: { show: false }, zoom: { enabled: false } },
-    colors: ['#FDB913', '#7A2F8F'],
-    stroke: { curve: 'smooth', width: 3 },
-    xaxis: { categories: props.chartData?.categories || [], labels: { style: { fontSize: '12px', fontFamily: 'Inherit' } } },
-    yaxis: { labels: { formatter: (val) => val >= 1000 ? (val/1000).toFixed(0)+'k' : val, style: { colors: '#64748b' } } },
-    legend: { position: 'top', horizontalAlign: 'right' },
-    tooltip: { y: { formatter: (val) => Number(val).toLocaleString() + ' THB' } },
-    grid: { borderColor: '#f1f5f9' }
-}));
-const chartSeries = computed(() => [
-    { name: 'แผนงานสะสม (PV)', data: props.chartData?.planned || [] },
-    { name: 'ผลงานจริง (EV)', data: props.chartData?.actual || [] }
-]);
-
-// --- Stats ---
-const stats = computed(() => {
-    let total = 0, completed = 0, delayed = 0, budget = 0;
-    const traverse = (nodes) => {
-        nodes.forEach(node => {
-            if (node.type === 'project') {
-                total++;
-                if (node.progress >= 100) completed++;
-                if (node.status === 'delayed') delayed++;
-                budget += Number(node.budget || 0);
-            }
-            if (node.children) traverse(node.children);
-        });
-    };
-    if (props.hierarchy) traverse(props.hierarchy);
-    return { total, completed, delayed, budget };
-});
-
-// --- Logic อื่นๆ ---
-const expandedItems = ref({});
-const toggle = (id) => expandedItems.value[id] = !expandedItems.value[id];
-if (props.hierarchy) props.hierarchy.forEach(h => expandedItems.value[h.id] = true);
-
-const showModal = ref(false);
-const isEditing = ref(false);
-const modalTitle = ref('');
-const form = useForm({ id: null, parent_id: null, name: '', type: 'project', budget: 0, progress: 0, status: 'pending', planned_start_date: '', planned_end_date: '' });
-
-const openCreateModal = (parentId, typeSuggestion = 'plan') => {
-    isEditing.value = false; modalTitle.value = 'สร้างรายการใหม่';
-    form.reset(); form.parent_id = parentId; form.type = typeSuggestion || 'task'; if(!parentId) form.type='strategy';
-    showModal.value = true;
+// --- Helpers ---
+const formatCurrency = (value) => {
+    // แปลงเป็น Number ก่อนเสมอ แก้ปัญหา NaN
+    return new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB' }).format(Number(value) || 0);
 };
-const openEditModal = (item) => {
-    isEditing.value = true; modalTitle.value = `แก้ไข: ${item.name}`;
-    form.id = item.id; form.name = item.name; form.type = item.type; form.budget = item.budget; form.progress = item.progress; form.status = item.status; form.planned_start_date = item.planned_start_date; form.planned_end_date = item.planned_end_date;
-    showModal.value = true;
+
+// --- Chart Config (Donut) ---
+const chartOptions = {
+    chart: { type: 'donut', fontFamily: 'Kanit, sans-serif' },
+    labels: props.chartData.labels.length ? props.chartData.labels : ['ไม่มีข้อมูล'],
+    colors: ['#7A2F8F', '#FDB913', '#10B981', '#EF4444'], // สีธีม PEA + Status Color
+    plotOptions: {
+        pie: { donut: { size: '65%' } }
+    },
+    dataLabels: { enabled: false },
+    legend: { position: 'bottom' }
 };
-const submit = () => {
-    const routeName = isEditing.value ? 'work-items.update' : 'work-items.store';
-    const options = { onSuccess: () => showModal.value = false };
-    if (isEditing.value) form.put(route(routeName, form.id), options); else form.post(route(routeName), options);
+const chartSeries = props.chartData.series.length ? props.chartData.series : [1];
+
+// --- Create Modal Logic ---
+const showCreateModal = ref(false);
+const form = useForm({ name: '', type: 'strategy', budget: 0, parent_id: null });
+const submitCreate = () => {
+    form.post(route('work-items.store'), {
+        onSuccess: () => { showCreateModal.value = false; form.reset(); }
+    });
 };
-const deleteItem = (id) => { if(confirm('ยืนยันลบ?')) useForm({}).delete(route('work-items.destroy', id)); };
+
+// Toggle Accordion
+const toggle = (item) => { item.isOpen = !item.isOpen; };
 </script>
 
 <template>
-    <Head title="PEA Admin Dashboard" />
+    <Head title="Executive Dashboard" />
     <PeaSidebarLayout>
-        <div class="py-8 px-4 sm:px-6 lg:px-8 max-w-[1600px] mx-auto space-y-8">
-            <div class="flex justify-between items-end mb-6 pb-4 border-b border-gray-200">
+        <div class="py-8 px-6 max-w-[1920px] mx-auto space-y-8">
+
+            <div class="flex justify-between items-center border-b border-gray-100 pb-6">
                 <div>
-                    <h2 class="text-3xl font-extrabold text-[#4A148C]">Dashboard ภาพรวม</h2>
-                    <p class="text-gray-500 mt-1">ติดตามสถานะโครงการทั้งหมด (Admin Mode)</p>
+                    <h2 class="text-3xl font-extrabold text-[#4A148C]">Executive Dashboard</h2>
+                    <p class="text-gray-500 mt-1">ภาพรวมการดำเนินงานและงบประมาณประจำปี</p>
                 </div>
-                <button @click="openCreateModal(null, 'strategy')" class="bg-[#FDB913] hover:bg-yellow-400 text-[#4A148C] px-5 py-2.5 rounded-lg font-bold shadow-md transition flex items-center gap-2">
-                    <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5" viewBox="0 0 20 20" fill="currentColor"><path fill-rule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clip-rule="evenodd" /></svg>
-                    สร้างยุทธศาสตร์ใหม่
+                <button @click="showCreateModal = true" class="flex items-center gap-2 bg-[#7A2F8F] hover:bg-purple-800 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-purple-200 transition-all transform hover:-translate-y-0.5">
+                    <span class="text-xl leading-none">+</span> เพิ่มยุทธศาสตร์
                 </button>
             </div>
 
-            <div class="grid grid-cols-1 md:grid-cols-4 gap-6">
-                <div class="bg-white rounded-xl p-6 shadow-sm border-l-4 border-[#7A2F8F]"><p class="text-xs font-bold text-gray-400">TOTAL</p><p class="text-4xl font-black text-[#7A2F8F]">{{ stats.total }}</p></div>
-                <div class="bg-white rounded-xl p-6 shadow-sm border-l-4 border-green-500"><p class="text-xs font-bold text-gray-400">COMPLETED</p><p class="text-4xl font-black text-green-600">{{ stats.completed }}</p></div>
-                <div class="bg-white rounded-xl p-6 shadow-sm border-l-4 border-red-500"><p class="text-xs font-bold text-gray-400">DELAYED</p><p class="text-4xl font-black text-red-600">{{ stats.delayed }}</p></div>
-                <div class="bg-white rounded-xl p-6 shadow-sm border-l-4 border-[#FDB913]"><p class="text-xs font-bold text-gray-400">BUDGET</p><p class="text-2xl font-black text-gray-800">{{ stats.budget.toLocaleString() }}</p></div>
-            </div>
-
-            <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                <h3 class="font-bold text-[#4A148C] text-lg mb-4 flex items-center gap-2">📈 S-Curve Analysis</h3>
-                <div class="h-[350px]"><VueApexCharts type="line" height="100%" :options="chartOptions" :series="chartSeries" /></div>
-            </div>
-
-            <div class="bg-white shadow-lg rounded-2xl overflow-hidden border border-gray-100">
-                <div class="grid grid-cols-12 gap-4 bg-[#7A2F8F] px-8 py-4 text-xs font-bold text-white uppercase tracking-wider">
-                    <div class="col-span-6">Work Structure</div>
-                    <div class="col-span-2 text-center">Status</div>
-                    <div class="col-span-2 text-center">Progress</div>
-                    <div class="col-span-2 text-right">Action</div>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-2xl">📂</div>
+                    <div>
+                        <p class="text-xs font-bold text-gray-400 uppercase">โครงการทั้งหมด</p>
+                        <h3 class="text-2xl font-extrabold text-gray-800">{{ stats.total_projects }}</h3>
+                    </div>
                 </div>
-                <div class="divide-y divide-gray-100 bg-white min-h-[300px]">
-                    <div v-if="hierarchy.length === 0" class="text-center py-10 text-gray-400">ไม่มีข้อมูล</div>
-                    <WorkItemRow
-                        v-for="item in hierarchy"
-                        :key="item.id"
-                        :item="item"
-                        :level="0"
-                        :expandedItems="expandedItems"
-                        @toggle="toggle"
-                        @create="openCreateModal"
-                        @edit="openEditModal"
-                        @delete="deleteItem"
-                    />
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-full bg-green-50 text-green-600 flex items-center justify-center text-2xl">💰</div>
+                    <div>
+                        <p class="text-xs font-bold text-gray-400 uppercase">งบประมาณรวม</p>
+                        <h3 class="text-xl font-extrabold text-green-600">{{ formatCurrency(stats.total_budget).split('.')[0] }}</h3>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-full bg-purple-50 text-purple-600 flex items-center justify-center text-2xl">✅</div>
+                    <div>
+                        <p class="text-xs font-bold text-gray-400 uppercase">เสร็จสิ้น</p>
+                        <h3 class="text-2xl font-extrabold text-[#7A2F8F]">{{ stats.completed }}</h3>
+                    </div>
+                </div>
+                <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center gap-4">
+                    <div class="w-14 h-14 rounded-full bg-red-50 text-red-500 flex items-center justify-center text-2xl">🔥</div>
+                    <div>
+                        <p class="text-xs font-bold text-gray-400 uppercase">ล่าช้า</p>
+                        <h3 class="text-2xl font-extrabold text-red-500">{{ stats.delayed }}</h3>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-12 gap-8">
+
+                <div class="col-span-12 lg:col-span-8 space-y-6">
+                    <h3 class="font-bold text-gray-700 text-lg flex items-center gap-2">
+                        <span>📊</span> แผนงานและยุทธศาสตร์
+                    </h3>
+
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden divide-y divide-gray-100">
+                        <div v-if="hierarchy.length === 0" class="p-8 text-center text-gray-400">ยังไม่มีข้อมูล</div>
+
+                        <div v-for="strategy in hierarchy" :key="strategy.id" class="group bg-white">
+                            <div class="p-4 hover:bg-gray-50 transition cursor-pointer flex items-center gap-4" @click="toggle(strategy)">
+                                <div class="w-10 h-10 rounded-lg bg-[#7A2F8F] text-white flex items-center justify-center font-bold text-lg shadow-sm shrink-0">
+                                    {{ strategy.name.match(/\d+/) ? strategy.name.match(/\d+/)[0] : strategy.name.charAt(0) }}
+                                </div>
+                                <div class="flex-1">
+                                    <h4 class="font-bold text-gray-800 text-base group-hover:text-[#7A2F8F] transition-colors">{{ strategy.name }}</h4>
+                                    <div class="flex gap-4 mt-1 text-xs text-gray-500 font-mono">
+                                        <span>งบ: {{ formatCurrency(strategy.budget) }}</span>
+                                        <span :class="strategy.progress >= 100 ? 'text-green-600 font-bold' : ''">ความคืบหน้า: {{ strategy.progress }}%</span>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <Link :href="route('work-items.show', strategy.id)" @click.stop class="px-3 py-1 text-xs font-bold text-purple-700 bg-purple-50 rounded-lg hover:bg-purple-100">รายละเอียด</Link>
+                                    <svg class="w-5 h-5 text-gray-400 transition-transform" :class="{'rotate-180': strategy.isOpen}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                                </div>
+                            </div>
+
+                            <div v-show="strategy.isOpen" class="bg-gray-50 border-t border-gray-100 pl-16 pr-4 py-2 space-y-2">
+                                <div v-if="!strategy.children?.length" class="py-2 text-sm text-gray-400 italic">ไม่มีแผนงานย่อย</div>
+                                <div v-for="plan in strategy.children" :key="plan.id" class="bg-white p-3 rounded-lg border border-gray-200 flex justify-between items-center hover:border-purple-300 transition">
+                                    <div class="flex items-center gap-3">
+                                        <div class="w-1.5 h-8 bg-[#FDB913] rounded-full"></div>
+                                        <div>
+                                            <p class="font-bold text-sm text-gray-700">{{ plan.name }}</p>
+                                            <p class="text-[10px] text-gray-400">{{ plan.children?.length || 0 }} โครงการย่อย</p>
+                                        </div>
+                                    </div>
+                                    <Link :href="route('work-items.show', plan.id)" class="text-gray-400 hover:text-[#7A2F8F]"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7"/></svg></Link>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="col-span-12 lg:col-span-4 space-y-8">
+
+                    <div class="bg-white p-6 rounded-2xl shadow-sm border border-gray-200">
+                        <h4 class="font-bold text-gray-700 mb-4">สถานะโครงการ</h4>
+                        <div class="flex justify-center">
+                            <VueApexCharts width="100%" type="donut" :options="chartOptions" :series="chartSeries" />
+                        </div>
+                    </div>
+
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                        <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                            <h4 class="font-bold text-gray-700 text-sm">กิจกรรมล่าสุด</h4>
+                            <Link :href="route('audit-logs.index')" class="text-xs text-[#7A2F8F] hover:underline">ดูทั้งหมด</Link>
+                        </div>
+                        <div class="divide-y divide-gray-100">
+                            <div v-if="recentLogs.length === 0" class="p-4 text-center text-xs text-gray-400">ไม่มีกิจกรรมเร็วๆ นี้</div>
+                            <div v-for="log in recentLogs" :key="log.id" class="p-4 flex gap-3 hover:bg-gray-50 transition">
+                                <div class="w-8 h-8 rounded-full bg-blue-50 text-blue-600 flex items-center justify-center text-xs font-bold shrink-0">
+                                    {{ log.user ? log.user.name.charAt(0) : 'S' }}
+                                </div>
+                                <div class="min-w-0">
+                                    <p class="text-xs font-bold text-gray-800 truncate">{{ log.user ? log.user.name : 'System' }}</p>
+                                    <p class="text-[10px] text-gray-500 truncate w-full">
+                                        {{ log.action }} {{ log.model_type }} #{{ log.model_id }}
+                                    </p>
+                                    <p class="text-[9px] text-gray-400 mt-0.5">{{ new Date(log.created_at).toLocaleTimeString('th-TH') }}</p>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
                 </div>
             </div>
         </div>
 
-        <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4">
-            <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg overflow-hidden">
-                <div class="bg-[#4A148C] px-6 py-4 flex justify-between items-center text-white font-bold text-lg border-b-4 border-[#FDB913]">
-                    <span>{{ modalTitle }}</span><button @click="showModal=false">&times;</button>
-                </div>
-                <form @submit.prevent="submit" class="p-6 space-y-4">
-                    <input v-model="form.name" class="w-full rounded border-gray-300" placeholder="ชื่อรายการ" required>
-                    <div class="grid grid-cols-2 gap-4">
-                        <select v-model="form.type" class="w-full rounded border-gray-300"><option value="strategy">Strategy</option><option value="plan">Plan</option><option value="project">Project</option><option value="task">Task</option></select>
-                        <input v-model="form.budget" type="number" class="w-full rounded border-gray-300" placeholder="งบประมาณ">
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <input v-model="form.planned_start_date" type="date" class="w-full rounded border-gray-300">
-                        <input v-model="form.planned_end_date" type="date" class="w-full rounded border-gray-300">
-                    </div>
-                    <input v-model="form.progress" type="range" class="w-full accent-[#7A2F8F]">
-                    <div class="flex justify-end gap-2 pt-4">
-                        <button type="button" @click="showModal=false" class="px-4 py-2 border rounded">ยกเลิก</button>
-                        <button type="submit" class="px-4 py-2 bg-[#7A2F8F] text-white rounded">บันทึก</button>
-                    </div>
+        <div v-if="showCreateModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity">
+            <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl">
+                <div class="bg-[#4A148C] px-6 py-4 flex justify-between items-center"><h3 class="text-lg font-bold text-white">✨ สร้างยุทธศาสตร์ใหม่</h3><button @click="showCreateModal=false" class="text-white hover:text-yellow-400 font-bold text-xl">&times;</button></div>
+                <form @submit.prevent="submitCreate" class="p-6 space-y-5">
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1.5">ชื่อยุทธศาสตร์</label><input v-model="form.name" class="w-full rounded-xl border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" required autofocus></div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1.5">งบประมาณ (บาท)</label><input v-model="form.budget" type="number" class="w-full rounded-xl border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]"></div>
+                    <div class="flex justify-end gap-3 pt-2"><button type="button" @click="showCreateModal=false" class="px-4 py-2 bg-gray-100 rounded-xl font-bold text-gray-600">ยกเลิก</button><button type="submit" class="px-4 py-2 bg-[#7A2F8F] text-white rounded-xl font-bold shadow-md hover:bg-purple-800">ยืนยัน</button></div>
                 </form>
             </div>
         </div>

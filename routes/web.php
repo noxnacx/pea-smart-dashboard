@@ -7,6 +7,7 @@ use App\Http\Controllers\AttachmentController;
 use App\Http\Controllers\UserController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\AuditLogController;
+use App\Http\Controllers\IssueController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -66,6 +67,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // --- Comments ---
     Route::post('/work-items/{workItem}/comments', [\App\Http\Controllers\CommentController::class, 'store'])->name('comments.store');
+
+    // --- Issues / Risks ---
+    Route::post('/work-items/{workItem}/issues', [App\Http\Controllers\IssueController::class, 'store'])->name('issues.store');
+    Route::put('/issues/{issue}', [App\Http\Controllers\IssueController::class, 'update'])->name('issues.update');
+    Route::delete('/issues/{issue}', [App\Http\Controllers\IssueController::class, 'destroy'])->name('issues.destroy');
 });
 
 require __DIR__.'/auth.php';

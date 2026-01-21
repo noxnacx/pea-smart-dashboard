@@ -133,10 +133,23 @@ class WorkItem extends Model
 }
 
 // เพิ่มฟังก์ชันนี้ลงไปใน Class WorkItem
-public function comments()
-{
-    return $this->hasMany(Comment::class)->orderBy('created_at', 'desc');
-}
+    public function comments()
+    {
+        return $this->hasMany(Comment::class)->orderBy('created_at', 'desc');
+    }
 
+    public function issues()
+    {
+        // แก้ไข: ใช้ CASE WHEN แทน FIELD() สำหรับ PostgreSQL
+        return $this->hasMany(Issue::class)->orderByRaw("
+            CASE severity
+                WHEN 'critical' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'medium' THEN 3
+                WHEN 'low' THEN 4
+                ELSE 5
+            END
+        ");
+    }
 
 }
