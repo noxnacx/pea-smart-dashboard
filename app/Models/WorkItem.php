@@ -108,29 +108,20 @@ class WorkItem extends Model
 
     public function recalculateProgress()
     {
-        // 1. ถ้าไม่มีลูก ให้หยุด (เป็น Task ย่อยสุด ต้องกรอกเอง)
-        if ($this->children()->count() == 0) {
-            return;
-        }
+        // 1. หาค่าเฉลี่ยจากลูกๆ
+        $average = $this->children()->avg('progress');
 
-        // 2. ดึงลูกทั้งหมดมาคำนวณ
-        $children = $this->children; // ไม่ต้อง query ใหม่ ใช้ relationship
-        $totalBudget = $children->sum('budget');
-        $totalEarnedValue = $children->sum(function ($child) {
-            return $child->budget * ($child->progress / 100);
-        });
+        // 2. แปลงเป็นจำนวนเต็ม (Integer) ก่อนบันทึก **สำคัญมาก**
+        // ใช้ round() เพื่อปัดเศษให้ถูกต้อง (เช่น 58.6 -> 59) แล้ว cast เป็น (int)
+        $this->update([
+            'progress' => (int) round($average)
+        ]);
 
-        // 3. คำนวณ % ใหม่
-        $newProgress = $totalBudget > 0 ? ($totalEarnedValue / $totalBudget) * 100 : 0;
-
-        // 4. บันทึก (ใช้ updateQuietly เพื่อป้องกัน Loop ถ้ามี Observer)
-        $this->update(['progress' => round($newProgress, 2)]);
-
-        // 5. *** สำคัญ *** สั่งให้แม่ของตัวนี้ คำนวณต่อขึ้นไปเรื่อยๆ (Recursive)
+        // 3. ถ้ามีตัวแม่ขึ้นไปอีก ก็ให้คำนวณต่อขึ้นไปเรื่อยๆ (Recursive)
         if ($this->parent) {
             $this->parent->recalculateProgress();
         }
-}
+    }
 
 // เพิ่มฟังก์ชันนี้ลงไปใน Class WorkItem
     public function comments()

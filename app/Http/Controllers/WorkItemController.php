@@ -20,27 +20,29 @@ class WorkItemController extends Controller
             'name' => 'required|string|max:255',
             'type' => 'required|string',
             'status' => 'nullable|string',
-            'progress' => 'nullable|integer|min:0|max:100',
+            'progress' => 'nullable|numeric|min:0|max:100', // แก้เป็น numeric เพื่อรับค่าทศนิยมได้
             'budget' => 'nullable|numeric',
             'planned_start_date' => 'nullable|date',
             'planned_end_date' => 'nullable|date',
         ]);
 
-        $validated['progress'] = $validated['progress'] ?? 0;
+        // แปลงเป็น int (จำนวนเต็ม) ก่อนบันทึก แก้ปัญหา PostgreSQL Error
+        $validated['progress'] = (int) ($validated['progress'] ?? 0);
         $validated['budget'] = $validated['budget'] ?? 0;
         $validated['status'] = $validated['status'] ?? 'pending';
         $validated['responsible_user_id'] = auth()->id();
 
         WorkItem::create($validated);
 
-        return Redirect::route('dashboard')->with('success', 'เพิ่มงานเรียบร้อย');
+        // ใช้ back() เพื่อให้อยู่หน้าเดิม ไม่เด้งกลับ Dashboard
+        return back()->with('success', 'เพิ่มงานเรียบร้อย');
     }
 
     public function update(Request $request, WorkItem $workItem)
     {
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'progress' => 'nullable|integer|min:0|max:100',
+            'progress' => 'nullable|numeric|min:0|max:100', // แก้เป็น numeric
             'status' => 'required|string',
             'budget' => 'nullable|numeric',
             'planned_start_date' => 'nullable|date',
@@ -48,7 +50,10 @@ class WorkItemController extends Controller
             'type' => 'required|string',
         ]);
 
-        if (isset($validated['progress']) && is_null($validated['progress'])) {
+        // แปลงเป็น int ก่อนบันทึก
+        if (isset($validated['progress'])) {
+            $validated['progress'] = (int) $validated['progress'];
+        } else {
             $validated['progress'] = 0;
         }
 
@@ -58,23 +63,25 @@ class WorkItemController extends Controller
             $workItem->parent->recalculateProgress();
         }
 
-        return Redirect::route('dashboard')->with('success', 'อัปเดตข้อมูลสำเร็จ');
+        // ใช้ back() เพื่อให้อยู่หน้าเดิม
+        return back()->with('success', 'อัปเดตข้อมูลสำเร็จ');
     }
 
     public function destroy(WorkItem $workItem)
     {
         $workItem->delete();
-        return Redirect::route('dashboard')->with('success', 'ลบงานสำเร็จ');
+        // ใช้ back() เพื่อให้อยู่หน้าเดิม
+        return back()->with('success', 'ลบงานสำเร็จ');
     }
 
     // หน้า Detail รายละเอียดโครงการ
     public function show(WorkItem $workItem)
     {
-        // 1. โหลดข้อมูล (แก้ไข: โหลด parent ย้อน 3 ชั้น และโหลด issues.user เพิ่ม)
+        // 1. โหลดข้อมูล
         $workItem->load([
             'parent.parent.parent',
             'attachments.uploader',
-            'issues.user', // <--- เพิ่มตรงนี้ เพื่อให้หน้าแท็บ Issues แสดงชื่อคนแจ้งได้
+            'issues.user',
             'children' => function($q) {
                 $q->orderBy('order_index')->with('attachments');
             },
@@ -121,18 +128,14 @@ class WorkItemController extends Controller
             $currentDate->addMonth();
         }
 
-        // 3. Timeline รวมศูนย์ (Logs + Comments + Issues + Attachments)
+        // 3. Timeline รวมศูนย์
         $logs = AuditLog::with('user')
             ->where(function($q) use ($workItem) {
-                // Log ของตัว WorkItem เอง (แก้ไขชื่อ, งบ, วันที่)
                 $q->where('model_type', 'WorkItem')->where('model_id', $workItem->id);
             })
             ->orWhere(function($q) use ($workItem) {
-                 // Log ของลูกน้อง (Attachment และ Issue)
-                 // แก้ไข: เพิ่ม 'Issue' เข้าไปใน array
                  $q->whereIn('model_type', ['Attachment', 'Issue'])
                    ->where(function($sq) use ($workItem) {
-                       // เช็คว่า Log นี้เป็นของ Project นี้หรือไม่ (ดูจาก work_item_id ใน JSON changes)
                        $sq->where('changes->work_item_id', $workItem->id)
                           ->orWhere('changes->after->work_item_id', $workItem->id);
                    });
@@ -158,27 +161,20 @@ class WorkItemController extends Controller
 
     public function list(Request $request, $type)
     {
-        // เพิ่ม ->with('issues') เพื่อดึงข้อมูลปัญหามาด้วย
-        $query = WorkItem::where('type', $type)->with('issues');
-
+        $query = WorkItem::where('type', $type)->with('issues'); // เพิ่ม with('issues') สำหรับจุดแจ้งเตือน
         if ($request->filled('search')) $query->where('name', 'ilike', '%' . $request->search . '%');
         if ($request->filled('status')) $query->where('status', $request->status);
         if ($request->filled('year')) $query->whereYear('planned_start_date', $request->year);
-
         $sortField = $request->input('sort_by', 'created_at');
         $sortDir = $request->input('sort_dir', 'desc');
-
         if(in_array($sortField, ['name', 'budget', 'progress', 'planned_start_date', 'created_at'])) {
             $query->orderBy($sortField, $sortDir);
         }
-
         $items = $query->paginate(10)->withQueryString();
-
         return Inertia::render('WorkItem/List', [
             'type' => $type,
             'items' => $items,
             'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir']),
         ]);
     }
-
 }
