@@ -8,6 +8,7 @@ use App\Http\Controllers\UserController;
 use App\Http\Controllers\ReportController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\IssueController;
+use App\Http\Controllers\CalendarController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -76,6 +77,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/strategies', [WorkItemController::class, 'strategies'])->name('strategies.index');
     Route::get('/plans', [WorkItemController::class, 'plans'])->name('plans.index');
     Route::get('/projects', [WorkItemController::class, 'projects'])->name('projects.index');
+    Route::get('/calendar', [CalendarController::class, 'index'])->name('calendar.index');
 });
 
 require __DIR__.'/auth.php';
