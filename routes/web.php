@@ -17,8 +17,6 @@ use Inertia\Inertia;
 | Public Routes (หน้าบ้าน)
 |--------------------------------------------------------------------------
 */
-
-// หน้าแรกสำหรับบุคคลทั่วไป
 Route::get('/', [DashboardController::class, 'publicDashboard'])->name('dashboard.public');
 
 /*
@@ -26,44 +24,51 @@ Route::get('/', [DashboardController::class, 'publicDashboard'])->name('dashboar
 | Authenticated Routes (ต้อง Login ก่อน)
 |--------------------------------------------------------------------------
 */
-
 Route::middleware(['auth', 'verified'])->group(function () {
 
-    // --- 1. Dashboard (ภาพรวม) ---
+    // --- 1. Dashboard ---
     Route::get('/admin/dashboard', [DashboardController::class, 'adminDashboard'])->name('dashboard');
 
-    // --- 2. Work Items (จัดการงาน/โครงการ) ---
-    // สร้าง / แก้ไข / ลบ
+    // --- 2. Work Items ---
     Route::post('/work-items', [WorkItemController::class, 'store'])->name('work-items.store');
     Route::put('/work-items/{workItem}', [WorkItemController::class, 'update'])->name('work-items.update');
     Route::delete('/work-items/{workItem}', [WorkItemController::class, 'destroy'])->name('work-items.destroy');
-    // ดูรายละเอียดเจาะลึก
     Route::get('/work-items/{workItem}', [WorkItemController::class, 'show'])->name('work-items.show');
 
-    // --- 3. Attachments (ระบบไฟล์แนบ) ---
+    // --- 3. Attachments ---
     Route::post('/work-items/{workItem}/attachments', [AttachmentController::class, 'store'])->name('attachments.store');
     Route::get('/attachments/{attachment}/download', [AttachmentController::class, 'download'])->name('attachments.download');
     Route::delete('/attachments/{attachment}', [AttachmentController::class, 'destroy'])->name('attachments.destroy');
 
-    // --- 4. User Management (จัดการผู้ใช้) ---
+    // --- 4. User Management ---
     Route::resource('users', UserController::class)->except(['create', 'edit', 'show']);
 
-    // --- 5. Reports (รายงาน) ---
+    // --- 5. Reports (ระบบรายงาน) ---
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
-    Route::get('/reports/export-pdf', [ReportController::class, 'exportPdf'])->name('reports.export');
 
-    // --- 6. User Profile (ข้อมูลส่วนตัว) ---
+    // 5.1 Project Progress
+    Route::get('/reports/progress/pdf', [ReportController::class, 'exportProgressPdf'])->name('reports.progress.pdf');
+    Route::get('/reports/progress/excel', [ReportController::class, 'exportProgressExcel'])->name('reports.progress.excel');
+    Route::get('/reports/progress/csv', [ReportController::class, 'exportProgressCsv'])->name('reports.progress.csv'); // ✨ เพิ่มบรรทัดนี้
+
+    // 5.2 Issues & Risks
+    Route::get('/reports/issues/pdf', [ReportController::class, 'exportIssuesPdf'])->name('reports.issues.pdf');
+    Route::get('/reports/issues/excel', [ReportController::class, 'exportIssuesExcel'])->name('reports.issues.excel');
+    Route::get('/reports/issues/csv', [ReportController::class, 'exportIssuesCsv'])->name('reports.issues.csv'); // ✨ เพิ่มบรรทัดนี้
+
+    // 5.3 Executive Summary
+    Route::get('/reports/executive/pdf', [ReportController::class, 'exportExecutivePdf'])->name('reports.executive.pdf');
+    Route::get('/reports/executive/excel', [ReportController::class, 'exportExecutiveExcel'])->name('reports.executive.excel');
+    Route::get('/reports/executive/csv', [ReportController::class, 'exportExecutiveCsv'])->name('reports.executive.csv'); // ✨ เพิ่มบรรทัดนี้
+
+    // --- 6. User Profile ---
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
     Route::patch('/profile', [ProfileController::class, 'update'])->name('profile.update');
     Route::delete('/profile', [ProfileController::class, 'destroy'])->name('profile.destroy');
 
-    // หน้ารายการแผนงานทั้งหมด
+    // --- Other Shortcuts ---
     Route::get('/plans', [WorkItemController::class, 'list'])->defaults('type', 'plan')->name('plans.index');
-
-    // หน้ารายการโครงการทั้งหมด
     Route::get('/projects', [WorkItemController::class, 'list'])->defaults('type', 'project')->name('projects.index');
-
-    // Audit Logs
     Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
 
     // --- Comments ---
@@ -74,9 +79,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('/issues/{issue}', [App\Http\Controllers\IssueController::class, 'update'])->name('issues.update');
     Route::delete('/issues/{issue}', [App\Http\Controllers\IssueController::class, 'destroy'])->name('issues.destroy');
 
+    // --- Strategy Pages ---
     Route::get('/strategies', [WorkItemController::class, 'strategies'])->name('strategies.index');
     Route::get('/plans', [WorkItemController::class, 'plans'])->name('plans.index');
     Route::get('/projects', [WorkItemController::class, 'projects'])->name('projects.index');
+
+    // --- Calendar ---
     Route::get('/calendar', [CalendarController::class, 'index'])->name('calendar.index');
 });
 
