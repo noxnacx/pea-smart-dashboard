@@ -4,13 +4,11 @@ import { ref, watch } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import throttle from 'lodash/throttle';
 
-// รับค่าจาก Controller
 const props = defineProps({
     logs: Object,
     filters: Object
 });
 
-// ตั้งค่า Form สำหรับ Filter
 const form = ref({
     user_search: props.filters.user_search || '',
     action: props.filters.action || '',
@@ -18,7 +16,6 @@ const form = ref({
     date: props.filters.date || '',
 });
 
-// Watcher สำหรับค้นหา (Auto Search)
 watch(form, throttle(() => {
     router.get(route('audit-logs.index'), form.value, {
         preserveState: true,
@@ -32,6 +29,8 @@ const actionColor = (action) => {
         case 'CREATE': return 'bg-green-100 text-green-700 border-green-200';
         case 'UPDATE': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
         case 'DELETE': return 'bg-red-100 text-red-700 border-red-200';
+        case 'EXPORT':
+        case 'DOWNLOAD': return 'bg-blue-100 text-blue-700 border-blue-200'; // สีฟ้าสำหรับโหลด
         default: return 'bg-gray-100 text-gray-600 border-gray-200';
     }
 };
@@ -78,6 +77,7 @@ const getTime = (date) => new Date(date).toLocaleTimeString('th-TH', { hour: '2-
                         <option value="CREATE">สร้าง (Create)</option>
                         <option value="UPDATE">แก้ไข (Update)</option>
                         <option value="DELETE">ลบ (Delete)</option>
+                        <option value="DOWNLOAD_ALL">⬇️ การดาวน์โหลด (Downloads)</option>
                     </select>
                 </div>
                 <div>
@@ -86,6 +86,8 @@ const getTime = (date) => new Date(date).toLocaleTimeString('th-TH', { hour: '2-
                         <option value="">ทั้งหมด</option>
                         <option value="WorkItem">โครงการ/งาน (WorkItem)</option>
                         <option value="User">ผู้ใช้งาน (User)</option>
+                        <option value="Report">รายงาน (Report)</option>
+                        <option value="Attachment">ไฟล์แนบ (Attachment)</option>
                     </select>
                 </div>
                 <div>
@@ -101,12 +103,11 @@ const getTime = (date) => new Date(date).toLocaleTimeString('th-TH', { hour: '2-
                             <th class="p-4 w-24">วันที่</th>
                             <th class="p-4 w-24 border-l border-gray-100">เวลา</th>
                             <th class="p-4 w-40 border-l border-gray-100">ผู้ทำรายการ</th>
-                            <th class="p-4 w-32 border-l border-gray-100 text-center">ตำแหน่ง (Role)</th>
-
+                            <th class="p-4 w-32 border-l border-gray-100 text-center">ตำแหน่ง</th>
                             <th class="p-4 w-32 border-l border-gray-100">IP Address</th>
                             <th class="p-4 w-24 text-center border-l border-gray-100">Action</th>
-                            <th class="p-4 w-32 border-l border-gray-100">รายการ (ID)</th>
-                            <th class="p-4 border-l border-gray-100">รายละเอียดการเปลี่ยนแปลง</th>
+                            <th class="p-4 w-40 border-l border-gray-100">รายการ</th>
+                            <th class="p-4 border-l border-gray-100">รายละเอียด</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100">
@@ -117,47 +118,46 @@ const getTime = (date) => new Date(date).toLocaleTimeString('th-TH', { hour: '2-
                             <td class="p-4 text-gray-600 font-mono">{{ getDate(log.created_at) }}</td>
                             <td class="p-4 text-gray-500 font-mono border-l border-gray-100">{{ getTime(log.created_at) }}</td>
 
-                            <td class="p-4 border-l border-gray-100 font-bold text-[#4A148C] text-sm truncate max-w-[200px]" :title="log.user ? log.user.name : 'System/Guest'">
+                            <td class="p-4 border-l border-gray-100 font-bold text-[#4A148C] text-sm truncate max-w-[200px]" :title="log.user ? log.user.name : 'System'">
                                 {{ log.user ? log.user.name : 'System/Guest' }}
                             </td>
 
                             <td class="p-4 border-l border-gray-100 text-center">
-                                <span v-if="log.user" class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border"
-                                      :class="getRoleBadge(log.user.role)">
-                                    {{ log.user.role }}
-                                </span>
+                                <span v-if="log.user" class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border" :class="getRoleBadge(log.user.role)">{{ log.user.role }}</span>
                                 <span v-else class="text-gray-400 text-xs">-</span>
                             </td>
 
                             <td class="p-4 text-gray-400 text-xs font-mono border-l border-gray-100">{{ log.ip_address || '-' }}</td>
 
                             <td class="p-4 text-center border-l border-gray-100">
-                                <span class="px-2 py-1 rounded text-[10px] font-bold border" :class="actionColor(log.action)">
-                                    {{ log.action }}
-                                </span>
+                                <span class="px-2 py-1 rounded text-[10px] font-bold border" :class="actionColor(log.action)">{{ log.action }}</span>
                             </td>
 
-                            <td class="p-4 border-l border-gray-100">
-                                <span class="font-bold text-gray-700">{{ log.model_type }}</span>
-                                <span class="text-gray-400 text-xs ml-1">#{{ log.model_id }}</span>
+                            <td class="p-4 border-l border-gray-100 text-xs">
+                                <span class="font-bold text-gray-700 block">{{ log.target_name || log.model_type }}</span>
+                                <span class="text-gray-400 text-[10px]" v-if="log.model_id > 0">ID: #{{ log.model_id }}</span>
                             </td>
 
                             <td class="p-4 text-xs font-mono text-gray-600 border-l border-gray-100">
-                                <div v-if="log.action === 'UPDATE' && log.changes">
+                                <div v-if="log.action === 'UPDATE' && log.changes && log.changes.after">
                                     <div v-for="(val, key) in log.changes.after" :key="key" class="mb-0.5">
                                         <span class="font-bold text-gray-800">{{ key }}:</span>
-                                        <span class="text-red-400 line-through mx-1">{{ log.changes.before[key] }}</span>
-                                        <span class="text-gray-400">-></span>
-                                        <span class="text-green-600 font-bold ml-1">{{ val }}</span>
+                                        <span class="text-red-400 line-through mx-1">{{ log.changes.before[key] }}</span> -> <span class="text-green-600 font-bold ml-1">{{ val }}</span>
                                     </div>
                                 </div>
-                                <div v-else-if="log.action === 'CREATE'" class="text-green-600 flex items-center gap-1">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg>
-                                    สร้างรายการใหม่
+
+                                <div v-else-if="log.action === 'EXPORT' || log.action === 'DOWNLOAD'" class="text-blue-600 flex items-center gap-2">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4"/></svg>
+                                    <span>ดาวน์โหลด PDF</span>
+                                    <span v-if="log.changes && log.changes.filename" class="text-gray-400 text-[10px] ml-1">({{ log.changes.filename }})</span>
                                 </div>
+
+                                <div v-else-if="log.action === 'CREATE'" class="text-green-600 flex items-center gap-1">
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"/></svg> สร้างรายการใหม่
+                                </div>
+
                                 <div v-else-if="log.action === 'DELETE'" class="text-red-600 flex items-center gap-1">
-                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                                    ลบข้อมูล
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg> ลบข้อมูล
                                 </div>
                             </td>
                         </tr>
@@ -170,9 +170,7 @@ const getTime = (date) => new Date(date).toLocaleTimeString('th-TH', { hour: '2-
                               class="px-3 py-1 rounded text-xs border transition"
                               :class="link.active ? 'bg-[#7A2F8F] text-white border-[#7A2F8F]' : (link.url ? 'bg-white hover:bg-gray-100 text-gray-600 border-gray-300' : 'text-gray-400 border-gray-200')"/>
                     </div>
-                    <div class="text-xs text-gray-500">
-                        แสดง {{ logs.from }} ถึง {{ logs.to }} จากทั้งหมด {{ logs.total }} รายการ
-                    </div>
+                    <div class="text-xs text-gray-500">แสดง {{ logs.from }} ถึง {{ logs.to }} จากทั้งหมด {{ logs.total }} รายการ</div>
                 </div>
             </div>
         </div>

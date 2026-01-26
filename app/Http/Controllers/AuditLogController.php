@@ -15,7 +15,6 @@ class AuditLogController extends Controller
 
         // 2. ตัวกรอง: ค้นหาชื่อผู้ใช้ (Search User Name)
         if ($request->filled('user_search')) {
-            // ค้นหาในตาราง user ที่สัมพันธ์กัน
             $query->whereHas('user', function($q) use ($request) {
                 $q->where('name', 'ilike', '%' . $request->user_search . '%');
             });
@@ -23,7 +22,12 @@ class AuditLogController extends Controller
 
         // 3. ตัวกรอง: การกระทำ (Action)
         if ($request->filled('action')) {
-            $query->where('action', $request->action);
+            if ($request->action === 'DOWNLOAD_ALL') {
+                // ✨ หาที่ Action เป็น EXPORT หรือ DOWNLOAD (รวมทั้งหมดในปุ่มเดียว)
+                $query->whereIn('action', ['EXPORT', 'DOWNLOAD']);
+            } else {
+                $query->where('action', $request->action);
+            }
         }
 
         // 4. ตัวกรอง: ประเภทข้อมูล (Model)
@@ -43,7 +47,6 @@ class AuditLogController extends Controller
 
         return Inertia::render('System/AuditLogs', [
             'logs' => $logs,
-            // ไม่ต้องส่ง users ทั้งหมดไปแล้ว เพราะเราใช้การพิมพ์ค้นหาแทน
             'filters' => $request->all(['user_search', 'action', 'model', 'date']),
         ]);
     }

@@ -4,10 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\WorkItem;
 use App\Models\Issue;
+use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
-use PDF; // ใช้ barryvdh/laravel-dompdf
-use Maatwebsite\Excel\Facades\Excel; // ใช้ maatwebsite/excel
+use Barryvdh\DomPDF\Facade\Pdf;
+use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\ProjectProgressExport;
 use App\Exports\IssueRiskExport;
 use App\Exports\ExecutiveSummaryExport;
@@ -15,17 +16,15 @@ use Maatwebsite\Excel\Excel as ExcelFormat;
 
 class ReportController extends Controller
 {
-    // หน้าเลือกรายงาน (Frontend)
     public function index()
     {
         return Inertia::render('Report/Index');
     }
 
-    // --- 1. รายงานความก้าวหน้า (Project Progress) ---
+    // --- 1. รายงานความก้าวหน้า ---
 
     public function exportProgressPdf()
     {
-        // ดึงข้อมูล WorkItem ที่เป็น Root (ไม่มี Parent) พร้อมลูกหลาน
         $strategies = WorkItem::whereNull('parent_id')
             ->with(['children.children' => function($q) {
                 $q->orderBy('order_index');
@@ -39,42 +38,122 @@ class ReportController extends Controller
             'completed' => WorkItem::where('type', 'project')->where('progress', 100)->count(),
         ];
 
-        // โหลด View: reports.progress_pdf (คุณต้องสร้างไฟล์ blade นี้นะครับ ตามโค้ดก่อนหน้า)
-        $pdf = PDF::loadView('reports.progress_pdf', [
+        $fileName = 'progress-report-' . now()->format('Ymd-His') . '.pdf';
+
+        $pdf = Pdf::loadView('reports.progress_pdf', [
             'strategies' => $strategies,
             'stats' => $stats,
             'date' => now()->format('d/m/Y')
-        ])->setPaper('a4', 'landscape'); // แนวนอน
+        ])->setPaper('a4', 'landscape');
 
-        return $pdf->stream('pea-progress-report.pdf');
+        // ✅ บันทึก Audit Log พร้อม IP Address
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'รายงานความก้าวหน้า (PDF)',
+            'model_id' => 0,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+            'target_name' => 'Progress Report',
+            'changes' => ['ชื่อไฟล์' => $fileName],
+        ]);
+
+        return $pdf->stream($fileName);
     }
 
     public function exportProgressExcel()
     {
-        // เรียกใช้ Export Class (ต้องสร้างไฟล์ App/Exports/ProjectProgressExport.php)
-        return Excel::download(new ProjectProgressExport, 'pea-progress-report.xlsx');
+        $fileName = 'progress-report-' . now()->format('Ymd-His') . '.xlsx';
+
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'รายงานความก้าวหน้า (Excel)',
+            'model_id' => 0,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+            'target_name' => 'Progress Report',
+            'changes' => ['ชื่อไฟล์' => $fileName],
+        ]);
+
+        return Excel::download(new ProjectProgressExport, $fileName);
     }
 
-    // --- 2. รายงานปัญหาและความเสี่ยง (Issues & Risks) ---
+    public function exportProgressCsv()
+    {
+        $fileName = 'progress-report-' . now()->format('Ymd-His') . '.csv';
+
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'รายงานความก้าวหน้า (CSV)',
+            'model_id' => 0,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+            'target_name' => 'Progress Report',
+            'changes' => ['ชื่อไฟล์' => $fileName],
+        ]);
+
+        return Excel::download(new ProjectProgressExport, $fileName, ExcelFormat::CSV);
+    }
+
+    // --- 2. รายงานปัญหา ---
 
     public function exportIssuesPdf()
     {
         $issues = Issue::with('workItem')->orderBy('severity')->get();
+        $fileName = 'issues-report-' . now()->format('Ymd-His') . '.pdf';
 
-        $pdf = PDF::loadView('reports.issues_pdf', [
+        $pdf = Pdf::loadView('reports.issues_pdf', [
             'issues' => $issues,
             'date' => now()->format('d/m/Y')
-        ])->setPaper('a4', 'portrait'); // แนวตั้ง
+        ])->setPaper('a4', 'portrait');
 
-        return $pdf->stream('pea-issues-report.pdf');
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'รายงานปัญหา (PDF)',
+            'model_id' => 0,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+            'target_name' => 'Issues Report',
+            'changes' => ['ชื่อไฟล์' => $fileName],
+        ]);
+
+        return $pdf->stream($fileName);
     }
 
     public function exportIssuesExcel()
     {
-        return Excel::download(new IssueRiskExport, 'pea-issues-report.xlsx');
+        $fileName = 'issues-report-' . now()->format('Ymd-His') . '.xlsx';
+
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'รายงานปัญหา (Excel)',
+            'model_id' => 0,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+            'target_name' => 'Issues Report',
+            'changes' => ['ชื่อไฟล์' => $fileName],
+        ]);
+
+        return Excel::download(new IssueRiskExport, $fileName);
     }
 
-    // --- 3. รายงานสรุปผู้บริหาร (Executive Summary) ---
+    public function exportIssuesCsv()
+    {
+        $fileName = 'issues-report-' . now()->format('Ymd-His') . '.csv';
+
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'รายงานปัญหา (CSV)',
+            'model_id' => 0,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+            'target_name' => 'Issues Report',
+            'changes' => ['ชื่อไฟล์' => $fileName],
+        ]);
+
+        return Excel::download(new IssueRiskExport, $fileName, ExcelFormat::CSV);
+    }
+
+    // --- 3. รายงานผู้บริหาร ---
 
     public function exportExecutivePdf()
     {
@@ -84,38 +163,90 @@ class ReportController extends Controller
             'critical_issues' => Issue::where('severity', 'critical')->count(),
         ];
 
-        // 5 โครงการที่งบเยอะสุด
         $topProjects = WorkItem::where('type', 'project')
             ->orderByDesc('budget')
             ->take(5)
             ->get();
 
-        $pdf = PDF::loadView('reports.executive_pdf', [
+        $fileName = 'executive-report-' . now()->format('Ymd-His') . '.pdf';
+
+        $pdf = Pdf::loadView('reports.executive_pdf', [
             'stats' => $stats,
             'topProjects' => $topProjects,
             'date' => now()->format('d/m/Y')
         ])->setPaper('a4', 'portrait');
 
-        return $pdf->stream('pea-executive-report.pdf');
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'รายงานผู้บริหาร (PDF)',
+            'model_id' => 0,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+            'target_name' => 'Executive Report',
+            'changes' => ['ชื่อไฟล์' => $fileName],
+        ]);
+
+        return $pdf->stream($fileName);
     }
 
     public function exportExecutiveExcel()
     {
-        return Excel::download(new ExecutiveSummaryExport, 'pea-executive-report.xlsx');
-    }
+        $fileName = 'executive-report-' . now()->format('Ymd-His') . '.xlsx';
 
-    public function exportProgressCsv()
-    {
-        return Excel::download(new ProjectProgressExport, 'pea-progress-report.csv', ExcelFormat::CSV);
-    }
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'รายงานผู้บริหาร (Excel)',
+            'model_id' => 0,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+            'target_name' => 'Executive Report',
+            'changes' => ['ชื่อไฟล์' => $fileName],
+        ]);
 
-    public function exportIssuesCsv()
-    {
-        return Excel::download(new IssueRiskExport, 'pea-issues-report.csv', ExcelFormat::CSV);
+        return Excel::download(new ExecutiveSummaryExport, $fileName);
     }
 
     public function exportExecutiveCsv()
     {
-        return Excel::download(new ExecutiveSummaryExport, 'pea-executive-report.csv', ExcelFormat::CSV);
+        $fileName = 'executive-report-' . now()->format('Ymd-His') . '.csv';
+
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'รายงานผู้บริหาร (CSV)',
+            'model_id' => 0,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+            'target_name' => 'Executive Report',
+            'changes' => ['ชื่อไฟล์' => $fileName],
+        ]);
+
+        return Excel::download(new ExecutiveSummaryExport, $fileName, ExcelFormat::CSV);
+    }
+
+    // --- 4. รายงานรายโครงการ ---
+
+    public function exportWorkItemPdf($id)
+    {
+        $workItem = WorkItem::with(['children', 'issues', 'attachments', 'parent'])
+            ->findOrFail($id);
+
+        $fileName = 'project-' . $workItem->id . '-' . now()->format('Ymd') . '.pdf';
+
+        $pdf = Pdf::loadView('reports.work_item_detail', [
+            'item' => $workItem,
+            'date' => now()->format('d/m/Y')
+        ])->setPaper('a4', 'portrait');
+
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'WorkItem',
+            'model_id' => $workItem->id,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+            'target_name' => $workItem->name,
+            'changes' => ['ชื่อไฟล์' => $fileName, 'ประเภท' => 'PDF รายละเอียดโครงการ'],
+        ]);
+
+        return $pdf->stream($fileName);
     }
 }

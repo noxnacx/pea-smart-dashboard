@@ -45,6 +45,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // --- 5. Reports (ระบบรายงาน) ---
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
+    // Export PDF รายงานเจาะจงรายโครงการ/งาน
+    Route::get('/work-items/{workItem}/export-pdf', [ReportController::class, 'exportWorkItemPdf'])
+    ->name('work-items.export-pdf');
+    Route::get('/calendar/export-agenda', [CalendarController::class, 'exportAgendaPdf'])
+    ->name('calendar.export-agenda');
+
 
     // 5.1 Project Progress
     Route::get('/reports/progress/pdf', [ReportController::class, 'exportProgressPdf'])->name('reports.progress.pdf');

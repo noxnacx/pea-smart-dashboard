@@ -9,7 +9,7 @@ import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
 import interactionPlugin from '@fullcalendar/interaction';
 import listPlugin from '@fullcalendar/list';
-import multiMonthPlugin from '@fullcalendar/multimonth'; // ✨ แก้ไขชื่อ Import ให้ถูกต้อง (ไม่มีขีด)
+import multiMonthPlugin from '@fullcalendar/multimonth';
 import thLocale from '@fullcalendar/core/locales/th';
 import { ref } from 'vue';
 
@@ -20,9 +20,16 @@ const props = defineProps({
 // --- State ---
 const showEventModal = ref(false);
 const showDayModal = ref(false);
+const showExportModal = ref(false); // ✨ เพิ่ม State สำหรับ Modal Export
 const selectedEvent = ref(null);
 const selectedDayDate = ref(null);
 const selectedDayEvents = ref([]);
+
+// ✨ State สำหรับ Form Export
+const exportForm = ref({
+    type: 'month',
+    date: new Date().toISOString().slice(0, 10)
+});
 
 // --- Functions ---
 const openEventDetail = (eventObj) => {
@@ -58,6 +65,21 @@ const goToDetail = () => { if (selectedEvent.value?.url) window.location.href = 
 
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
 const formatShortDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long' }) : '-';
+
+// ✨ เปลี่ยนฟังก์ชันปุ่ม Export ให้เปิด Modal แทน
+const openExportModal = () => {
+    showExportModal.value = true;
+};
+
+// ✨ ฟังก์ชันสั่ง Export จริงๆ
+const submitExport = () => {
+    const url = route('calendar.export-agenda', {
+        type: exportForm.value.type,
+        date: exportForm.value.date
+    });
+    window.open(url, '_blank');
+    showExportModal.value = false;
+};
 
 // --- Calendar Config ---
 const calendarOptions = ref({
@@ -96,8 +118,6 @@ const calendarOptions = ref({
 
     eventContent: function(arg) {
         let contentEl = document.createElement('div');
-
-        // ปรับการแสดงผลสำหรับมุมมองรายปี
         if (arg.view.type === 'multiMonthYear') {
              if (arg.event.extendedProps.type === 'work_item') {
                  contentEl.innerHTML = `<div class="w-2 h-2 rounded-full mx-auto mt-0.5" style="background-color:${arg.event.backgroundColor}"></div>`;
@@ -107,8 +127,6 @@ const calendarOptions = ref({
              contentEl.title = arg.event.title;
              return { domNodes: [contentEl] };
         }
-
-        // มุมมองปกติ
         if (arg.event.extendedProps.type === 'work_item') {
              contentEl.innerHTML = `
                 <div class="flex items-center justify-between px-1 overflow-hidden text-xs">
@@ -138,11 +156,16 @@ const calendarOptions = ref({
         <div class="py-6">
             <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
 
-                <div class="mb-6 flex items-center justify-between">
+                <div class="mb-6 flex items-center justify-between flex-wrap gap-4">
                     <div>
                         <h2 class="font-bold text-2xl text-[#4A148C] leading-tight">ปฏิทินรวมงาน (Project Calendar)</h2>
                         <p class="text-gray-500 text-sm mt-1">ติดตามกำหนดการ แผนงาน และรายการแก้ไขปัญหาทั้งหมด</p>
                     </div>
+
+                    <button @click="openExportModal" class="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-gray-50 transition">
+                        <svg class="w-5 h-5 text-[#4A148C]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                        พิมพ์ Agenda
+                    </button>
                 </div>
 
                 <div class="bg-white overflow-hidden shadow-xl sm:rounded-2xl border border-gray-100 flex flex-col md:flex-row">
@@ -183,6 +206,7 @@ const calendarOptions = ref({
                                 </div>
                             </div>
                         </div>
+
                         <div class="mt-8 p-4 bg-purple-50 rounded-xl border border-purple-100 text-purple-800 text-xs">
                              <p><strong>Tips:</strong> กดที่ปุ่ม "รายปี" เพื่อดูภาพรวมทั้งปี งานในมุมมองรายปีจะแสดงเป็นจุดสีเล็กๆ เพื่อความสะอาดตา</p>
                         </div>
@@ -196,6 +220,35 @@ const calendarOptions = ref({
                 </div>
             </div>
         </div>
+
+        <Modal :show="showExportModal" @close="showExportModal = false">
+            <div class="p-6">
+                <h2 class="text-lg font-bold text-gray-900 mb-4 border-b pb-2 flex items-center gap-2"><span>🖨️</span> เลือกรูปแบบรายงาน</h2>
+                <div class="space-y-4">
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทช่วงเวลา</label>
+                        <select v-model="exportForm.type" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500">
+                            <option value="day">รายวัน (Daily)</option>
+                            <option value="week">รายสัปดาห์ (Weekly)</option>
+                            <option value="month">รายเดือน (Monthly)</option>
+                            <option value="year">รายปี (Yearly)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">เลือกวันที่อ้างอิง</label>
+                        <input type="date" v-model="exportForm.date" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500">
+                        <p class="text-xs text-gray-500 mt-2 bg-gray-50 p-2 rounded">
+                            <span v-if="exportForm.type === 'year'">ℹ️ ระบบจะพิมพ์ทั้งปี (ม.ค.-ธ.ค.) ของปีที่เลือก พร้อมแยกหมวดเดือน</span>
+                            <span v-else>ℹ️ ระบบจะพิมพ์ช่วงเวลาตามที่เลือก</span>
+                        </p>
+                    </div>
+                </div>
+                <div class="mt-6 flex justify-end gap-3">
+                    <SecondaryButton @click="showExportModal = false">ยกเลิก</SecondaryButton>
+                    <PrimaryButton @click="submitExport" class="bg-[#4A148C] hover:bg-[#380d6b]">ดาวน์โหลด PDF</PrimaryButton>
+                </div>
+            </div>
+        </Modal>
 
         <Modal :show="showDayModal" @close="closeDayModal">
             <div class="p-6">
@@ -259,11 +312,16 @@ const calendarOptions = ref({
 </template>
 
 <style>
-/* CSS เดิมยังคงอยู่ครบถ้วน */
+/* ✨ ธีมปุ่มสีม่วง/เหลืองที่คุณต้องการ (คงไว้เหมือนเดิม) */
 .fc-toolbar-title { font-size: 1.5rem !important; font-weight: 700 !important; color: #4A148C !important; }
+
+/* ปุ่มปกติ: สีม่วง */
 .fc-button-primary { background-color: #4A148C !important; border-color: #4A148C !important; font-weight: 600 !important; transition: all 0.2s; }
 .fc-button-primary:hover { background-color: #380d6b !important; border-color: #380d6b !important; }
+
+/* ปุ่มที่ถูกเลือก (Active): สีเหลือง ตัวหนังสือม่วง */
 .fc-button-primary:not(:disabled).fc-button-active, .fc-button-primary:not(:disabled):active { background-color: #FDB913 !important; border-color: #FDB913 !important; color: #4A148C !important; }
+
 .fc-day-today { background-color: #f3e8ff !important; }
 .fc-theme-standard td, .fc-theme-standard th { border-color: #f3f4f6 !important; }
 .fc-col-header-cell-cushion { color: #4b5563; font-weight: 600; padding-top: 8px !important; padding-bottom: 8px !important; text-decoration: none !important; }
@@ -271,7 +329,7 @@ const calendarOptions = ref({
 .fc-header-toolbar { margin-bottom: 1.5em !important; }
 .fc-popover { display: none !important; }
 
-/* ปรับแต่ง Multi Month View */
+/* Multi Month View Adjustments */
 .fc-multimonth-title { font-size: 1rem !important; font-weight: 700 !important; color: #4A148C !important; }
 .fc-multimonth-header { background-color: #f9fafb !important; }
 </style>
