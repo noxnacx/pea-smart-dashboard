@@ -20,4 +20,9 @@ class Issue extends Model
     {
         return $this->belongsTo(User::class);
     }
+
+    public function workItem()
+    {
+        return $this->belongsTo(WorkItem::class);
+    }
 }

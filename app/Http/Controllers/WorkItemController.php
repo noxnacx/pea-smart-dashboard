@@ -4,15 +4,72 @@ namespace App\Http\Controllers;
 
 use App\Models\WorkItem;
 use App\Models\AuditLog;
-use App\Models\Comment; // ✅ เรียกใช้ Model Comment
+use App\Models\Comment;
+use App\Services\LineService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
-use Illuminate\Pagination\LengthAwarePaginator; // ✅ ใช้สำหรับแบ่งหน้า
+use Illuminate\Pagination\LengthAwarePaginator;
 use Inertia\Inertia;
 use Carbon\Carbon;
 
 class WorkItemController extends Controller
 {
+    // --- 1. หน้าแผนงานทั้งหมด (Plans) ---
+    public function plans(Request $request)
+    {
+        return $this->renderList($request, 'plan');
+    }
+
+    // --- 2. หน้าโครงการทั้งหมด (Projects) ---
+    public function projects(Request $request)
+    {
+        return $this->renderList($request, 'project');
+    }
+
+    // --- ฟังก์ชันกลางสำหรับดึงข้อมูลและ Render หน้า List ---
+    private function renderList(Request $request, $type)
+    {
+        $query = WorkItem::where('type', $type)->with(['issues', 'parent']);
+
+        // Filter
+        if ($request->filled('search')) $query->where('name', 'ilike', '%' . $request->search . '%');
+        if ($request->filled('status')) $query->where('status', $request->status);
+        if ($request->filled('year')) $query->whereYear('planned_start_date', $request->year);
+
+        // Sort
+        $sortField = $request->input('sort_by', 'created_at');
+        $sortDir = $request->input('sort_dir', 'desc');
+        if(in_array($sortField, ['name', 'budget', 'progress', 'planned_start_date', 'created_at'])) {
+            $query->orderBy($sortField, $sortDir);
+        }
+
+        $items = $query->paginate(10)->withQueryString();
+
+        // ✅ ดึงตัวเลือก Parent "ทั้งหมด" (Strategy/Plan/Project/Task)
+        $parentOptions = WorkItem::select('id', 'name', 'type')
+            ->orderByRaw("CASE
+                WHEN type = 'strategy' THEN 1
+                WHEN type = 'plan' THEN 2
+                WHEN type = 'project' THEN 3
+                ELSE 4 END")
+            ->orderBy('name')
+            ->get()
+            ->map(function($item) {
+                $map = ['strategy'=>'ยุทธศาสตร์', 'plan'=>'แผนงาน', 'project'=>'โครงการ', 'task'=>'งานย่อย'];
+                $item->type_label = $map[$item->type] ?? $item->type;
+                return $item;
+            });
+
+        return Inertia::render('WorkItem/List', [
+            'type' => $type,
+            'items' => $items,
+            'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir']),
+            'parentOptions' => $parentOptions,
+        ]);
+    }
+
+    // --- CRUD Functions ---
+
     public function store(Request $request)
     {
         $validated = $request->validate([
@@ -31,7 +88,15 @@ class WorkItemController extends Controller
         $validated['status'] = $validated['status'] ?? 'pending';
         $validated['responsible_user_id'] = auth()->id();
 
-        WorkItem::create($validated);
+        $workItem = WorkItem::create($validated);
+
+        try {
+            $msg = "✨ สร้างงานใหม่: " . $workItem->name . "\n" .
+                   "📌 ประเภท: " . $workItem->type . "\n" .
+                   "💰 งบประมาณ: " . number_format($workItem->budget) . " บาท\n" .
+                   "👤 โดย: " . auth()->user()->name;
+            LineService::sendPushMessage($msg);
+        } catch (\Exception $e) {}
 
         return back()->with('success', 'เพิ่มงานเรียบร้อย');
     }
@@ -46,6 +111,7 @@ class WorkItemController extends Controller
             'planned_start_date' => 'nullable|date',
             'planned_end_date' => 'nullable|date',
             'type' => 'required|string',
+            'parent_id' => 'nullable|exists:work_items,id',
         ]);
 
         if (isset($validated['progress'])) {
@@ -55,6 +121,16 @@ class WorkItemController extends Controller
         }
 
         $workItem->update($validated);
+
+        if ($workItem->wasChanged('progress') || $workItem->wasChanged('status')) {
+            try {
+                $msg = "📈 อัปเดตงาน: " . $workItem->name . "\n" .
+                       "📊 ความคืบหน้า: " . $workItem->progress . "%" . "\n" .
+                       "🚩 สถานะ: " . $workItem->status . "\n" .
+                       "👤 แก้ไขโดย: " . auth()->user()->name;
+                LineService::sendPushMessage($msg);
+            } catch (\Exception $e) {}
+        }
 
         if ($workItem->parent) {
             $workItem->parent->recalculateProgress();
@@ -71,7 +147,7 @@ class WorkItemController extends Controller
 
     public function show(WorkItem $workItem)
     {
-        // 1. โหลดข้อมูล (รวมลูกหลาน)
+        // 1. Load Data
         $workItem->load([
             'parent.parent.parent',
             'attachments.uploader',
@@ -83,7 +159,7 @@ class WorkItemController extends Controller
             'children.children.children'
         ]);
 
-        // 2. คำนวณ S-Curve (Smart Budget Logic)
+        // 2. Full S-Curve Logic
         $months = [];
         $plannedData = [];
         $actualData = [];
@@ -91,7 +167,6 @@ class WorkItemController extends Controller
         $endDate = $workItem->planned_end_date ? $workItem->planned_end_date->copy()->endOfMonth() : now()->endOfYear();
         if ($endDate->lt($startDate)) $endDate = $startDate->copy()->addMonths(1);
 
-        // Flatten รวบรวม Item ทั้งหมดในโปรเจกต์นี้
         $allChildren = collect([$workItem]);
         $tempQueue = [$workItem];
         while(count($tempQueue) > 0) {
@@ -104,7 +179,6 @@ class WorkItemController extends Controller
             }
         }
 
-        // คัดเลือกเฉพาะ Item ที่มีงบและไม่ซ้ำซ้อน
         $budgetItems = $allChildren->filter(function($item) {
             if ($item->budget <= 0) return false;
             if ($item->children->isEmpty()) return true;
@@ -141,10 +215,9 @@ class WorkItemController extends Controller
             $currentDate->addMonth();
         }
 
-        // 3. Timeline รวมศูนย์ (แก้ไขใหม่ ดึงลูกหลานด้วย + แก้บั๊ก SQL Comment)
-        $relatedIds = $allChildren->pluck('id')->unique()->toArray();
+        // 3. Timeline & Logs
+        $relatedIds = collect([$workItem->id])->merge($allChildren->pluck('id'))->unique()->toArray();
 
-        // 3.1 Audit Logs
         $logs = AuditLog::with('user')
             ->where(function($q) use ($relatedIds) {
                 $q->where('model_type', 'WorkItem')->whereIn('model_id', $relatedIds);
@@ -166,7 +239,6 @@ class WorkItemController extends Controller
                 return $item;
             });
 
-        // 3.2 Comments (✅ แก้ไขจุดที่ Error: ใช้ work_item_id แทน)
         $comments = Comment::with('user')
             ->whereIn('work_item_id', $relatedIds)
             ->get()
@@ -179,9 +251,8 @@ class WorkItemController extends Controller
 
         $timeline = $logs->concat($comments)->sortByDesc('created_at')->values();
 
-        // 4. Pagination (Manual Paginator)
         $page = request()->get('page', 1);
-        $perPage = 10; // ✅ แสดงหน้าละ 10 รายการ
+        $perPage = 10;
         $total = $timeline->count();
         $paginatedItems = $timeline->slice(($page - 1) * $perPage, $perPage)->values();
 
@@ -204,22 +275,34 @@ class WorkItemController extends Controller
         ]);
     }
 
+    // สำหรับหน้า List แบบเดิม (เผื่อยังใช้อยู่)
     public function list(Request $request, $type)
     {
-        $query = WorkItem::where('type', $type)->with('issues');
-        if ($request->filled('search')) $query->where('name', 'ilike', '%' . $request->search . '%');
-        if ($request->filled('status')) $query->where('status', $request->status);
-        if ($request->filled('year')) $query->whereYear('planned_start_date', $request->year);
-        $sortField = $request->input('sort_by', 'created_at');
-        $sortDir = $request->input('sort_dir', 'desc');
-        if(in_array($sortField, ['name', 'budget', 'progress', 'planned_start_date', 'created_at'])) {
-            $query->orderBy($sortField, $sortDir);
-        }
-        $items = $query->paginate(10)->withQueryString();
-        return Inertia::render('WorkItem/List', [
-            'type' => $type,
-            'items' => $items,
-            'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir']),
+        return $this->renderList($request, $type);
+    }
+
+    public function strategies()
+    {
+        $strategies = WorkItem::where('type', 'strategy')
+            ->with(['children' => function($q) {
+                $q->withCount(['children as project_count'])
+                  ->withCount(['issues as issue_count' => function($i) {
+                      $i->where('status', '!=', 'resolved');
+                  }])
+                  ->orderBy('name', 'asc');
+            }])
+            ->withCount(['issues as strategy_issue_count' => function($i) {
+                 $i->where('status', '!=', 'resolved');
+            }])
+            ->orderBy('name', 'asc')
+            ->get()
+            ->map(function ($strategy) {
+                $strategy->isOpen = false;
+                return $strategy;
+            });
+
+        return Inertia::render('Strategy/Index', [
+            'strategies' => $strategies
         ]);
     }
 }

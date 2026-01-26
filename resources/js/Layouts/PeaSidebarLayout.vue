@@ -39,6 +39,13 @@ const showingNavigationDropdown = ref(false);
                     Work Management
                 </div>
 
+                <Link :href="route('strategies.index')"
+                      class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                      :class="route().current('strategies.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                    <svg class="w-5 h-5 transition-transform group-hover:scale-110" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                    ยุทธศาสตร์ทั้งหมด
+                </Link>
+
                 <Link :href="route('plans.index')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                       :class="route().current('plans.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
@@ -113,12 +120,15 @@ const showingNavigationDropdown = ref(false);
             <div v-if="showingNavigationDropdown" class="md:hidden bg-[#380d6b] text-white border-b border-purple-800 shadow-xl absolute w-full z-40 top-[60px]">
                  <nav class="px-4 py-4 space-y-2">
                     <Link :href="route('dashboard')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">Dashboard</Link>
+
                     <div class="px-4 text-[10px] text-purple-400 font-bold uppercase mt-2">Work Management</div>
-                    <Link :href="route('plans.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">แผนงานทั้งหมด</Link>
+                    <Link :href="route('strategies.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ยุทธศาสตร์ทั้งหมด</Link> <Link :href="route('plans.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">แผนงานทั้งหมด</Link>
                     <Link :href="route('projects.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">โครงการทั้งหมด</Link>
+
                     <div class="px-4 text-[10px] text-purple-400 font-bold uppercase mt-2">System</div>
                     <Link :href="route('reports.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">รายงาน</Link>
                     <Link :href="route('users.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ผู้ใช้งาน</Link>
+
                     <div class="border-t border-purple-800 mt-2 pt-2">
                          <Link :href="route('logout')" method="post" as="button" class="block w-full text-left px-4 py-3 text-red-300 hover:text-red-100">ออกจากระบบ</Link>
                     </div>

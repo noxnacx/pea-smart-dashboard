@@ -72,6 +72,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::post('/work-items/{workItem}/issues', [App\Http\Controllers\IssueController::class, 'store'])->name('issues.store');
     Route::put('/issues/{issue}', [App\Http\Controllers\IssueController::class, 'update'])->name('issues.update');
     Route::delete('/issues/{issue}', [App\Http\Controllers\IssueController::class, 'destroy'])->name('issues.destroy');
+
+    Route::get('/strategies', [WorkItemController::class, 'strategies'])->name('strategies.index');
+    Route::get('/plans', [WorkItemController::class, 'plans'])->name('plans.index');
+    Route::get('/projects', [WorkItemController::class, 'projects'])->name('projects.index');
 });
 
 require __DIR__.'/auth.php';
