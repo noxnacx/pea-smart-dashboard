@@ -181,11 +181,12 @@ const submitComment = () => { commentForm.post(route('comments.store', props.ite
                     </div>
                     <div class="overflow-y-auto flex-1">
                         <table class="w-full text-left">
-                            <thead class="bg-gray-50 text-[10px] uppercase text-gray-500 font-bold">
+                            <thead class="bg-gray-50 text-[10px] uppercase text-gray-500 font-bold sticky top-0 z-10 shadow-sm">
                                 <tr>
                                     <th class="px-4 py-2">ชื่องาน</th>
-                                    <th class="px-2 py-2 text-center">เริ่ม</th>
-                                    <th class="px-2 py-2 text-center">ระยะเวลา</th> <th v-if="canEdit" class="px-2 py-2 text-center">จัดการ</th> </tr>
+                                    <th class="px-2 py-2 text-center w-28">ความคืบหน้า</th> <th class="px-2 py-2 text-center">เริ่ม</th>
+                                    <th class="px-2 py-2 text-center">สิ้นสุด</th> <th v-if="canEdit" class="px-2 py-2 text-center">จัดการ</th>
+                                </tr>
                             </thead>
                             <tbody class="text-xs text-gray-700 divide-y divide-gray-100">
                                 <tr v-for="child in item.children" :key="child.id" class="hover:bg-purple-50 group transition">
@@ -195,8 +196,18 @@ const submitComment = () => { commentForm.post(route('comments.store', props.ite
                                             <Link :href="route('work-items.show', child.id)" class="truncate max-w-[150px] hover:text-[#7A2F8F] font-bold text-gray-700">{{ child.name }}</Link>
                                         </div>
                                     </td>
+
+                                    <td class="px-2 py-3 text-center border-r border-dashed">
+                                        <div class="flex items-center gap-2 justify-center">
+                                            <div class="w-12 bg-gray-200 rounded-full h-2">
+                                                <div class="bg-[#7A2F8F] h-2 rounded-full transition-all duration-500" :style="{ width: (child.progress || 0) + '%' }"></div>
+                                            </div>
+                                            <span class="text-[10px] font-bold text-gray-600 w-6 text-right">{{ child.progress || 0 }}%</span>
+                                        </div>
+                                    </td>
+
                                     <td class="px-2 py-3 text-center text-gray-500 whitespace-nowrap">{{ formatDate(child.planned_start_date) }}</td>
-                                    <td class="px-2 py-3 text-center text-gray-500 whitespace-nowrap font-mono bg-gray-50/50">{{ getDuration(child.planned_start_date, child.planned_end_date) }}</td> <td v-if="canEdit" class="px-1 py-3 text-center w-16">
+                                    <td class="px-2 py-3 text-center text-gray-500 whitespace-nowrap">{{ formatDate(child.planned_end_date) }}</td> <td v-if="canEdit" class="px-1 py-3 text-center w-16">
                                         <div class="flex justify-center gap-2">
                                             <button @click="openEditModal(child)" class="text-blue-500 hover:scale-110" title="แก้ไข">✏️</button>
                                             <button @click="deleteItem(child.id)" class="text-red-500 hover:scale-110" title="ลบ">🗑</button>
@@ -204,7 +215,7 @@ const submitComment = () => { commentForm.post(route('comments.store', props.ite
                                     </td>
                                 </tr>
                                 <tr v-if="!item.children || item.children.length === 0">
-                                    <td colspan="4" class="text-center py-8 text-gray-400">ยังไม่มีงานย่อย</td>
+                                    <td colspan="5" class="text-center py-8 text-gray-400">ยังไม่มีงานย่อย</td>
                                 </tr>
                             </tbody>
                         </table>
