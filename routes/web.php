@@ -97,6 +97,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/global-search', [GlobalSearchController::class, 'search'])->name('global.search');
 
     Route::get('/work-items/{workItem}/gantt-data', [App\Http\Controllers\WorkItemController::class, 'ganttData'])->name('work-items.gantt-data');
+    Route::post('/work-items/{workItem}/log-export', [WorkItemController::class, 'logExport'])->name('work-items.log-export');
 });
 
 require __DIR__.'/auth.php';

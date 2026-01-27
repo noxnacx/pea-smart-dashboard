@@ -223,7 +223,7 @@ const submitComment = () => { commentForm.post(route('comments.store', props.ite
                 </div>
 
                 <div class="w-full lg:w-3/5 h-full">
-                    <GanttChart :task-id="item.id" />
+                    <GanttChart :task-id="item.id" :task-name="item.name" />
                 </div>
             </div>
 

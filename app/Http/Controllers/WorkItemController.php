@@ -391,4 +391,20 @@ class WorkItemController extends Controller
             ], 500);
         }
     }
+
+    public function logExport(Request $request, WorkItem $workItem)
+    {
+        // บันทึก Audit Log
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => 'Gantt Chart', // ระบุว่าเป็น Gantt
+            'model_id' => $workItem->id,
+            'target_name' => $workItem->name,
+            'changes' => ['file_type' => 'PDF', 'note' => 'Exported Gantt Chart'], // เก็บรายละเอียดเพิ่มเติมได้
+            'ip_address' => $request->ip(),
+        ]);
+
+        return response()->json(['message' => 'Logged successfully']);
+    }
 }
