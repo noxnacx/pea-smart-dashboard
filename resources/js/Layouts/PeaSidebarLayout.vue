@@ -1,12 +1,32 @@
 <script setup>
 import { Link } from '@inertiajs/vue3';
-import { ref } from 'vue';
+import { ref, onMounted, onUnmounted } from 'vue';
+import GlobalSearchModal from '@/Components/GlobalSearchModal.vue'; // ✅ นำเข้า Modal ค้นหา
 
 const showingNavigationDropdown = ref(false);
+const isSearchOpen = ref(false); // ✅ State สำหรับเปิด/ปิด Modal ค้นหา
+
+// ✅ ฟังก์ชันเปิด/ปิด Modal
+const toggleSearch = () => {
+    isSearchOpen.value = !isSearchOpen.value;
+};
+
+// ✅ เพิ่ม Shortcut Key (Ctrl + K)
+const handleKeydown = (e) => {
+    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+        e.preventDefault();
+        isSearchOpen.value = true;
+    }
+};
+
+onMounted(() => window.addEventListener('keydown', handleKeydown));
+onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 </script>
 
 <template>
     <div class="min-h-screen bg-gray-50 flex font-sans">
+
+        <GlobalSearchModal :show="isSearchOpen" @close="isSearchOpen = false" />
 
         <aside class="w-64 bg-[#4A148C] text-white flex-shrink-0 hidden md:flex flex-col shadow-2xl z-20">
 
@@ -26,6 +46,16 @@ const showingNavigationDropdown = ref(false);
                 <div class="px-4 mt-2 mb-2 text-[10px] font-bold text-purple-300/60 uppercase tracking-widest">
                     General
                 </div>
+
+                <button @click="isSearchOpen = true"
+                        type="button"
+                        class="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group text-purple-100 hover:bg-purple-800/50 hover:text-white cursor-pointer border border-transparent hover:border-purple-700/50">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        <span>ค้นหาอัจฉริยะ</span>
+                    </div>
+                    <span class="text-[10px] bg-purple-900/50 border border-purple-700 px-1.5 py-0.5 rounded text-purple-300 group-hover:text-white transition">Ctrl K</span>
+                </button>
 
                 <Link :href="route('dashboard')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group relative overflow-hidden"
@@ -114,13 +144,23 @@ const showingNavigationDropdown = ref(false);
                     <div class="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-[#4A148C] font-bold border border-[#FDB913]">P</div>
                     <span class="font-bold tracking-wide">PEA SMART</span>
                 </div>
-                <button @click="showingNavigationDropdown = !showingNavigationDropdown" class="text-white hover:text-[#FDB913] transition p-1">
-                    <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
-                </button>
+                <div class="flex items-center gap-2">
+                    <button @click="isSearchOpen = true" class="text-white hover:text-[#FDB913] transition p-1">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    </button>
+                    <button @click="showingNavigationDropdown = !showingNavigationDropdown" class="text-white hover:text-[#FDB913] transition p-1">
+                        <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6h16M4 12h16M4 18h16"/></svg>
+                    </button>
+                </div>
             </div>
 
             <div v-if="showingNavigationDropdown" class="md:hidden bg-[#380d6b] text-white border-b border-purple-800 shadow-xl absolute w-full z-40 top-[60px]">
                  <nav class="px-4 py-4 space-y-2">
+                    <button @click="isSearchOpen = true" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-purple-800 rounded-lg">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        ค้นหาอัจฉริยะ
+                    </button>
+
                     <Link :href="route('dashboard')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">Dashboard</Link>
                     <Link :href="route('calendar.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ปฏิทินรวมงาน</Link>
 

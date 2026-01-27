@@ -2,14 +2,14 @@
 import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
-import GanttChartView from '@/Components/GanttChartView.vue';
+import GanttChart from '@/Components/GanttChart.vue';
 import SCurveChart from '@/Components/SCurveChart.vue';
 
 // --- Props ---
 const props = defineProps({
     item: Object,
     chartData: Object,
-    historyLogs: Object // รับเป็น Object (Paginator)
+    historyLogs: Object
 });
 
 const activeTab = ref('overview');
@@ -155,7 +155,6 @@ const submitComment = () => { commentForm.post(route('comments.store', props.ite
                             <svg class="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"/></svg>
                             Export PDF
                         </a>
-
                         <button v-if="canEdit" @click="openEditModal(item)" class="bg-gray-100 hover:bg-gray-200 px-3 py-1.5 rounded text-sm font-bold text-gray-600">แก้ไขข้อมูล</button>
                     </div>
                 </div>
@@ -173,28 +172,48 @@ const submitComment = () => { commentForm.post(route('comments.store', props.ite
                 <button @click="activeTab='logs'" :class="activeTab==='logs'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap transition-colors">ประวัติ</button>
             </div>
 
-            <div v-show="activeTab==='overview'" class="flex flex-col lg:flex-row gap-0 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm h-[600px] animate-fade-in">
+            <div v-show="activeTab==='overview'" class="flex flex-col lg:flex-row gap-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm h-[700px] animate-fade-in">
+
                 <div class="w-full lg:w-2/5 border-r border-gray-200 flex flex-col h-full bg-white overflow-hidden">
-                    <div class="p-3 bg-gray-50 border-b flex justify-between items-center h-[50px]"><h3 class="text-xs font-bold text-gray-600">TASK LIST</h3><button v-if="canEdit" @click="openCreateModal" class="text-[#7A2F8F] hover:bg-purple-50 p-1 rounded">+</button></div>
+                    <div class="p-3 bg-gray-50 border-b flex justify-between items-center h-[50px]">
+                        <h3 class="text-xs font-bold text-gray-600">TASK LIST</h3>
+                        <button v-if="canEdit" @click="openCreateModal" class="text-[#7A2F8F] hover:bg-purple-50 p-1 rounded font-bold text-lg" title="เพิ่มงานย่อย">+</button>
+                    </div>
                     <div class="overflow-y-auto flex-1">
                         <table class="w-full text-left">
+                            <thead class="bg-gray-50 text-[10px] uppercase text-gray-500 font-bold">
+                                <tr>
+                                    <th class="px-4 py-2">ชื่องาน</th>
+                                    <th class="px-2 py-2 text-center">เริ่ม</th>
+                                    <th class="px-2 py-2 text-center">ระยะเวลา</th> <th v-if="canEdit" class="px-2 py-2 text-center">จัดการ</th> </tr>
+                            </thead>
                             <tbody class="text-xs text-gray-700 divide-y divide-gray-100">
-                                <tr v-for="child in item.children" :key="child.id" class="hover:bg-purple-50 group">
-                                    <td class="px-4 py-3 font-medium border-r border-dashed"><div class="flex items-center gap-2"><div class="w-2 h-2 rounded-full" :class="child.type==='project'?'bg-[#7A2F8F]':'bg-[#FDB913]'"></div><Link :href="route('work-items.show', child.id)" class="truncate max-w-[180px] hover:text-[#7A2F8F] font-bold text-gray-700">{{ child.name }}</Link></div></td>
-                                    <td class="px-2 py-3 text-center text-gray-500">{{ formatDate(child.planned_start_date) }}</td>
-                                    <td class="px-2 py-3 text-center bg-gray-50/50 font-mono text-gray-500">{{ getDuration(child.planned_start_date, child.planned_end_date) }}</td>
-                                    <td v-if="canEdit" class="px-1 py-3 text-center">
-                                        <div class="flex justify-center gap-2">
-                                            <button @click="openEditModal(child)" class="text-blue-500 hover:scale-110 transition">✏️</button>
-                                            <button @click="deleteItem(child.id)" class="text-red-500 hover:scale-110 transition">🗑</button>
+                                <tr v-for="child in item.children" :key="child.id" class="hover:bg-purple-50 group transition">
+                                    <td class="px-4 py-3 font-medium border-r border-dashed">
+                                        <div class="flex items-center gap-2">
+                                            <div class="w-2 h-2 rounded-full" :class="child.type==='project'?'bg-[#7A2F8F]':'bg-[#FDB913]'"></div>
+                                            <Link :href="route('work-items.show', child.id)" class="truncate max-w-[150px] hover:text-[#7A2F8F] font-bold text-gray-700">{{ child.name }}</Link>
                                         </div>
                                     </td>
+                                    <td class="px-2 py-3 text-center text-gray-500 whitespace-nowrap">{{ formatDate(child.planned_start_date) }}</td>
+                                    <td class="px-2 py-3 text-center text-gray-500 whitespace-nowrap font-mono bg-gray-50/50">{{ getDuration(child.planned_start_date, child.planned_end_date) }}</td> <td v-if="canEdit" class="px-1 py-3 text-center w-16">
+                                        <div class="flex justify-center gap-2">
+                                            <button @click="openEditModal(child)" class="text-blue-500 hover:scale-110" title="แก้ไข">✏️</button>
+                                            <button @click="deleteItem(child.id)" class="text-red-500 hover:scale-110" title="ลบ">🗑</button>
+                                        </div>
+                                    </td>
+                                </tr>
+                                <tr v-if="!item.children || item.children.length === 0">
+                                    <td colspan="4" class="text-center py-8 text-gray-400">ยังไม่มีงานย่อย</td>
                                 </tr>
                             </tbody>
                         </table>
                     </div>
                 </div>
-                <div class="w-full lg:w-3/5 h-full p-2"><GanttChartView :items="item.children||[]" /></div>
+
+                <div class="w-full lg:w-3/5 h-full">
+                    <GanttChart :task-id="item.id" />
+                </div>
             </div>
 
             <div v-show="activeTab==='scurve'" class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in">

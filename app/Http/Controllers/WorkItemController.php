@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\WorkItem;
 use App\Models\AuditLog;
 use App\Models\Comment;
+use App\Models\WorkItemLink;
 use App\Services\LineService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
@@ -309,5 +310,85 @@ class WorkItemController extends Controller
     public function index(Request $request)
     {
         return $this->projects($request);
+    }
+
+    public function ganttData(WorkItem $workItem)
+    {
+        try {
+            // 1. หา ID ของลูกหลานทั้งหมดเพื่อดึงข้อมูลมาแสดง
+            $allIds = collect([$workItem->id]);
+
+            // โหลดลูกหลานแบบ Recursive (จำกัดความลึกไว้ที่ 5 ชั้นเพื่อประสิทธิภาพ)
+            $workItem->load('children.children.children.children.children');
+
+            // ฟังก์ชัน Helper เพื่อแบน Tree เป็น Array (Flatten)
+            $flatten = function ($item) use (&$flatten, &$allIds) {
+                if ($item->children) {
+                    foreach ($item->children as $child) {
+                        $allIds->push($child->id);
+                        $flatten($child);
+                    }
+                }
+            };
+            $flatten($workItem);
+
+            // 2. เตรียมข้อมูล Tasks (งาน)
+            $tasks = WorkItem::whereIn('id', $allIds)
+                ->orderBy('order_index')
+                ->get()
+                ->map(function ($t) use ($workItem) { // ✅ สำคัญ: ต้อง use ($workItem) เข้ามาเพื่อเช็ค ID
+                    // Parse วันที่ให้ชัวร์ ป้องกัน Error
+                    $start = $t->planned_start_date ? Carbon::parse($t->planned_start_date) : null;
+                    $end = $t->planned_end_date ? Carbon::parse($t->planned_end_date) : null;
+
+                    return [
+                        'id' => $t->id,
+                        'text' => $t->name,
+                        'start_date' => $start ? $start->format('Y-m-d') : null,
+                        'duration' => ($start && $end) ? $start->diffInDays($end) + 1 : 1,
+                        'progress' => (float)$t->progress / 100,
+
+                        // ✨ จุดสำคัญที่แก้ไข: ถ้าเป็นงานหลักที่เราดูอยู่ ให้ parent เป็น 0 (เพื่อให้ DHTMLX รู้ว่าเป็นราก)
+                        'parent' => ($t->id == $workItem->id) ? 0 : $t->parent_id,
+
+                        'open' => true,
+                        'type' => $t->type === 'project' ? 'project' : 'task',
+                        'color' => $t->status === 'delayed' ? '#EF4444' : ($t->progress == 100 ? '#10B981' : '#3B82F6')
+                    ];
+                });
+
+            // 3. เตรียมข้อมูล Links (เส้นโยง)
+            $links = [];
+            try {
+                // ✅ เช็คว่ามี Class Model นี้อยู่จริงไหม ก่อนเรียกใช้ (กัน Error Class not found)
+                if (class_exists(WorkItemLink::class)) {
+                    $links = WorkItemLink::whereIn('source', $allIds)
+                        ->orWhereIn('target', $allIds)
+                        ->get()
+                        ->map(function ($l) {
+                            return [
+                                'id' => $l->id,
+                                'source' => $l->source,
+                                'target' => $l->target,
+                                'type' => $l->type
+                            ];
+                        });
+                }
+            } catch (\Throwable $e) {
+                // ถ้ามีปัญหาเรื่องตาราง Links (เช่นยังไม่ได้ Migrate) ให้ข้ามไปก่อน กราฟจะได้ไม่พัง
+            }
+
+            return response()->json([
+                'data' => $tasks,
+                'links' => $links
+            ]);
+
+        } catch (\Throwable $e) { // ✅ ใช้ Throwable เพื่อจับ Error ทุกประเภท (รวมถึง Fatal Error)
+            return response()->json([
+                'error' => $e->getMessage(),
+                'file' => $e->getFile(),
+                'line' => $e->getLine()
+            ], 500);
+        }
     }
 }

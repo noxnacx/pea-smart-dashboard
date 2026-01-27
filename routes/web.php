@@ -9,6 +9,7 @@ use App\Http\Controllers\ReportController;
 use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\IssueController;
 use App\Http\Controllers\CalendarController;
+use App\Http\Controllers\GlobalSearchController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -93,6 +94,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // --- Calendar ---
     Route::get('/calendar', [CalendarController::class, 'index'])->name('calendar.index');
+    Route::get('/global-search', [GlobalSearchController::class, 'search'])->name('global.search');
+
+    Route::get('/work-items/{workItem}/gantt-data', [App\Http\Controllers\WorkItemController::class, 'ganttData'])->name('work-items.gantt-data');
 });
 
 require __DIR__.'/auth.php';
