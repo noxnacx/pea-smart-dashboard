@@ -305,4 +305,9 @@ class WorkItemController extends Controller
             'strategies' => $strategies
         ]);
     }
+
+    public function index(Request $request)
+    {
+        return $this->projects($request);
+    }
 }

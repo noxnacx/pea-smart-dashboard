@@ -34,6 +34,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::put('/work-items/{workItem}', [WorkItemController::class, 'update'])->name('work-items.update');
     Route::delete('/work-items/{workItem}', [WorkItemController::class, 'destroy'])->name('work-items.destroy');
     Route::get('/work-items/{workItem}', [WorkItemController::class, 'show'])->name('work-items.show');
+    Route::resource('work-items', WorkItemController::class);
 
     // --- 3. Attachments ---
     Route::post('/work-items/{workItem}/attachments', [AttachmentController::class, 'store'])->name('attachments.store');

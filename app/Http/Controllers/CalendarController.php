@@ -5,7 +5,7 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\Issue;
 use App\Models\WorkItem;
-use App\Models\AuditLog; // ✅ เพิ่มบรรทัดนี้
+use App\Models\AuditLog;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -16,74 +16,98 @@ class CalendarController extends Controller
     /**
      * Display the calendar view.
      */
-    public function index()
+    public function index(Request $request)
     {
-        // ดึงข้อมูล WorkItem (Project, Plan, Task)
-        $workItems = WorkItem::whereIn('type', ['plan', 'project', 'task'])
-            ->select('id', 'name', 'type', 'status', 'progress', 'planned_start_date', 'planned_end_date', 'parent_id')
-            ->with('parent:id,name')
-            ->get()
-            ->map(function ($item) {
-                $color = match ($item->type) {
-                    'plan' => '#3b82f6',
-                    'project' => '#8b5cf6',
-                    'task' => '#10b981',
-                    default => '#6b7280',
-                };
+        // 1. รับค่า Filter และรวมกับค่า Default
+        $defaultFilters = [
+            'types' => ['plan', 'project', 'task', 'issue'],
+        ];
 
-                return [
-                    'id' => 'work_' . $item->id,
-                    'title' => $item->name,
-                    'start' => $item->planned_start_date,
-                    'end' => $item->planned_end_date,
-                    'backgroundColor' => $color,
-                    'borderColor' => $color,
-                    'extendedProps' => [
-                        'type' => 'work_item',
-                        'work_type' => $item->type,
-                        'status' => $item->status,
-                        'progress' => $item->progress . '%',
-                        'parent_name' => $item->parent ? $item->parent->name : '-',
-                        'url' => route('work-items.show', $item->id),
-                    ]
-                ];
-            });
+        $requestFilters = $request->input('filters', []);
+        if (!is_array($requestFilters)) $requestFilters = [];
 
-        // ดึงข้อมูล Issue
-        $issues = Issue::with('workItem:id,name')
-            ->get()
-            ->map(function ($issue) {
-                $color = match ($issue->severity) {
-                    'critical' => '#ef4444',
-                    'high' => '#f97316',
-                    'medium' => '#eab308',
-                    default => '#22c55e',
-                };
+        $filters = array_merge($defaultFilters, $requestFilters);
+        $selectedTypes = $filters['types'] ?? [];
 
-                return [
-                    'id' => 'issue_' . $issue->id,
-                    'title' => $issue->title,
-                    'start' => $issue->start_date ?? $issue->created_at->format('Y-m-d'),
-                    'end' => $issue->end_date,
-                    'backgroundColor' => '#ffffff',
-                    'borderColor' => $color,
-                    'textColor' => $color,
-                    'extendedProps' => [
-                        'type' => 'issue',
-                        'severity' => $issue->severity,
-                        'status' => $issue->status,
-                        'description' => $issue->description,
-                        'solution' => $issue->solution,
-                        'parent_name' => $issue->workItem ? $issue->workItem->name : '-',
-                        'url' => null,
-                    ]
-                ];
-            });
+        // 2. ดึงข้อมูล Issue (ปรับให้เป็นแถบสีทึบ)
+        $issues = collect([]);
+        if (in_array('issue', $selectedTypes)) {
+            $issues = Issue::with('workItem:id,name')
+                ->get()
+                ->map(function ($issue) {
+                    // กำหนดสีตามระดับความรุนแรง
+                    $color = match ($issue->severity) {
+                        'critical' => '#ef4444', // แดง
+                        'high' => '#f97316',     // ส้ม
+                        'medium' => '#eab308',   // เหลือง (อาจจะต้องใช้ตัวหนังสือดำถ้ารู้สึกว่าขาวไม่ชัด แต่ลองขาวก่อนตามธีม)
+                        default => '#22c55e',    // เขียว
+                    };
 
-        $events = $workItems->concat($issues);
+                    return [
+                        'id' => 'issue_' . $issue->id,
+                        'title' => $issue->title,
+                        'start' => $issue->start_date ?? $issue->created_at->format('Y-m-d'),
+                        'end' => $issue->end_date,
+                        // ✨ แก้ไขตรงนี้: ใช้สีทึบเป็นพื้นหลัง ตัวหนังสือสีขาว
+                        'backgroundColor' => $color,
+                        'borderColor' => $color,
+                        'textColor' => '#ffffff',
+                        'displayOrder' => 1,
+                        'extendedProps' => [
+                            'type' => 'issue',
+                            'severity' => $issue->severity,
+                            'status' => $issue->status,
+                            'description' => $issue->description,
+                            'solution' => $issue->solution,
+                            'parent_name' => $issue->workItem ? $issue->workItem->name : '-',
+                            'url' => null,
+                        ]
+                    ];
+                });
+        }
+
+        // 3. ดึงข้อมูล WorkItem (เหมือนเดิม)
+        $workItems = collect([]);
+        if (array_intersect(['plan', 'project', 'task'], $selectedTypes)) {
+            $workItems = WorkItem::whereIn('type', $selectedTypes)
+                ->select('id', 'name', 'type', 'status', 'progress', 'planned_start_date', 'planned_end_date', 'parent_id')
+                ->with('parent:id,name')
+                ->get()
+                ->map(function ($item) {
+                    $color = match ($item->type) {
+                        'plan' => '#3b82f6',
+                        'project' => '#8b5cf6',
+                        'task' => '#10b981',
+                        default => '#6b7280',
+                    };
+
+                    return [
+                        'id' => 'work_' . $item->id,
+                        'title' => $item->name,
+                        'start' => $item->planned_start_date,
+                        'end' => $item->planned_end_date,
+                        'backgroundColor' => $color,
+                        'borderColor' => $color,
+                        'textColor' => '#ffffff',
+                        'displayOrder' => 2,
+                        'extendedProps' => [
+                            'type' => 'work_item',
+                            'work_type' => $item->type,
+                            'status' => $item->status,
+                            'progress' => $item->progress . '%',
+                            'parent_name' => $item->parent ? $item->parent->name : '-',
+                            'url' => route('work-items.show', $item->id),
+                        ]
+                    ];
+                });
+        }
+
+        // 4. รวม Events
+        $events = $issues->concat($workItems);
 
         return Inertia::render('Calendar/Index', [
-            'events' => $events
+            'events' => $events,
+            'filters' => $filters
         ]);
     }
 
@@ -189,8 +213,7 @@ class CalendarController extends Controller
             'viewType' => $type
         ]);
 
-        // ✅ บันทึก Audit Log
-       AuditLog::create([
+        AuditLog::create([
             'user_id' => auth()->id(),
             'action' => 'EXPORT',
             'model_type' => 'ปฏิทินงาน (Calendar)',

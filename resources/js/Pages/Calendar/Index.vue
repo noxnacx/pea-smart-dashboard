@@ -3,7 +3,7 @@ import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import Modal from '@/Components/Modal.vue';
 import SecondaryButton from '@/Components/SecondaryButton.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
-import { Head } from '@inertiajs/vue3';
+import { Head, router } from '@inertiajs/vue3';
 import FullCalendar from '@fullcalendar/vue3';
 import dayGridPlugin from '@fullcalendar/daygrid';
 import timeGridPlugin from '@fullcalendar/timegrid';
@@ -11,25 +11,44 @@ import interactionPlugin from '@fullcalendar/interaction';
 import listPlugin from '@fullcalendar/list';
 import multiMonthPlugin from '@fullcalendar/multimonth';
 import thLocale from '@fullcalendar/core/locales/th';
-import { ref } from 'vue';
+import { ref, watch } from 'vue';
+import throttle from 'lodash/throttle';
 
 const props = defineProps({
     events: Array,
+    filters: Object,
 });
 
 // --- State ---
 const showEventModal = ref(false);
 const showDayModal = ref(false);
-const showExportModal = ref(false); // ✨ เพิ่ม State สำหรับ Modal Export
+const showExportModal = ref(false);
 const selectedEvent = ref(null);
 const selectedDayDate = ref(null);
 const selectedDayEvents = ref([]);
 
-// ✨ State สำหรับ Form Export
+// Filter Form
+const filterForm = ref({
+    types: props.filters?.types || ['plan', 'project', 'task', 'issue'],
+});
+
 const exportForm = ref({
     type: 'month',
     date: new Date().toISOString().slice(0, 10)
 });
+
+// Watchers
+watch(filterForm, throttle(() => {
+    router.get(route('calendar.index'), { filters: filterForm.value }, {
+        preserveState: true,
+        preserveScroll: true,
+        replace: true,
+    });
+}, 500), { deep: true });
+
+watch(() => props.events, (newEvents) => {
+    calendarOptions.value.events = newEvents;
+}, { deep: true });
 
 // --- Functions ---
 const openEventDetail = (eventObj) => {
@@ -66,12 +85,7 @@ const goToDetail = () => { if (selectedEvent.value?.url) window.location.href = 
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' }) : '-';
 const formatShortDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { weekday: 'long', day: 'numeric', month: 'long' }) : '-';
 
-// ✨ เปลี่ยนฟังก์ชันปุ่ม Export ให้เปิด Modal แทน
-const openExportModal = () => {
-    showExportModal.value = true;
-};
-
-// ✨ ฟังก์ชันสั่ง Export จริงๆ
+const openExportModal = () => { showExportModal.value = true; };
 const submitExport = () => {
     const url = route('calendar.export-agenda', {
         type: exportForm.value.type,
@@ -118,6 +132,8 @@ const calendarOptions = ref({
 
     eventContent: function(arg) {
         let contentEl = document.createElement('div');
+
+        // 1. มุมมองรายปี
         if (arg.view.type === 'multiMonthYear') {
              if (arg.event.extendedProps.type === 'work_item') {
                  contentEl.innerHTML = `<div class="w-2 h-2 rounded-full mx-auto mt-0.5" style="background-color:${arg.event.backgroundColor}"></div>`;
@@ -127,16 +143,21 @@ const calendarOptions = ref({
              contentEl.title = arg.event.title;
              return { domNodes: [contentEl] };
         }
+
+        // 2. มุมมองปกติ (เดือน/สัปดาห์)
         if (arg.event.extendedProps.type === 'work_item') {
+             // งานปกติ
              contentEl.innerHTML = `
                 <div class="flex items-center justify-between px-1 overflow-hidden text-xs">
                     <span class="truncate font-medium">${arg.event.title}</span>
                     <span class="text-[9px] bg-white/20 px-1 rounded ml-1">${arg.event.extendedProps.progress}</span>
                 </div>`;
         } else {
+            // ✨ Issue: แก้ไขให้เป็นแถบสีทึบเหมือนเพื่อนๆ (ใช้ไอคอนสีขาว)
             contentEl.innerHTML = `
-                <div class="flex items-center px-1 text-xs font-bold text-gray-900">
-                    <i class="mr-1">⚠️</i> <span class="truncate">${arg.event.title}</span>
+                <div class="flex items-center px-1 overflow-hidden text-xs font-bold">
+                    <i class="mr-1 text-[10px] text-white">⚠️</i>
+                    <span class="truncate">${arg.event.title}</span>
                 </div>`;
         }
         return { domNodes: [contentEl] }
@@ -163,51 +184,53 @@ const calendarOptions = ref({
                     </div>
 
                     <button @click="openExportModal" class="flex items-center gap-2 bg-white border border-gray-300 text-gray-700 px-4 py-2 rounded-lg font-bold shadow-sm hover:bg-gray-50 transition">
-                        <svg class="w-5 h-5 text-[#4A148C]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
+                        <svg class="w-5 h-5 text-[#4A148C]" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 17h2a2 2 0 002-2v-4a2 2 0 00-2-2H5a2 2 0 00-2 2v4a2 2 0 002 2h2m2 4h6a2 2 0 002-2v-4a2 2 0 00-2-2H9a2 2 0 00-2 2v4a2 2 0 002 2zm8-12V5a2 2 0 00-2-2H9a2 2 0 00-2-2H9a2 2 0 00-2 2v4h10z"/></svg>
                         พิมพ์ Agenda
                     </button>
                 </div>
 
                 <div class="bg-white overflow-hidden shadow-xl sm:rounded-2xl border border-gray-100 flex flex-col md:flex-row">
-                    <div class="w-full md:w-64 p-6 border-b md:border-b-0 md:border-r border-gray-100 bg-gray-50/50">
-                        <h3 class="font-bold text-lg mb-4 text-[#4A148C] flex items-center gap-2">
-                            <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
-                            คำอธิบาย (Legend)
-                        </h3>
-                        <div class="space-y-4 text-sm">
-                            <div>
-                                <p class="text-xs font-bold text-gray-400 uppercase mb-2">สถานะแผนงาน</p>
-                                <div class="flex items-center mb-2">
-                                    <span class="w-3 h-3 rounded-full bg-[#3b82f6] mr-2 shadow-sm"></span>
-                                    <span>แผนงาน (Plan)</span>
-                                </div>
-                                <div class="flex items-center mb-2">
-                                    <span class="w-3 h-3 rounded-full bg-[#8b5cf6] mr-2 shadow-sm"></span>
-                                    <span>โครงการ (Project)</span>
-                                </div>
-                                <div class="flex items-center">
-                                    <span class="w-3 h-3 rounded-full bg-[#10b981] mr-2 shadow-sm"></span>
-                                    <span>งานย่อย (Task)</span>
-                                </div>
-                            </div>
-                            <div class="border-t border-gray-200 pt-3">
-                                <p class="text-xs font-bold text-gray-400 uppercase mb-2">ปัญหา/ความเสี่ยง</p>
-                                <div class="flex items-center mb-2">
-                                    <span class="w-3 h-3 rounded-full bg-[#ef4444] mr-2 shadow-sm"></span>
-                                    <span>วิกฤต (Critical)</span>
-                                </div>
-                                <div class="flex items-center mb-2">
-                                    <span class="w-3 h-3 rounded-full bg-[#f97316] mr-2 shadow-sm"></span>
-                                    <span>สูง (High)</span>
-                                </div>
-                                <div class="flex items-center">
-                                    <span class="w-3 h-3 rounded-full bg-[#eab308] mr-2 shadow-sm"></span>
-                                    <span>ปานกลาง (Medium)</span>
+                    <div class="w-full md:w-64 p-6 border-b md:border-b-0 md:border-r border-gray-100 bg-gray-50/50 flex flex-col gap-6">
+
+                        <div>
+                            <h3 class="font-bold text-lg mb-4 text-[#4A148C] flex items-center gap-2">
+                                <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
+                                ตัวกรอง (Filters)
+                            </h3>
+                            <div class="space-y-3">
+                                <div class="space-y-2">
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" value="plan" v-model="filterForm.types" class="rounded text-[#3b82f6] focus:ring-[#3b82f6]">
+                                        <span class="text-sm text-gray-600">แผนงาน (Plan)</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" value="project" v-model="filterForm.types" class="rounded text-[#8b5cf6] focus:ring-[#8b5cf6]">
+                                        <span class="text-sm text-gray-600">โครงการ (Project)</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" value="task" v-model="filterForm.types" class="rounded text-[#10b981] focus:ring-[#10b981]">
+                                        <span class="text-sm text-gray-600">งานย่อย (Task)</span>
+                                    </label>
+                                    <label class="flex items-center gap-2 cursor-pointer">
+                                        <input type="checkbox" value="issue" v-model="filterForm.types" class="rounded text-[#ef4444] focus:ring-[#ef4444]">
+                                        <span class="text-sm text-gray-600">ปัญหา (Issue)</span>
+                                    </label>
                                 </div>
                             </div>
                         </div>
 
-                        <div class="mt-8 p-4 bg-purple-50 rounded-xl border border-purple-100 text-purple-800 text-xs">
+                        <div>
+                            <h3 class="font-bold text-sm mb-3 text-gray-500 uppercase tracking-wider">สัญลักษณ์สี</h3>
+                            <div class="space-y-2 text-sm">
+                                <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-[#3b82f6] mr-2"></span><span>แผนงาน</span></div>
+                                <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-[#8b5cf6] mr-2"></span><span>โครงการ</span></div>
+                                <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-[#10b981] mr-2"></span><span>งานย่อย</span></div>
+                                <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-[#ef4444] mr-2"></span><span>วิกฤต (Critical)</span></div>
+                                <div class="flex items-center"><span class="w-3 h-3 rounded-full bg-[#f97316] mr-2"></span><span>สูง (High)</span></div>
+                            </div>
+                        </div>
+
+                        <div class="mt-auto p-4 bg-purple-50 rounded-xl border border-purple-100 text-purple-800 text-xs">
                              <p><strong>Tips:</strong> กดที่ปุ่ม "รายปี" เพื่อดูภาพรวมทั้งปี งานในมุมมองรายปีจะแสดงเป็นจุดสีเล็กๆ เพื่อความสะอาดตา</p>
                         </div>
                     </div>
@@ -312,24 +335,19 @@ const calendarOptions = ref({
 </template>
 
 <style>
-/* ✨ ธีมปุ่มสีม่วง/เหลืองที่คุณต้องการ (คงไว้เหมือนเดิม) */
+/* ✨ ธีมปุ่มสีม่วง/เหลือง (เหมือนเดิม) */
 .fc-toolbar-title { font-size: 1.5rem !important; font-weight: 700 !important; color: #4A148C !important; }
-
-/* ปุ่มปกติ: สีม่วง */
 .fc-button-primary { background-color: #4A148C !important; border-color: #4A148C !important; font-weight: 600 !important; transition: all 0.2s; }
 .fc-button-primary:hover { background-color: #380d6b !important; border-color: #380d6b !important; }
-
-/* ปุ่มที่ถูกเลือก (Active): สีเหลือง ตัวหนังสือม่วง */
 .fc-button-primary:not(:disabled).fc-button-active, .fc-button-primary:not(:disabled):active { background-color: #FDB913 !important; border-color: #FDB913 !important; color: #4A148C !important; }
 
+/* Styles อื่นๆ */
 .fc-day-today { background-color: #f3e8ff !important; }
 .fc-theme-standard td, .fc-theme-standard th { border-color: #f3f4f6 !important; }
 .fc-col-header-cell-cushion { color: #4b5563; font-weight: 600; padding-top: 8px !important; padding-bottom: 8px !important; text-decoration: none !important; }
 .fc-event { cursor: pointer; border: none !important; box-shadow: 0 1px 2px 0 rgba(0, 0, 0, 0.05); border-radius: 4px; margin-bottom: 2px !important; }
 .fc-header-toolbar { margin-bottom: 1.5em !important; }
 .fc-popover { display: none !important; }
-
-/* Multi Month View Adjustments */
 .fc-multimonth-title { font-size: 1rem !important; font-weight: 700 !important; color: #4A148C !important; }
 .fc-multimonth-header { background-color: #f9fafb !important; }
 </style>
