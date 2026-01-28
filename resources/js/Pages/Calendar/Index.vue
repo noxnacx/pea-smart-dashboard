@@ -11,12 +11,13 @@ import interactionPlugin from '@fullcalendar/interaction';
 import listPlugin from '@fullcalendar/list';
 import multiMonthPlugin from '@fullcalendar/multimonth';
 import thLocale from '@fullcalendar/core/locales/th';
-import { ref, watch } from 'vue';
+import { ref, watch, computed } from 'vue';
 import throttle from 'lodash/throttle';
 
 const props = defineProps({
     events: Array,
     filters: Object,
+    divisions: Array // ✅ รับข้อมูลกอง/แผนกเข้ามา
 });
 
 // --- State ---
@@ -30,6 +31,8 @@ const selectedDayEvents = ref([]);
 // Filter Form
 const filterForm = ref({
     types: props.filters?.types || ['plan', 'project', 'task', 'issue'],
+    division_id: props.filters?.division_id || '',    // ✅ เพิ่ม filter กอง
+    department_id: props.filters?.department_id || '', // ✅ เพิ่ม filter แผนก
 });
 
 const exportForm = ref({
@@ -37,8 +40,19 @@ const exportForm = ref({
     date: new Date().toISOString().slice(0, 10)
 });
 
+// ✅ Computed: กรองแผนกตามกองที่เลือก
+const filterDepartments = computed(() => {
+    if (!filterForm.value.division_id) return [];
+    const div = props.divisions.find(d => d.id == filterForm.value.division_id);
+    return div ? div.departments : [];
+});
+
 // Watchers
 watch(filterForm, throttle(() => {
+    // Reset แผนกถ้าเปลี่ยนกอง และไม่ใช่ค่าว่าง (เพื่อ UX ที่ดี)
+    // แต่ใน watcher แบบ deep นี้ต้องระวัง loop, Inertia จัดการ state ให้ระดับนึง
+    if (!filterForm.value.division_id) filterForm.value.department_id = '';
+
     router.get(route('calendar.index'), { filters: filterForm.value }, {
         preserveState: true,
         preserveScroll: true,
@@ -87,15 +101,18 @@ const formatShortDate = (date) => date ? new Date(date).toLocaleDateString('th-T
 
 const openExportModal = () => { showExportModal.value = true; };
 const submitExport = () => {
+    // ✅ ส่งค่า Filter กอง/แผนก ไปด้วยตอน Export
     const url = route('calendar.export-agenda', {
         type: exportForm.value.type,
-        date: exportForm.value.date
+        date: exportForm.value.date,
+        division_id: filterForm.value.division_id,     // ส่งค่า
+        department_id: filterForm.value.department_id  // ส่งค่า
     });
     window.open(url, '_blank');
     showExportModal.value = false;
 };
 
-// --- Calendar Config ---
+// --- Calendar Config (เหมือนเดิม) ---
 const calendarOptions = ref({
     plugins: [dayGridPlugin, timeGridPlugin, interactionPlugin, listPlugin, multiMonthPlugin],
     initialView: 'dayGridMonth',
@@ -103,37 +120,15 @@ const calendarOptions = ref({
     eventOrder: 'displayOrder',
     dayMaxEvents: 4,
     moreLinkClick: handleMoreLinkClick,
-
-    headerToolbar: {
-        left: 'prev,next today',
-        center: 'title',
-        right: 'multiMonthYear,dayGridMonth,timeGridWeek,listWeek'
-    },
-
-    buttonText: {
-        today: 'วันนี้',
-        year: 'รายปี',
-        month: 'เดือน',
-        week: 'สัปดาห์',
-        list: 'รายการ',
-    },
-
-    views: {
-        multiMonthYear: {
-            multiMonthMaxColumns: 4,
-            titleFormat: { year: 'numeric' }
-        }
-    },
-
+    headerToolbar: { left: 'prev,next today', center: 'title', right: 'multiMonthYear,dayGridMonth,timeGridWeek,listWeek' },
+    buttonText: { today: 'วันนี้', year: 'รายปี', month: 'เดือน', week: 'สัปดาห์', list: 'รายการ' },
+    views: { multiMonthYear: { multiMonthMaxColumns: 4, titleFormat: { year: 'numeric' } } },
     events: props.events,
     editable: false,
     selectable: true,
     weekends: true,
-
     eventContent: function(arg) {
         let contentEl = document.createElement('div');
-
-        // 1. มุมมองรายปี
         if (arg.view.type === 'multiMonthYear') {
              if (arg.event.extendedProps.type === 'work_item') {
                  contentEl.innerHTML = `<div class="w-2 h-2 rounded-full mx-auto mt-0.5" style="background-color:${arg.event.backgroundColor}"></div>`;
@@ -143,17 +138,13 @@ const calendarOptions = ref({
              contentEl.title = arg.event.title;
              return { domNodes: [contentEl] };
         }
-
-        // 2. มุมมองปกติ (เดือน/สัปดาห์)
         if (arg.event.extendedProps.type === 'work_item') {
-             // งานปกติ
              contentEl.innerHTML = `
                 <div class="flex items-center justify-between px-1 overflow-hidden text-xs">
                     <span class="truncate font-medium">${arg.event.title}</span>
                     <span class="text-[9px] bg-white/20 px-1 rounded ml-1">${arg.event.extendedProps.progress}</span>
                 </div>`;
         } else {
-            // ✨ Issue: แก้ไขให้เป็นแถบสีทึบเหมือนเพื่อนๆ (ใช้ไอคอนสีขาว)
             contentEl.innerHTML = `
                 <div class="flex items-center px-1 overflow-hidden text-xs font-bold">
                     <i class="mr-1 text-[10px] text-white">⚠️</i>
@@ -162,7 +153,6 @@ const calendarOptions = ref({
         }
         return { domNodes: [contentEl] }
     },
-
     eventClick: function(info) {
         info.jsEvent.preventDefault();
         openEventDetail(info.event);
@@ -197,8 +187,25 @@ const calendarOptions = ref({
                                 <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z"/></svg>
                                 ตัวกรอง (Filters)
                             </h3>
-                            <div class="space-y-3">
-                                <div class="space-y-2">
+                            <div class="space-y-4">
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-500 mb-1">สังกัดกอง</label>
+                                    <select v-model="filterForm.division_id" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#4A148C] focus:ring-[#4A148C]">
+                                        <option value="">ทั้งหมด</option>
+                                        <option v-for="div in divisions" :key="div.id" :value="div.id">{{ div.name }}</option>
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label class="block text-xs font-bold text-gray-500 mb-1">สังกัดแผนก</label>
+                                    <select v-model="filterForm.department_id" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#4A148C] focus:ring-[#4A148C]" :disabled="!filterForm.division_id">
+                                        <option value="">ทั้งหมด</option>
+                                        <option v-for="dept in filterDepartments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
+                                    </select>
+                                </div>
+
+                                <div class="space-y-2 pt-2 border-t border-gray-200">
+                                    <p class="text-xs font-bold text-gray-500 mb-2">ประเภทงาน</p>
                                     <label class="flex items-center gap-2 cursor-pointer">
                                         <input type="checkbox" value="plan" v-model="filterForm.types" class="rounded text-[#3b82f6] focus:ring-[#3b82f6]">
                                         <span class="text-sm text-gray-600">แผนงาน (Plan)</span>
@@ -260,10 +267,10 @@ const calendarOptions = ref({
                     <div>
                         <label class="block text-sm font-bold text-gray-700 mb-1">เลือกวันที่อ้างอิง</label>
                         <input type="date" v-model="exportForm.date" class="w-full rounded-lg border-gray-300 shadow-sm focus:border-purple-500 focus:ring-purple-500">
-                        <p class="text-xs text-gray-500 mt-2 bg-gray-50 p-2 rounded">
-                            <span v-if="exportForm.type === 'year'">ℹ️ ระบบจะพิมพ์ทั้งปี (ม.ค.-ธ.ค.) ของปีที่เลือก พร้อมแยกหมวดเดือน</span>
-                            <span v-else>ℹ️ ระบบจะพิมพ์ช่วงเวลาตามที่เลือก</span>
-                        </p>
+                    </div>
+                    <div v-if="filterForm.division_id" class="bg-blue-50 p-3 rounded-lg border border-blue-100 text-sm text-blue-700">
+                        <p><strong>กองที่เลือก:</strong> {{ divisions.find(d => d.id == filterForm.division_id)?.name }}</p>
+                        <p v-if="filterForm.department_id"><strong>แผนก:</strong> {{ filterDepartments.find(d => d.id == filterForm.department_id)?.name }}</p>
                     </div>
                 </div>
                 <div class="mt-6 flex justify-end gap-3">

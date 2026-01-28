@@ -6,6 +6,7 @@ use Illuminate\Http\Request;
 use App\Models\Issue;
 use App\Models\WorkItem;
 use App\Models\AuditLog;
+use App\Models\Division;
 use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -18,9 +19,11 @@ class CalendarController extends Controller
      */
     public function index(Request $request)
     {
-        // 1. รับค่า Filter และรวมกับค่า Default
+        // 1. รับค่า Filter
         $defaultFilters = [
             'types' => ['plan', 'project', 'task', 'issue'],
+            'division_id' => null,
+            'department_id' => null,
         ];
 
         $requestFilters = $request->input('filters', []);
@@ -28,86 +31,104 @@ class CalendarController extends Controller
 
         $filters = array_merge($defaultFilters, $requestFilters);
         $selectedTypes = $filters['types'] ?? [];
+        $divisionId = $filters['division_id'] ?? null;
+        $departmentId = $filters['department_id'] ?? null;
 
-        // 2. ดึงข้อมูล Issue (ปรับให้เป็นแถบสีทึบ)
+        // 2. ดึงข้อมูล Issue
         $issues = collect([]);
         if (in_array('issue', $selectedTypes)) {
-            $issues = Issue::with('workItem:id,name')
-                ->get()
-                ->map(function ($issue) {
-                    // กำหนดสีตามระดับความรุนแรง
-                    $color = match ($issue->severity) {
-                        'critical' => '#ef4444', // แดง
-                        'high' => '#f97316',     // ส้ม
-                        'medium' => '#eab308',   // เหลือง (อาจจะต้องใช้ตัวหนังสือดำถ้ารู้สึกว่าขาวไม่ชัด แต่ลองขาวก่อนตามธีม)
-                        default => '#22c55e',    // เขียว
-                    };
+            $issueQuery = Issue::with('workItem:id,name');
 
-                    return [
-                        'id' => 'issue_' . $issue->id,
-                        'title' => $issue->title,
-                        'start' => $issue->start_date ?? $issue->created_at->format('Y-m-d'),
-                        'end' => $issue->end_date,
-                        // ✨ แก้ไขตรงนี้: ใช้สีทึบเป็นพื้นหลัง ตัวหนังสือสีขาว
-                        'backgroundColor' => $color,
-                        'borderColor' => $color,
-                        'textColor' => '#ffffff',
-                        'displayOrder' => 1,
-                        'extendedProps' => [
-                            'type' => 'issue',
-                            'severity' => $issue->severity,
-                            'status' => $issue->status,
-                            'description' => $issue->description,
-                            'solution' => $issue->solution,
-                            'parent_name' => $issue->workItem ? $issue->workItem->name : '-',
-                            'url' => null,
-                        ]
-                    ];
+            if ($divisionId) {
+                $issueQuery->whereHas('workItem', function($q) use ($divisionId) {
+                    $q->where('division_id', $divisionId);
                 });
+            }
+            if ($departmentId) {
+                $issueQuery->whereHas('workItem', function($q) use ($departmentId) {
+                    $q->where('department_id', $departmentId);
+                });
+            }
+
+            $issues = $issueQuery->get()->map(function ($issue) {
+                $color = match ($issue->severity) {
+                    'critical' => '#ef4444',
+                    'high' => '#f97316',
+                    'medium' => '#eab308',
+                    default => '#22c55e',
+                };
+
+                return [
+                    'id' => 'issue_' . $issue->id,
+                    'title' => $issue->title,
+                    'start' => $issue->start_date ?? $issue->created_at->format('Y-m-d'),
+                    'end' => $issue->end_date,
+                    'backgroundColor' => $color,
+                    'borderColor' => $color,
+                    'textColor' => '#ffffff',
+                    'displayOrder' => 1,
+                    'extendedProps' => [
+                        'type' => 'issue',
+                        'severity' => $issue->severity,
+                        'status' => $issue->status,
+                        'description' => $issue->description,
+                        'solution' => $issue->solution,
+                        'parent_name' => $issue->workItem ? $issue->workItem->name : '-',
+                        'url' => null,
+                    ]
+                ];
+            });
         }
 
-        // 3. ดึงข้อมูล WorkItem (เหมือนเดิม)
+        // 3. ดึงข้อมูล WorkItem
         $workItems = collect([]);
         if (array_intersect(['plan', 'project', 'task'], $selectedTypes)) {
-            $workItems = WorkItem::whereIn('type', $selectedTypes)
+            $query = WorkItem::whereIn('type', $selectedTypes)
                 ->select('id', 'name', 'type', 'status', 'progress', 'planned_start_date', 'planned_end_date', 'parent_id')
-                ->with('parent:id,name')
-                ->get()
-                ->map(function ($item) {
-                    $color = match ($item->type) {
-                        'plan' => '#3b82f6',
-                        'project' => '#8b5cf6',
-                        'task' => '#10b981',
-                        default => '#6b7280',
-                    };
+                ->with('parent:id,name');
 
-                    return [
-                        'id' => 'work_' . $item->id,
-                        'title' => $item->name,
-                        'start' => $item->planned_start_date,
-                        'end' => $item->planned_end_date,
-                        'backgroundColor' => $color,
-                        'borderColor' => $color,
-                        'textColor' => '#ffffff',
-                        'displayOrder' => 2,
-                        'extendedProps' => [
-                            'type' => 'work_item',
-                            'work_type' => $item->type,
-                            'status' => $item->status,
-                            'progress' => $item->progress . '%',
-                            'parent_name' => $item->parent ? $item->parent->name : '-',
-                            'url' => route('work-items.show', $item->id),
-                        ]
-                    ];
-                });
+            if ($divisionId) $query->where('division_id', $divisionId);
+            if ($departmentId) $query->where('department_id', $departmentId);
+
+            $workItems = $query->get()->map(function ($item) {
+                $color = match ($item->type) {
+                    'plan' => '#3b82f6',
+                    'project' => '#8b5cf6',
+                    'task' => '#10b981',
+                    default => '#6b7280',
+                };
+
+                return [
+                    'id' => 'work_' . $item->id,
+                    'title' => $item->name,
+                    'start' => $item->planned_start_date,
+                    'end' => $item->planned_end_date,
+                    'backgroundColor' => $color,
+                    'borderColor' => $color,
+                    'textColor' => '#ffffff',
+                    'displayOrder' => 2,
+                    'extendedProps' => [
+                        'type' => 'work_item',
+                        'work_type' => $item->type,
+                        'status' => $item->status,
+                        'progress' => $item->progress . '%',
+                        'parent_name' => $item->parent ? $item->parent->name : '-',
+                        'url' => route('work-items.show', $item->id),
+                    ]
+                ];
+            });
         }
 
         // 4. รวม Events
         $events = $issues->concat($workItems);
 
+        // 5. ดึงข้อมูล Divisions
+        $divisions = Division::with('departments')->orderBy('name')->get();
+
         return Inertia::render('Calendar/Index', [
             'events' => $events,
-            'filters' => $filters
+            'filters' => $filters,
+            'divisions' => $divisions
         ]);
     }
 
@@ -119,10 +140,11 @@ class CalendarController extends Controller
         $type = $request->input('type', 'month');
         $dateInput = $request->input('date', now()->format('Y-m-d'));
 
+        $divisionId = $request->input('division_id');
+        $departmentId = $request->input('department_id');
+
         $baseDate = Carbon::parse($dateInput)->locale('th');
-        $start = null;
-        $end = null;
-        $reportTitle = "";
+        $start = null; $end = null; $reportTitle = "";
 
         switch ($type) {
             case 'year':
@@ -148,16 +170,29 @@ class CalendarController extends Controller
                 break;
         }
 
-        $issues = Issue::where(function($q) use ($start, $end) {
+        if ($divisionId) {
+            $div = Division::find($divisionId);
+            if ($div) $reportTitle .= " (" . $div->name . ")";
+        }
+
+        // Query Issues
+        $issueQuery = Issue::where(function($q) use ($start, $end) {
             $q->whereBetween('start_date', [$start, $end])
               ->orWhereBetween('end_date', [$start, $end]);
-        })->get();
+        });
+        if ($divisionId) $issueQuery->whereHas('workItem', fn($q) => $q->where('division_id', $divisionId));
+        if ($departmentId) $issueQuery->whereHas('workItem', fn($q) => $q->where('department_id', $departmentId));
+        $issues = $issueQuery->get();
 
-        $workItems = WorkItem::whereIn('type', ['project', 'plan', 'task'])
+        // Query WorkItems
+        $workQuery = WorkItem::whereIn('type', ['project', 'plan', 'task'])
             ->where(function($q) use ($start, $end) {
                  $q->where('planned_start_date', '<=', $end)
                    ->where('planned_end_date', '>=', $start);
-            })->get();
+            });
+        if ($divisionId) $workQuery->where('division_id', $divisionId);
+        if ($departmentId) $workQuery->where('department_id', $departmentId);
+        $workItems = $workQuery->get();
 
         $calendarData = [];
         $period = CarbonPeriod::create($start, $end);
@@ -169,31 +204,21 @@ class CalendarController extends Controller
             foreach ($issues as $issue) {
                 $iStart = $issue->start_date ? Carbon::parse($issue->start_date) : null;
                 $iEnd = $issue->end_date ? Carbon::parse($issue->end_date) : null;
-
                 if (($iStart && $currentDate->between($iStart, $iEnd)) || ($iEnd && $currentDate->isSameDay($iEnd))) {
-                    $dayEvents[] = [
-                        'type' => 'issue',
-                        'title' => $issue->title,
-                        'severity' => $issue->severity,
-                    ];
+                    $dayEvents[] = ['type' => 'issue', 'title' => $issue->title, 'severity' => $issue->severity];
                 }
             }
 
             foreach ($workItems as $item) {
                 $wStart = Carbon::parse($item->planned_start_date);
                 $wEnd = Carbon::parse($item->planned_end_date);
-
                 if ($currentDate->between($wStart, $wEnd)) {
-                    $dayEvents[] = [
-                        'type' => $item->type,
-                        'title' => $item->name,
-                        'status' => $item->status,
-                        'progress' => $item->progress
-                    ];
+                    $dayEvents[] = ['type' => $item->type, 'title' => $item->name, 'status' => $item->status, 'progress' => $item->progress];
                 }
             }
 
-            if ($type == 'year' && count($dayEvents) == 0) {
+            // ✅ แก้ไข: ข้ามวันนั้นไปเลย หากไม่มีงานในวันนั้น (สำหรับทุกรูปแบบรายงาน)
+            if (count($dayEvents) == 0) {
                 continue;
             }
 
@@ -223,6 +248,7 @@ class CalendarController extends Controller
             'changes' => [
                 'ประเภท' => $type,
                 'วันที่เลือก' => $dateInput,
+                'กอง' => $divisionId,
                 'รูปแบบ' => 'PDF'
             ],
         ]);
