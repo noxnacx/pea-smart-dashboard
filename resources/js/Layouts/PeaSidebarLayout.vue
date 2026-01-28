@@ -10,10 +10,18 @@ const toggleSearch = () => {
     isSearchOpen.value = !isSearchOpen.value;
 };
 
+// ✅ แก้ไข: เปลี่ยนปุ่มลัดเป็น Shift + S
 const handleKeydown = (e) => {
-    if ((e.ctrlKey || e.metaKey) && e.key === 'k') {
+    if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
+        // ป้องกันถ้ากำลังพิมพ์ใน input หรือ textarea อยู่
+        if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
+
         e.preventDefault();
         isSearchOpen.value = true;
+    }
+    // ปิดด้วย Esc
+    if (e.key === 'Escape') {
+        isSearchOpen.value = false;
     }
 };
 
@@ -52,7 +60,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                         <span>ค้นหาอัจฉริยะ</span>
                     </div>
-                    <span class="text-[10px] bg-purple-900/50 border border-purple-700 px-1.5 py-0.5 rounded text-purple-300 group-hover:text-white transition">Ctrl K</span>
+                    <span class="text-[10px] bg-purple-900/50 border border-purple-700 px-1.5 py-0.5 rounded text-purple-300 group-hover:text-white transition">Shift S</span>
                 </button>
 
                 <Link :href="route('dashboard')"
@@ -110,6 +118,13 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                       :class="route().current('organization.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
                     จัดการโครงสร้างองค์กร
+                </Link>
+
+                <Link :href="route('pm.index')"
+                      class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                      :class="route().current('pm.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z" /></svg>
+                    ทำเนียบ PM
                 </Link>
 
                 <Link :href="route('users.index')"
@@ -177,6 +192,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     <div class="px-4 text-[10px] text-purple-400 font-bold uppercase mt-2">System</div>
                     <Link :href="route('reports.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">รายงาน</Link>
                     <Link :href="route('organization.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">จัดการโครงสร้างองค์กร</Link>
+                    <Link :href="route('pm.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ทำเนียบ PM</Link>
                     <Link :href="route('users.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ผู้ใช้งาน</Link>
                     <div class="border-t border-purple-800 mt-2 pt-2">
                          <Link :href="route('logout')" method="post" as="button" class="block w-full text-left px-4 py-3 text-red-300 hover:text-red-100">ออกจากระบบ</Link>

@@ -11,6 +11,7 @@ use App\Http\Controllers\IssueController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\OrganizationController;
+use App\Http\Controllers\ProjectManagerController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -112,6 +113,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::delete('/departments/{department}', [OrganizationController::class, 'destroyDepartment'])->name('departments.destroy');
 
     Route::get('/api/project-managers/search', [WorkItemController::class, 'searchProjectManagers'])->name('api.pm.search');
+    // ✅ Routes สำหรับ PM Directory
+    Route::get('/project-managers', [ProjectManagerController::class, 'index'])->name('pm.index');
+    Route::get('/project-managers/{id}', [ProjectManagerController::class, 'show'])->name('pm.show');
 });
 
 require __DIR__.'/auth.php';
