@@ -10,6 +10,7 @@ use App\Http\Controllers\AuditLogController;
 use App\Http\Controllers\IssueController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\GlobalSearchController;
+use App\Http\Controllers\OrganizationController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -98,6 +99,19 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     Route::get('/work-items/{workItem}/gantt-data', [App\Http\Controllers\WorkItemController::class, 'ganttData'])->name('work-items.gantt-data');
     Route::post('/work-items/{workItem}/log-export', [WorkItemController::class, 'logExport'])->name('work-items.log-export');
+
+    // ✅ Route สำหรับจัดการโครงสร้างองค์กร
+    Route::get('/organization', [OrganizationController::class, 'index'])->name('organization.index');
+
+    Route::post('/divisions', [OrganizationController::class, 'storeDivision'])->name('divisions.store');
+    Route::put('/divisions/{division}', [OrganizationController::class, 'updateDivision'])->name('divisions.update');
+    Route::delete('/divisions/{division}', [OrganizationController::class, 'destroyDivision'])->name('divisions.destroy');
+
+    Route::post('/departments', [OrganizationController::class, 'storeDepartment'])->name('departments.store');
+    Route::put('/departments/{department}', [OrganizationController::class, 'updateDepartment'])->name('departments.update');
+    Route::delete('/departments/{department}', [OrganizationController::class, 'destroyDepartment'])->name('departments.destroy');
+
+    Route::get('/api/project-managers/search', [WorkItemController::class, 'searchProjectManagers'])->name('api.pm.search');
 });
 
 require __DIR__.'/auth.php';

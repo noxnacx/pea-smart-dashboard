@@ -22,6 +22,11 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
+        // ✅ เพิ่มฟิลด์ใหม่ (Phase 1)
+        'department_id',
+        'is_pm',
+        'position',
+        'phone',
     ];
 
     /**
@@ -33,8 +38,10 @@ class User extends Authenticatable
         'password',
         'remember_token',
     ];
+
     public function isAdmin() { return $this->role === 'admin'; }
     public function isPM() { return $this->role === 'pm' || $this->role === 'admin'; }
+
     /**
      * Get the attributes that should be cast.
      *
@@ -45,6 +52,21 @@ class User extends Authenticatable
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
+            'is_pm' => 'boolean', // ✅ Cast เป็น boolean เพื่อความชัวร์
         ];
+    }
+
+    // --- ✅ เพิ่ม Relationships (แก้ปัญหา Call to undefined relationship) ---
+
+    // 1. User สังกัดแผนก
+    public function department()
+    {
+        return $this->belongsTo(Department::class);
+    }
+
+    // 2. User เป็น PM ดูแลหลายโครงการ
+    public function responsibleProjects()
+    {
+        return $this->hasMany(WorkItem::class, 'responsible_user_id');
     }
 }

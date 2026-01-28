@@ -6,6 +6,8 @@ use App\Models\WorkItem;
 use App\Models\AuditLog;
 use App\Models\Comment;
 use App\Models\WorkItemLink;
+use App\Models\ProjectManager;
+use App\Models\Division;
 use App\Services\LineService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
@@ -30,14 +32,24 @@ class WorkItemController extends Controller
     // --- ฟังก์ชันกลางสำหรับดึงข้อมูลและ Render หน้า List ---
     private function renderList(Request $request, $type)
     {
-        $query = WorkItem::where('type', $type)->with(['issues', 'parent']);
+        $query = WorkItem::where('type', $type)
+            ->with(['issues', 'parent', 'division', 'department', 'projectManager']);
 
-        // Filter
-        if ($request->filled('search')) $query->where('name', 'ilike', '%' . $request->search . '%');
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('name', 'ilike', '%' . $search . '%')
+                  ->orWhereHas('projectManager', function($pm) use ($search) {
+                      $pm->where('name', 'ilike', '%' . $search . '%');
+                  });
+            });
+        }
+
         if ($request->filled('status')) $query->where('status', $request->status);
         if ($request->filled('year')) $query->whereYear('planned_start_date', $request->year);
+        if ($request->filled('division_id')) $query->where('division_id', $request->division_id);
+        if ($request->filled('department_id')) $query->where('department_id', $request->department_id);
 
-        // Sort
         $sortField = $request->input('sort_by', 'created_at');
         $sortDir = $request->input('sort_dir', 'desc');
         if(in_array($sortField, ['name', 'budget', 'progress', 'planned_start_date', 'created_at'])) {
@@ -46,26 +58,23 @@ class WorkItemController extends Controller
 
         $items = $query->paginate(10)->withQueryString();
 
-        // ✅ ดึงตัวเลือก Parent "ทั้งหมด" (Strategy/Plan/Project/Task)
         $parentOptions = WorkItem::select('id', 'name', 'type')
-            ->orderByRaw("CASE
-                WHEN type = 'strategy' THEN 1
-                WHEN type = 'plan' THEN 2
-                WHEN type = 'project' THEN 3
-                ELSE 4 END")
-            ->orderBy('name')
-            ->get()
+            ->orderByRaw("CASE WHEN type = 'strategy' THEN 1 WHEN type = 'plan' THEN 2 WHEN type = 'project' THEN 3 ELSE 4 END")
+            ->orderBy('name')->get()
             ->map(function($item) {
                 $map = ['strategy'=>'ยุทธศาสตร์', 'plan'=>'แผนงาน', 'project'=>'โครงการ', 'task'=>'งานย่อย'];
                 $item->type_label = $map[$item->type] ?? $item->type;
                 return $item;
             });
 
+        $divisions = Division::with('departments')->orderBy('name')->get();
+
         return Inertia::render('WorkItem/List', [
             'type' => $type,
             'items' => $items,
-            'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir']),
+            'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir', 'division_id', 'department_id']),
             'parentOptions' => $parentOptions,
+            'divisions' => $divisions,
         ]);
     }
 
@@ -73,6 +82,11 @@ class WorkItemController extends Controller
 
     public function store(Request $request)
     {
+        // ✅ แปลงค่า department_id ที่เป็นค่าว่างให้เป็น null ก่อน validate
+        if (empty($request->department_id)) {
+            $request->merge(['department_id' => null]);
+        }
+
         $validated = $request->validate([
             'parent_id' => 'nullable|exists:work_items,id',
             'name' => 'required|string|max:255',
@@ -82,12 +96,21 @@ class WorkItemController extends Controller
             'budget' => 'nullable|numeric',
             'planned_start_date' => 'nullable|date',
             'planned_end_date' => 'nullable|date',
+            'division_id' => 'required|exists:divisions,id', // ⚠️ ต้องเลือกกองเสมอ
+            'department_id' => 'nullable|exists:departments,id',
+            'pm_name' => 'nullable|string|max:255',
         ]);
+
+        // จัดการ PM
+        if ($request->filled('pm_name')) {
+            $pm = ProjectManager::firstOrCreate(['name' => trim($request->pm_name)]);
+            $validated['project_manager_id'] = $pm->id;
+        }
+        unset($validated['pm_name']);
 
         $validated['progress'] = (int) ($validated['progress'] ?? 0);
         $validated['budget'] = $validated['budget'] ?? 0;
         $validated['status'] = $validated['status'] ?? 'pending';
-        $validated['responsible_user_id'] = auth()->id();
 
         $workItem = WorkItem::create($validated);
 
@@ -95,15 +118,21 @@ class WorkItemController extends Controller
             $msg = "✨ สร้างงานใหม่: " . $workItem->name . "\n" .
                    "📌 ประเภท: " . $workItem->type . "\n" .
                    "💰 งบประมาณ: " . number_format($workItem->budget) . " บาท\n" .
+                   "🏢 สังกัด: " . ($workItem->division ? $workItem->division->name : '-') . "\n" .
                    "👤 โดย: " . auth()->user()->name;
             LineService::sendPushMessage($msg);
         } catch (\Exception $e) {}
 
-        return back()->with('success', 'เพิ่มงานเรียบร้อย');
+        return back()->with('success', 'บันทึกข้อมูลเรียบร้อยแล้ว');
     }
 
     public function update(Request $request, WorkItem $workItem)
     {
+        // ✅ แปลงค่า department_id ที่เป็นค่าว่างให้เป็น null
+        if (empty($request->department_id)) {
+            $request->merge(['department_id' => null]);
+        }
+
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'progress' => 'nullable|numeric|min:0|max:100',
@@ -113,7 +142,20 @@ class WorkItemController extends Controller
             'planned_end_date' => 'nullable|date',
             'type' => 'required|string',
             'parent_id' => 'nullable|exists:work_items,id',
+            'division_id' => 'required|exists:divisions,id', // ⚠️ ต้องเลือกกองเสมอ
+            'department_id' => 'nullable|exists:departments,id',
+            'pm_name' => 'nullable|string|max:255',
         ]);
+
+        if ($request->has('pm_name')) {
+            if ($request->filled('pm_name')) {
+                $pm = ProjectManager::firstOrCreate(['name' => trim($request->pm_name)]);
+                $validated['project_manager_id'] = $pm->id;
+            } else {
+                $validated['project_manager_id'] = null;
+            }
+            unset($validated['pm_name']);
+        }
 
         if (isset($validated['progress'])) {
             $validated['progress'] = (int) $validated['progress'];
@@ -137,7 +179,7 @@ class WorkItemController extends Controller
             $workItem->parent->recalculateProgress();
         }
 
-        return back()->with('success', 'อัปเดตข้อมูลสำเร็จ');
+        return back()->with('success', 'บันทึกข้อมูลเรียบร้อยแล้ว');
     }
 
     public function destroy(WorkItem $workItem)
@@ -148,7 +190,7 @@ class WorkItemController extends Controller
 
     public function show(WorkItem $workItem)
     {
-        // 1. Load Data
+        // 1. Load Data (Relations)
         $workItem->load([
             'parent.parent.parent',
             'attachments.uploader',
@@ -157,7 +199,10 @@ class WorkItemController extends Controller
                 $q->orderBy('order_index')->with('attachments');
             },
             'children.children' => function($q) { $q->orderBy('order_index'); },
-            'children.children.children'
+            'children.children.children',
+            'division',        // ✅ โหลดข้อมูลกอง (สำหรับแสดงผล)
+            'department',      // ✅ โหลดข้อมูลแผนก (สำหรับแสดงผล)
+            'projectManager'   // ✅ โหลดข้อมูล PM (สำหรับแสดงผล)
         ]);
 
         // 2. Full S-Curve Logic
@@ -166,6 +211,7 @@ class WorkItemController extends Controller
         $actualData = [];
         $startDate = $workItem->planned_start_date ? $workItem->planned_start_date->copy()->startOfMonth() : now()->startOfYear();
         $endDate = $workItem->planned_end_date ? $workItem->planned_end_date->copy()->endOfMonth() : now()->endOfYear();
+
         if ($endDate->lt($startDate)) $endDate = $startDate->copy()->addMonths(1);
 
         $allChildren = collect([$workItem]);
@@ -216,7 +262,7 @@ class WorkItemController extends Controller
             $currentDate->addMonth();
         }
 
-        // 3. Timeline & Logs
+        // 3. Timeline & Logs Logic
         $relatedIds = collect([$workItem->id])->merge($allChildren->pluck('id'))->unique()->toArray();
 
         $logs = AuditLog::with('user')
@@ -265,6 +311,9 @@ class WorkItemController extends Controller
             ['path' => request()->url(), 'query' => request()->query()]
         );
 
+        // ✅ 4. ดึงข้อมูล Master Data กอง/แผนก (สำคัญมากสำหรับ Dropdown ใน Modal แก้ไข)
+        $divisions = Division::with('departments')->orderBy('name')->get();
+
         return Inertia::render('Project/Detail', [
             'item' => $workItem,
             'historyLogs' => $paginatedTimeline,
@@ -272,11 +321,11 @@ class WorkItemController extends Controller
                 'categories' => $months,
                 'planned' => $plannedData,
                 'actual' => $actualData
-            ]
+            ],
+            'divisions' => $divisions, // ✅ ส่งข้อมูลนี้ไปให้ Frontend
         ]);
     }
 
-    // สำหรับหน้า List แบบเดิม (เผื่อยังใช้อยู่)
     public function list(Request $request, $type)
     {
         return $this->renderList($request, $type);
@@ -315,13 +364,9 @@ class WorkItemController extends Controller
     public function ganttData(WorkItem $workItem)
     {
         try {
-            // 1. หา ID ของลูกหลานทั้งหมดเพื่อดึงข้อมูลมาแสดง
             $allIds = collect([$workItem->id]);
-
-            // โหลดลูกหลานแบบ Recursive (จำกัดความลึกไว้ที่ 5 ชั้นเพื่อประสิทธิภาพ)
             $workItem->load('children.children.children.children.children');
 
-            // ฟังก์ชัน Helper เพื่อแบน Tree เป็น Array (Flatten)
             $flatten = function ($item) use (&$flatten, &$allIds) {
                 if ($item->children) {
                     foreach ($item->children as $child) {
@@ -332,12 +377,10 @@ class WorkItemController extends Controller
             };
             $flatten($workItem);
 
-            // 2. เตรียมข้อมูล Tasks (งาน)
             $tasks = WorkItem::whereIn('id', $allIds)
                 ->orderBy('order_index')
                 ->get()
-                ->map(function ($t) use ($workItem) { // ✅ สำคัญ: ต้อง use ($workItem) เข้ามาเพื่อเช็ค ID
-                    // Parse วันที่ให้ชัวร์ ป้องกัน Error
+                ->map(function ($t) use ($workItem) {
                     $start = $t->planned_start_date ? Carbon::parse($t->planned_start_date) : null;
                     $end = $t->planned_end_date ? Carbon::parse($t->planned_end_date) : null;
 
@@ -347,20 +390,15 @@ class WorkItemController extends Controller
                         'start_date' => $start ? $start->format('Y-m-d') : null,
                         'duration' => ($start && $end) ? $start->diffInDays($end) + 1 : 1,
                         'progress' => (float)$t->progress / 100,
-
-                        // ✨ จุดสำคัญที่แก้ไข: ถ้าเป็นงานหลักที่เราดูอยู่ ให้ parent เป็น 0 (เพื่อให้ DHTMLX รู้ว่าเป็นราก)
                         'parent' => ($t->id == $workItem->id) ? 0 : $t->parent_id,
-
                         'open' => true,
                         'type' => $t->type === 'project' ? 'project' : 'task',
                         'color' => $t->status === 'delayed' ? '#EF4444' : ($t->progress == 100 ? '#10B981' : '#3B82F6')
                     ];
                 });
 
-            // 3. เตรียมข้อมูล Links (เส้นโยง)
             $links = [];
             try {
-                // ✅ เช็คว่ามี Class Model นี้อยู่จริงไหม ก่อนเรียกใช้ (กัน Error Class not found)
                 if (class_exists(WorkItemLink::class)) {
                     $links = WorkItemLink::whereIn('source', $allIds)
                         ->orWhereIn('target', $allIds)
@@ -374,16 +412,14 @@ class WorkItemController extends Controller
                             ];
                         });
                 }
-            } catch (\Throwable $e) {
-                // ถ้ามีปัญหาเรื่องตาราง Links (เช่นยังไม่ได้ Migrate) ให้ข้ามไปก่อน กราฟจะได้ไม่พัง
-            }
+            } catch (\Throwable $e) {}
 
             return response()->json([
                 'data' => $tasks,
                 'links' => $links
             ]);
 
-        } catch (\Throwable $e) { // ✅ ใช้ Throwable เพื่อจับ Error ทุกประเภท (รวมถึง Fatal Error)
+        } catch (\Throwable $e) {
             return response()->json([
                 'error' => $e->getMessage(),
                 'file' => $e->getFile(),
@@ -394,17 +430,24 @@ class WorkItemController extends Controller
 
     public function logExport(Request $request, WorkItem $workItem)
     {
-        // บันทึก Audit Log
         AuditLog::create([
             'user_id' => auth()->id(),
             'action' => 'EXPORT',
-            'model_type' => 'Gantt Chart', // ระบุว่าเป็น Gantt
+            'model_type' => 'Gantt Chart',
             'model_id' => $workItem->id,
             'target_name' => $workItem->name,
-            'changes' => ['file_type' => 'PDF', 'note' => 'Exported Gantt Chart'], // เก็บรายละเอียดเพิ่มเติมได้
+            'changes' => ['file_type' => 'PDF', 'note' => 'Exported Gantt Chart'],
             'ip_address' => $request->ip(),
         ]);
 
         return response()->json(['message' => 'Logged successfully']);
     }
+
+    public function searchProjectManagers(Request $request)
+    {
+        $search = $request->input('query');
+        if (!$search) return response()->json([]);
+        return ProjectManager::where('name', 'ilike', "%{$search}%")->limit(10)->get(['id', 'name']);
+    }
+
 }

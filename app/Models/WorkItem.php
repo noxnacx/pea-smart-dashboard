@@ -22,7 +22,7 @@ class WorkItem extends Model
     // ส่งค่า EV, PV, SV, Status ไปหน้าบ้านเสมอ (Append)
     protected $appends = ['ev', 'pv', 'sv', 'performance_status'];
 
-    // --- Relationship (ส่วนที่ขาดไป) ---
+    // --- Relationship ---
 
     // แม่ (Parent)
     public function parent()
@@ -43,16 +43,55 @@ class WorkItem extends Model
         return $this->children()->with(['allChildren', 'attachments']);
     }
 
-    // *** เพิ่มส่วนนี้: ความสัมพันธ์กับ Logs (ประวัติการทำงาน) ***
+    // ประวัติการทำงาน (Logs)
     public function logs()
     {
         return $this->hasMany(WorkItemLog::class)->orderBy('log_date', 'desc');
     }
 
-    // ผู้รับผิดชอบ
-    public function responsibleUser()
+    // ผู้รับผิดชอบ (PM)
+    public function projectManager()
     {
-        return $this->belongsTo(User::class, 'responsible_user_id');
+        return $this->belongsTo(ProjectManager::class);
+    }
+
+    // ✅ เพิ่ม: สังกัดแผนก (Department) ตามแผน Phase 1
+    public function department()
+    {
+        return $this->belongsTo(Department::class);
+    }
+
+    public function division()
+    {
+        return $this->belongsTo(Division::class);
+    }
+
+    // เอกสารแนบ
+    public function attachments()
+    {
+        // เปลี่ยนจาก WorkItemAttachment เป็น Attachment
+        return $this->hasMany(Attachment::class);
+    }
+
+    // คอมเมนต์
+    public function comments()
+    {
+        return $this->hasMany(Comment::class)->orderBy('created_at', 'desc');
+    }
+
+    // ปัญหา/ความเสี่ยง
+    public function issues()
+    {
+        // แก้ไข: ใช้ CASE WHEN แทน FIELD() สำหรับ PostgreSQL
+        return $this->hasMany(Issue::class)->orderByRaw("
+            CASE severity
+                WHEN 'critical' THEN 1
+                WHEN 'high' THEN 2
+                WHEN 'medium' THEN 3
+                WHEN 'low' THEN 4
+                ELSE 5
+            END
+        ");
     }
 
     // --- Calculation Logic (สูตรคำนวณ) ---
@@ -100,19 +139,13 @@ class WorkItem extends Model
         return 'On Track';
     }
 
-    public function attachments()
-    {
-        // เปลี่ยนจาก WorkItemAttachment เป็น Attachment
-        return $this->hasMany(Attachment::class);
-    }
-
+    // ฟังก์ชันคำนวณ Progress ของตัวแม่ใหม่
     public function recalculateProgress()
     {
         // 1. หาค่าเฉลี่ยจากลูกๆ
         $average = $this->children()->avg('progress');
 
-        // 2. แปลงเป็นจำนวนเต็ม (Integer) ก่อนบันทึก **สำคัญมาก**
-        // ใช้ round() เพื่อปัดเศษให้ถูกต้อง (เช่น 58.6 -> 59) แล้ว cast เป็น (int)
+        // 2. แปลงเป็นจำนวนเต็ม (Integer) ก่อนบันทึก
         $this->update([
             'progress' => (int) round($average)
         ]);
@@ -122,25 +155,4 @@ class WorkItem extends Model
             $this->parent->recalculateProgress();
         }
     }
-
-// เพิ่มฟังก์ชันนี้ลงไปใน Class WorkItem
-    public function comments()
-    {
-        return $this->hasMany(Comment::class)->orderBy('created_at', 'desc');
-    }
-
-    public function issues()
-    {
-        // แก้ไข: ใช้ CASE WHEN แทน FIELD() สำหรับ PostgreSQL
-        return $this->hasMany(Issue::class)->orderByRaw("
-            CASE severity
-                WHEN 'critical' THEN 1
-                WHEN 'high' THEN 2
-                WHEN 'medium' THEN 3
-                WHEN 'low' THEN 4
-                ELSE 5
-            END
-        ");
-    }
-
 }
