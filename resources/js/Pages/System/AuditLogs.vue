@@ -9,11 +9,13 @@ const props = defineProps({
     filters: Object
 });
 
+// ✅ ปรับ Form ให้รับ start_date และ end_date
 const form = ref({
     user_search: props.filters.user_search || '',
     action: props.filters.action || '',
     model: props.filters.model || '',
-    date: props.filters.date || '',
+    start_date: props.filters.start_date || '', // วันเริ่มต้น
+    end_date: props.filters.end_date || '',     // วันสิ้นสุด
 });
 
 watch(form, throttle(() => {
@@ -30,7 +32,7 @@ const actionColor = (action) => {
         case 'UPDATE': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
         case 'DELETE': return 'bg-red-100 text-red-700 border-red-200';
         case 'EXPORT':
-        case 'DOWNLOAD': return 'bg-blue-100 text-blue-700 border-blue-200'; // สีฟ้าสำหรับโหลด
+        case 'DOWNLOAD': return 'bg-blue-100 text-blue-700 border-blue-200';
         default: return 'bg-gray-100 text-gray-600 border-gray-200';
     }
 };
@@ -57,7 +59,7 @@ const getTime = (date) => new Date(date).toLocaleTimeString('th-TH', { hour: '2-
                     <h2 class="text-3xl font-extrabold text-[#4A148C]">🔒 บันทึกการใช้งาน (Audit Logs)</h2>
                     <p class="text-gray-500 mt-1">ตรวจสอบประวัติการใช้งานและกิจกรรมทั้งหมดในระบบ</p>
                 </div>
-                <button @click="form = { user_search: '', action: '', model: '', date: '' }" class="text-sm text-gray-500 hover:text-[#7A2F8F] underline">
+                <button @click="form = { user_search: '', action: '', model: '', start_date: '', end_date: '' }" class="text-sm text-gray-500 hover:text-[#7A2F8F] underline">
                     ล้างตัวกรองทั้งหมด
                 </button>
             </div>
@@ -90,9 +92,16 @@ const getTime = (date) => new Date(date).toLocaleTimeString('th-TH', { hour: '2-
                         <option value="Attachment">ไฟล์แนบ (Attachment)</option>
                     </select>
                 </div>
-                <div>
-                    <label class="block text-xs font-bold text-gray-500 mb-1">วันที่</label>
-                    <input type="date" v-model="form.date" class="w-full rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F] focus:border-[#7A2F8F]">
+
+                <div class="flex gap-2">
+                    <div class="flex-1">
+                        <label class="block text-xs font-bold text-gray-500 mb-1">ตั้งแต่วันที่</label>
+                        <input type="date" v-model="form.start_date" class="w-full rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F] focus:border-[#7A2F8F]">
+                    </div>
+                    <div class="flex-1">
+                        <label class="block text-xs font-bold text-gray-500 mb-1">ถึงวันที่</label>
+                        <input type="date" v-model="form.end_date" class="w-full rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F] focus:border-[#7A2F8F]">
+                    </div>
                 </div>
             </div>
 

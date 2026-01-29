@@ -23,7 +23,6 @@ class AuditLogController extends Controller
         // 3. ตัวกรอง: การกระทำ (Action)
         if ($request->filled('action')) {
             if ($request->action === 'DOWNLOAD_ALL') {
-                // ✨ หาที่ Action เป็น EXPORT หรือ DOWNLOAD (รวมทั้งหมดในปุ่มเดียว)
                 $query->whereIn('action', ['EXPORT', 'DOWNLOAD']);
             } else {
                 $query->where('action', $request->action);
@@ -35,9 +34,12 @@ class AuditLogController extends Controller
             $query->where('model_type', $request->model);
         }
 
-        // 5. ตัวกรอง: วันที่ (Date)
-        if ($request->filled('date')) {
-            $query->whereDate('created_at', $request->date);
+        // 5. ✅ ปรับปรุง: ตัวกรองช่วงวันที่ (Date Range)
+        if ($request->filled('start_date')) {
+            $query->whereDate('created_at', '>=', $request->start_date);
+        }
+        if ($request->filled('end_date')) {
+            $query->whereDate('created_at', '<=', $request->end_date);
         }
 
         // 6. ดึงข้อมูล
@@ -47,7 +49,8 @@ class AuditLogController extends Controller
 
         return Inertia::render('System/AuditLogs', [
             'logs' => $logs,
-            'filters' => $request->all(['user_search', 'action', 'model', 'date']),
+            // ✅ ส่งค่า start_date, end_date กลับไปหน้าบ้านแทน date ตัวเดียว
+            'filters' => $request->all(['user_search', 'action', 'model', 'start_date', 'end_date']),
         ]);
     }
 }
