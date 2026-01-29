@@ -16,9 +16,6 @@ const props = defineProps({
 const pageTitle = props.type === 'plan' ? 'แผนงานทั้งหมด (All Plans)' : 'โครงการทั้งหมด (All Projects)';
 const routeName = props.type === 'plan' ? 'plans.index' : 'projects.index';
 
-// --- Success Modal State ---
-const showSuccessModal = ref(false); // ✅ สถานะ Modal แจ้งเตือนสำเร็จ
-
 // --- Search & Filter ---
 const filterForm = ref({
     search: props.filters.search || '',
@@ -47,7 +44,11 @@ const hasActiveRisks = (issues) => issues?.some(i => i.type === 'risk' && i.stat
 const getSeverityClass = (s) => ({ critical: 'bg-red-100 text-red-700', high: 'bg-orange-100 text-orange-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-green-100 text-green-700' }[s] || 'bg-gray-100');
 const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', pending: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700' }[status] || 'bg-gray-100');
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
-const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
+
+const formatDateForInput = (dateString) => {
+    if (!dateString) return '';
+    return String(dateString).split('T')[0].split(' ')[0];
+};
 
 // --- Parent Search Logic ---
 const showParentDropdown = ref(false);
@@ -57,7 +58,10 @@ const parentDropdownRef = ref(null);
 const filteredParents = computed(() => {
     if (!parentSearch.value) return props.parentOptions;
     const lowerSearch = parentSearch.value.toLowerCase();
-    return props.parentOptions.filter(p => p.name.toLowerCase().includes(lowerSearch) || p.type_label.includes(parentSearch.value));
+    return props.parentOptions.filter(p =>
+        p.name.toLowerCase().includes(lowerSearch) ||
+        p.type_label.includes(parentSearch.value)
+    );
 });
 
 const selectParent = (parent) => {
@@ -90,22 +94,23 @@ const modalDepartments = computed(() => {
 });
 
 const openCreateModal = () => {
-    form.reset(); form.clearErrors(); // ✅ ล้าง Error เก่า
-    form.id = null; form.type = props.type;
+    form.reset(); form.clearErrors();
+    form.id = null; form.type = props.type; // Default type
     form.parent_id = ''; parentSearch.value = '';
     form.division_id = ''; form.department_id = ''; form.pm_name = '';
-    modalTitle.value = `✨ สร้าง${props.type === 'plan' ? 'แผนงาน' : 'โครงการ'}ใหม่`;
+    modalTitle.value = `✨ เพิ่มข้อมูลใหม่`;
     showModal.value = true;
 };
 
 const openEditModal = (item) => {
-    form.clearErrors(); // ✅ ล้าง Error เก่า
+    form.clearErrors();
     modalTitle.value = `✏️ แก้ไข: ${item.name}`;
     form.id = item.id; form.name = item.name; form.type = item.type;
     form.budget = item.budget; form.progress = item.progress; form.status = item.status;
     form.planned_start_date = formatDateForInput(item.planned_start_date);
     form.planned_end_date = formatDateForInput(item.planned_end_date);
     form.parent_id = item.parent_id;
+
     form.division_id = item.division_id || '';
     form.department_id = item.department_id || '';
     form.pm_name = item.project_manager ? item.project_manager.name : '';
@@ -120,22 +125,11 @@ const openEditModal = (item) => {
 };
 
 const submit = () => {
-    // ✅ Logic การบันทึก + แสดง Success Modal
-    const options = {
-        onSuccess: () => {
-            showModal.value = false;
-            showSuccessModal.value = true; // ✅ เปิด Modal สำเร็จ
-            setTimeout(() => showSuccessModal.value = false, 2000); // ปิดเองใน 2 วิ
-        }
-    };
-    if (form.id) {
-        form.put(route('work-items.update', form.id), options);
-    } else {
-        form.post(route('work-items.store'), options);
-    }
+    const action = form.id ? form.put(route('work-items.update', form.id)) : form.post(route('work-items.store'));
+    action.then(() => showModal.value = false);
 };
 
-const deleteItem = (id) => { if (confirm('ยืนยันลบ?')) useForm({}).delete(route('work-items.destroy', id)); };
+const deleteItem = (id) => { if (confirm('ยืนยันลบข้อมูลนี้?')) useForm({}).delete(route('work-items.destroy', id)); };
 
 // --- Quick View ---
 const showQuickView = ref(false);
@@ -157,10 +151,14 @@ const openQuickView = (item, type) => {
     <Head :title="pageTitle" />
     <PeaSidebarLayout>
         <div class="py-8 px-4 max-w-[1600px] mx-auto space-y-6">
+
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-200 pb-6">
-                <div><h2 class="text-3xl font-extrabold text-[#4A148C]">{{ pageTitle }}</h2></div>
-                <button @click="openCreateModal" class="bg-[#FDB913] hover:bg-yellow-400 text-[#4A148C] px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center gap-2">
-                    <span class="text-xl leading-none">+</span> เพิ่ม{{ props.type === 'plan' ? 'แผนงาน' : 'โครงการ' }}
+                <div>
+                    <h2 class="text-3xl font-extrabold text-[#4A148C]">{{ pageTitle }}</h2>
+                    <p class="text-gray-500 mt-1">ค้นหาและติดตามสถานะ{{ props.type === 'plan' ? 'แผนงาน' : 'โครงการ' }}ในระบบ</p>
+                </div>
+                <button @click="openCreateModal" class="bg-[#FDB913] hover:bg-yellow-400 text-[#4A148C] px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center gap-2 transform hover:-translate-y-0.5">
+                    <span class="text-xl leading-none">+</span> เพิ่มข้อมูล
                 </button>
             </div>
 
@@ -169,7 +167,37 @@ const openQuickView = (item, type) => {
                     <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none"><svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg></div>
                     <input v-model="filterForm.search" type="text" class="pl-10 w-full rounded-lg border-gray-300 focus:ring-[#7A2F8F]" placeholder="ค้นหาชื่อ หรือ PM..." />
                 </div>
+
+                <div class="flex gap-2 w-full md:w-auto">
+                    <select v-model="filterForm.division_id" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F] w-full md:w-40">
+                        <option value="">ทุกกอง</option>
+                        <option v-for="div in divisions" :key="div.id" :value="div.id">{{ div.name }}</option>
+                    </select>
+                    <select v-model="filterForm.department_id" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F] w-full md:w-40" :disabled="!filterForm.division_id">
+                        <option value="">ทุกแผนก</option>
+                        <option v-for="dept in filterDepartments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
+                    </select>
                 </div>
+
+                <div class="flex gap-2 w-full md:w-auto overflow-x-auto">
+                    <select v-model="filterForm.status" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F]">
+                        <option value="">ทุกสถานะ</option>
+                        <option value="pending">รอเริ่ม</option>
+                        <option value="in_progress">กำลังดำเนินการ</option>
+                        <option value="completed">เสร็จสิ้น</option>
+                        <option value="delayed">ล่าช้า</option>
+                    </select>
+                    <select v-model="filterForm.year" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F]">
+                        <option value="">ทุกปี</option>
+                        <option v-for="y in 5" :key="y" :value="new Date().getFullYear() - 2 + y">{{ new Date().getFullYear() - 2 + y + 543 }}</option>
+                    </select>
+                    <select v-model="filterForm.sort_by" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F]">
+                        <option value="created_at">ล่าสุด</option>
+                        <option value="budget">งบประมาณ</option>
+                        <option value="progress">ความคืบหน้า</option>
+                    </select>
+                </div>
+            </div>
 
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <table class="w-full text-left border-collapse">
@@ -196,6 +224,7 @@ const openQuickView = (item, type) => {
                                             <button v-if="hasActiveIssues(item.issues)" @click.stop="openQuickView(item, 'issue')" class="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center hover:scale-110 transition"><div class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div></button>
                                             <button v-if="hasActiveRisks(item.issues)" @click.stop="openQuickView(item, 'risk')" class="w-5 h-5 rounded-full bg-orange-100 flex items-center justify-center hover:scale-110 transition"><div class="w-2 h-2 rounded-full bg-orange-400"></div></button>
                                         </div>
+
                                         <div class="text-[10px] text-gray-500 mt-0.5 flex flex-wrap items-center gap-1">
                                             <span v-if="item.division" class="bg-blue-50 text-blue-600 px-1.5 rounded border border-blue-100">🏢 {{ item.division.name }}</span>
                                             <span v-if="item.department" class="bg-indigo-50 text-indigo-600 px-1.5 rounded border border-indigo-100">🏷️ {{ item.department.name }}</span>
@@ -204,10 +233,12 @@ const openQuickView = (item, type) => {
                                     </div>
                                 </div>
                             </td>
+
                             <td class="px-6 py-4 text-center">
                                 <span v-if="item.project_manager" class="bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">👤 {{ item.project_manager.name }}</span>
                                 <span v-else class="text-gray-300">-</span>
                             </td>
+
                             <td class="px-6 py-4 text-center"><span class="px-2 py-1 rounded text-xs font-bold uppercase" :class="statusColor(item.status)">{{ item.status }}</span></td>
                             <td class="px-6 py-4"><div class="flex items-center gap-2"><div class="w-full bg-gray-200 rounded-full h-1.5"><div class="bg-[#7A2F8F] h-1.5 rounded-full" :style="`width: ${item.progress}%`"></div></div><span class="text-xs font-medium">{{ item.progress }}%</span></div></td>
                             <td class="px-6 py-4 text-right font-mono font-bold text-gray-700">{{ Number(item.budget).toLocaleString() }}</td>
@@ -222,6 +253,10 @@ const openQuickView = (item, type) => {
                         </tr>
                     </tbody>
                 </table>
+                <div class="px-6 py-4 border-t border-gray-200 flex justify-between items-center" v-if="items.links.length > 3">
+                    <div class="flex gap-1"><Link v-for="(link, k) in items.links" :key="k" :href="link.url || '#'" v-html="link.label" class="px-3 py-1 rounded text-sm" :class="link.active ? 'bg-[#7A2F8F] text-white' : 'text-gray-400 hover:bg-gray-100 border'"/></div>
+                    <div class="text-xs text-gray-500">รวม: {{ items.total }}</div>
+                </div>
             </div>
         </div>
 
@@ -232,6 +267,21 @@ const openQuickView = (item, type) => {
                     <button @click="showModal = false" class="text-white hover:text-yellow-400 font-bold text-xl">&times;</button>
                 </div>
                 <form @submit.prevent="submit" class="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+
+                    <div ref="parentDropdownRef" class="relative">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">อยู่ภายใต้ (สังกัด) <span class="text-red-500">*</span></label>
+                        <input type="text" v-model="parentSearch" @focus="showParentDropdown = true" placeholder="พิมพ์เพื่อค้นหา..." class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
+                        <div v-if="showParentDropdown" class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                            <ul class="py-1 text-sm text-gray-700">
+                                <li v-if="filteredParents.length === 0" class="px-4 py-2 text-gray-400 italic">ไม่พบข้อมูล</li>
+                                <li v-for="parent in filteredParents" :key="parent.id" @click="selectParent(parent)" class="px-4 py-2 hover:bg-purple-50 cursor-pointer flex justify-between items-center group transition">
+                                    <span>{{ parent.name }}</span>
+                                    <span class="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded group-hover:bg-purple-100 group-hover:text-purple-700">{{ parent.type_label }}</span>
+                                </li>
+                            </ul>
+                        </div>
+                        <input type="hidden" v-model="form.parent_id">
+                    </div>
 
                     <div class="grid grid-cols-2 gap-4 bg-purple-50 p-3 rounded-lg border border-purple-100">
                         <div class="col-span-2 text-xs font-bold text-[#4A148C] uppercase">สังกัดหน่วยงาน</div>
@@ -258,13 +308,27 @@ const openQuickView = (item, type) => {
                     </div>
 
                     <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อรายการ <span class="text-red-500">*</span></label>
-                        <input v-model="form.name" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" required>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
+                        <select v-model="form.type" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" required>
+                            <option value="plan">แผนงาน (Plan)</option>
+                            <option value="project">โครงการ (Project)</option>
+                            <option value="task">งานย่อย (Task)</option>
+                        </select>
                     </div>
+
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">ชื่อรายการ <span class="text-red-500">*</span></label><input v-model="form.name" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" required></div>
 
                     <div class="grid grid-cols-2 gap-4">
                         <div><label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label><input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]"></div>
-                         <div><label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label><select v-model="form.status" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]"><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="delayed">Delayed</option></select></div>
+                         <div>
+                             <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label>
+                             <select v-model="form.status" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
+                                 <option value="pending">รอเริ่ม (Pending)</option>
+                                 <option value="in_progress">กำลังดำเนินการ (In Progress)</option>
+                                 <option value="completed">เสร็จสิ้น (Completed)</option>
+                                 <option value="delayed">ล่าช้า (Delayed)</option>
+                             </select>
+                         </div>
                     </div>
                     <div class="grid grid-cols-2 gap-4">
                         <div><label class="block text-sm font-bold text-gray-700 mb-1">วันเริ่ม</label><input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300"></div>
@@ -284,15 +348,21 @@ const openQuickView = (item, type) => {
             </div>
         </div>
 
-        <div v-if="showSuccessModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm animate-fade-in">
-            <div class="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center transform scale-100 transition-transform">
-                <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                    <svg class="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+        <div v-if="showQuickView" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" @click.self="showQuickView = false">
+            <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+                <div class="px-6 py-4 flex justify-between items-center text-white" :class="quickViewType === 'issue' ? 'bg-red-500' : 'bg-orange-500'">
+                    <h3 class="text-lg font-bold flex items-center gap-2"><span>{{ quickViewType === 'issue' ? '🔥' : '⚠️' }}</span> {{ quickViewTitle }}</h3>
+                    <button @click="showQuickView = false" class="text-2xl">&times;</button>
                 </div>
-                <h3 class="text-xl font-bold text-gray-800">บันทึกสำเร็จ!</h3>
-                <p class="text-gray-500 mt-2">ข้อมูลของคุณถูกอัปเดตเรียบร้อยแล้ว</p>
+                <div class="p-6 bg-gray-50 max-h-[70vh] overflow-y-auto space-y-3">
+                    <div v-for="item in quickViewItems" :key="item.id" class="bg-white p-4 rounded-xl border shadow-sm">
+                        <div class="flex justify-between mb-2"><span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded border" :class="getSeverityClass(item.severity)">{{ item.severity }}</span></div>
+                        <h4 class="font-bold text-gray-800">{{ item.title }}</h4>
+                        <p class="text-xs text-gray-600 mt-1">{{ item.description }}</p>
+                    </div>
+                </div>
             </div>
         </div>
 
-        </PeaSidebarLayout>
+    </PeaSidebarLayout>
 </template>

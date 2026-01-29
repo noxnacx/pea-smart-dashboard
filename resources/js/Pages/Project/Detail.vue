@@ -4,18 +4,18 @@ import { ref, computed } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import GanttChart from '@/Components/GanttChart.vue';
 import SCurveChart from '@/Components/SCurveChart.vue';
-import PmAutocomplete from '@/Components/PmAutocomplete.vue'; // ✅ นำเข้า
+import PmAutocomplete from '@/Components/PmAutocomplete.vue';
 
 // --- Props ---
 const props = defineProps({
     item: Object,
     chartData: Object,
     historyLogs: Object,
-    divisions: Array // ✅ รับข้อมูลกอง/แผนก
+    divisions: Array
 });
 
 const activeTab = ref('overview');
-const showSuccessModal = ref(false); // ✅ Modal แจ้งเตือนความสำเร็จ
+const showSuccessModal = ref(false);
 
 // --- Check Role ---
 const page = usePage();
@@ -97,14 +97,12 @@ const breadcrumbs = computed(() => {
 // --- Modals Logic ---
 const showModal = ref(false), isEditing = ref(false), modalTitle = ref(''), showIssueModal = ref(false), showViewIssueModal = ref(false), selectedIssue = ref(null);
 
-// ✅ Form หลัก (เพิ่ม field กอง/แผนก/PM)
 const form = useForm({
     id: null, parent_id: null, name: '', type: 'task', budget: 0, progress: 0,
     status: 'pending', planned_start_date: '', planned_end_date: '',
     division_id: '', department_id: '', pm_name: ''
 });
 
-// ✅ กรองแผนกใน Modal
 const modalDepartments = computed(() => {
     if (!form.division_id) return [];
     const div = props.divisions?.find(d => d.id == form.division_id);
@@ -121,7 +119,7 @@ const filteredFiles = computed(() => fileFilter.value==='all' ? props.item.attac
 const openCreateModal = () => {
     isEditing.value=false; modalTitle.value=`สร้างรายการย่อย`;
     form.reset(); form.parent_id=props.item.id;
-    // Reset fields ใหม่
+    form.type = 'task'; // Default
     form.division_id = ''; form.department_id = ''; form.pm_name = '';
     showModal.value=true;
 };
@@ -133,8 +131,7 @@ const openEditModal = (t) => {
     form.planned_start_date=formatDateForInput(t.planned_start_date);
     form.planned_end_date=formatDateForInput(t.planned_end_date);
 
-    // ✅ Load ข้อมูลใหม่
-    form.parent_id = t.parent_id; // เก็บไว้เผื่อใช้
+    form.parent_id = t.parent_id;
     form.division_id = t.division_id || '';
     form.department_id = t.department_id || '';
     form.pm_name = t.project_manager ? t.project_manager.name : '';
@@ -146,7 +143,6 @@ const submit = () => {
     const options = {
         onSuccess: () => {
             showModal.value = false;
-            // ✅ Show Success Modal
             showSuccessModal.value = true;
             setTimeout(() => showSuccessModal.value = false, 2000);
         }
@@ -241,7 +237,7 @@ const submitComment = () => { commentForm.post(route('comments.store', props.ite
             <div v-show="activeTab==='overview'" class="flex flex-col lg:flex-row gap-4 border border-gray-200 rounded-xl overflow-hidden bg-white shadow-sm h-[700px] animate-fade-in">
                 <div class="w-full lg:w-2/5 border-r border-gray-200 flex flex-col h-full bg-white overflow-hidden">
                     <div class="p-3 bg-gray-50 border-b flex justify-between items-center h-[50px]">
-                        <h3 class="text-xs font-bold text-gray-600">TASK LIST</h3>
+                        <h3 class="text-xs font-bold text-gray-600">รายการงานย่อย</h3>
                         <button v-if="canEdit" @click="openCreateModal" class="text-[#7A2F8F] hover:bg-purple-50 p-1 rounded font-bold text-lg" title="เพิ่มงานย่อย">+</button>
                     </div>
                     <div class="overflow-y-auto flex-1">
@@ -383,12 +379,29 @@ const submitComment = () => { commentForm.post(route('comments.store', props.ite
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแลโปรเจค (PM)</label>
                             <PmAutocomplete v-model="form.pm_name" placeholder="พิมพ์ชื่อ หรือเลือกจากรายการ..." />
-                            <p class="text-[10px] text-gray-400 mt-1">พิมพ์ชื่อใหม่เพื่อสร้างโปรไฟล์ หรือเลือกชื่อเดิมที่มีอยู่แล้ว</p>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
+                            <select v-model="form.type" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" required>
+                                <option value="plan">แผนงาน (Plan)</option>
+                                <option value="project">โครงการ (Project)</option>
+                                <option value="task">งานย่อย (Task)</option>
+                            </select>
                         </div>
 
                         <div><label class="block text-sm font-bold text-gray-700 mb-1">ชื่อรายการ <span class="text-red-500">*</span></label><input v-model="form.name" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" required></div>
-                        <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label><input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]"></div><div><label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label><select v-model="form.status" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]"><option value="pending">Pending</option><option value="in_progress">In Progress</option><option value="completed">Completed</option><option value="delayed">Delayed</option></select></div></div>
-                        <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-bold text-gray-700 mb-1">เริ่ม</label><input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300"></div><div><label class="block text-sm font-bold text-gray-700 mb-1">สิ้นสุด</label><input v-model="form.planned_end_date" type="date" class="w-full rounded-lg border-gray-300"></div></div>
+                        <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label><input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]"></div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label>
+                            <select v-model="form.status" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
+                                <option value="pending">รอเริ่ม (Pending)</option>
+                                <option value="in_progress">กำลังดำเนินการ (In Progress)</option>
+                                <option value="completed">เสร็จสิ้น (Completed)</option>
+                                <option value="delayed">ล่าช้า (Delayed)</option>
+                            </select>
+                        </div></div>
+                        <div class="grid grid-cols-2 gap-4"><div><label class="block text-sm font-bold text-gray-700 mb-1">วันเริ่ม</label><input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300"></div><div><label class="block text-sm font-bold text-gray-700 mb-1">วันจบ</label><input v-model="form.planned_end_date" type="date" class="w-full rounded-lg border-gray-300"></div></div>
                         <div class="bg-gray-50 p-3 rounded-lg border border-gray-200">
                             <label class="block text-xs font-bold text-gray-500 mb-2 flex justify-between"><span>ความคืบหน้า</span><span class="text-[#7A2F8F] font-black text-lg">{{ form.progress }}%</span></label>
                             <input v-model="form.progress" type="range" min="0" max="100" class="w-full accent-[#7A2F8F] cursor-pointer">
