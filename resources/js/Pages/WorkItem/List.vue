@@ -13,8 +13,9 @@ const props = defineProps({
     divisions: Array
 });
 
-const pageTitle = props.type === 'plan' ? 'แผนงานทั้งหมด (All Plans)' : 'โครงการทั้งหมด (All Projects)';
+const pageTitle = props.type === 'plan' ? 'แผนงานทั้งหมด' : 'โครงการทั้งหมด';
 const routeName = props.type === 'plan' ? 'plans.index' : 'projects.index';
+const showSuccessModal = ref(false);
 
 // --- Search & Filter ---
 const filterForm = ref({
@@ -42,13 +43,9 @@ watch(filterForm, throttle(() => {
 const hasActiveIssues = (issues) => issues?.some(i => i.type === 'issue' && i.status !== 'resolved');
 const hasActiveRisks = (issues) => issues?.some(i => i.type === 'risk' && i.status !== 'resolved');
 const getSeverityClass = (s) => ({ critical: 'bg-red-100 text-red-700', high: 'bg-orange-100 text-orange-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-green-100 text-green-700' }[s] || 'bg-gray-100');
-const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', pending: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700' }[status] || 'bg-gray-100');
+const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', pending: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
-
-const formatDateForInput = (dateString) => {
-    if (!dateString) return '';
-    return String(dateString).split('T')[0].split(' ')[0];
-};
+const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
 
 // --- Parent Search Logic ---
 const showParentDropdown = ref(false);
@@ -58,10 +55,7 @@ const parentDropdownRef = ref(null);
 const filteredParents = computed(() => {
     if (!parentSearch.value) return props.parentOptions;
     const lowerSearch = parentSearch.value.toLowerCase();
-    return props.parentOptions.filter(p =>
-        p.name.toLowerCase().includes(lowerSearch) ||
-        p.type_label.includes(parentSearch.value)
-    );
+    return props.parentOptions.filter(p => p.name.toLowerCase().includes(lowerSearch) || p.type_label.includes(parentSearch.value));
 });
 
 const selectParent = (parent) => {
@@ -70,11 +64,7 @@ const selectParent = (parent) => {
     showParentDropdown.value = false;
 };
 
-const handleClickOutside = (e) => {
-    if (parentDropdownRef.value && !parentDropdownRef.value.contains(e.target)) {
-        showParentDropdown.value = false;
-    }
-};
+const handleClickOutside = (e) => { if (parentDropdownRef.value && !parentDropdownRef.value.contains(e.target)) showParentDropdown.value = false; };
 onMounted(() => document.addEventListener('click', handleClickOutside));
 onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 
@@ -84,7 +74,7 @@ const modalTitle = ref('');
 const form = useForm({
     id: null, name: '', type: props.type, budget: 0, progress: 0,
     status: 'pending', planned_start_date: '', planned_end_date: '', parent_id: '',
-    division_id: '', department_id: '', pm_name: ''
+    division_id: '', department_id: '', pm_name: '', weight: 1
 });
 
 const modalDepartments = computed(() => {
@@ -95,9 +85,10 @@ const modalDepartments = computed(() => {
 
 const openCreateModal = () => {
     form.reset(); form.clearErrors();
-    form.id = null; form.type = props.type; // Default type
+    form.id = null; form.type = props.type;
     form.parent_id = ''; parentSearch.value = '';
     form.division_id = ''; form.department_id = ''; form.pm_name = '';
+    form.weight = 1;
     modalTitle.value = `✨ เพิ่มข้อมูลใหม่`;
     showModal.value = true;
 };
@@ -110,23 +101,28 @@ const openEditModal = (item) => {
     form.planned_start_date = formatDateForInput(item.planned_start_date);
     form.planned_end_date = formatDateForInput(item.planned_end_date);
     form.parent_id = item.parent_id;
-
     form.division_id = item.division_id || '';
     form.department_id = item.department_id || '';
     form.pm_name = item.project_manager ? item.project_manager.name : '';
+    form.weight = item.weight || 1;
 
     if (item.parent) {
         const typeMap = { strategy: 'ยุทธศาสตร์', plan: 'แผนงาน', project: 'โครงการ', task: 'งานย่อย' };
         parentSearch.value = `[${typeMap[item.parent.type] || item.parent.type}] ${item.parent.name}`;
-    } else {
-        parentSearch.value = '';
-    }
+    } else { parentSearch.value = ''; }
     showModal.value = true;
 };
 
 const submit = () => {
-    const action = form.id ? form.put(route('work-items.update', form.id)) : form.post(route('work-items.store'));
-    action.then(() => showModal.value = false);
+    const options = {
+        onSuccess: () => {
+            showModal.value = false;
+            showSuccessModal.value = true;
+            setTimeout(() => showSuccessModal.value = false, 2000);
+        }
+    };
+    if (form.id) form.put(route('work-items.update', form.id), options);
+    else form.post(route('work-items.store'), options);
 };
 
 const deleteItem = (id) => { if (confirm('ยืนยันลบข้อมูลนี้?')) useForm({}).delete(route('work-items.destroy', id)); };
@@ -155,7 +151,7 @@ const openQuickView = (item, type) => {
             <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-200 pb-6">
                 <div>
                     <h2 class="text-3xl font-extrabold text-[#4A148C]">{{ pageTitle }}</h2>
-                    <p class="text-gray-500 mt-1">ค้นหาและติดตามสถานะ{{ props.type === 'plan' ? 'แผนงาน' : 'โครงการ' }}ในระบบ</p>
+                    <p class="text-gray-500 mt-1">ค้นหาและติดตามสถานะในระบบ</p>
                 </div>
                 <button @click="openCreateModal" class="bg-[#FDB913] hover:bg-yellow-400 text-[#4A148C] px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center gap-2 transform hover:-translate-y-0.5">
                     <span class="text-xl leading-none">+</span> เพิ่มข้อมูล
@@ -173,10 +169,6 @@ const openQuickView = (item, type) => {
                         <option value="">ทุกกอง</option>
                         <option v-for="div in divisions" :key="div.id" :value="div.id">{{ div.name }}</option>
                     </select>
-                    <select v-model="filterForm.department_id" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F] w-full md:w-40" :disabled="!filterForm.division_id">
-                        <option value="">ทุกแผนก</option>
-                        <option v-for="dept in filterDepartments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
-                    </select>
                 </div>
 
                 <div class="flex gap-2 w-full md:w-auto overflow-x-auto">
@@ -186,15 +178,7 @@ const openQuickView = (item, type) => {
                         <option value="in_progress">กำลังดำเนินการ</option>
                         <option value="completed">เสร็จสิ้น</option>
                         <option value="delayed">ล่าช้า</option>
-                    </select>
-                    <select v-model="filterForm.year" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F]">
-                        <option value="">ทุกปี</option>
-                        <option v-for="y in 5" :key="y" :value="new Date().getFullYear() - 2 + y">{{ new Date().getFullYear() - 2 + y + 543 }}</option>
-                    </select>
-                    <select v-model="filterForm.sort_by" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F]">
-                        <option value="created_at">ล่าสุด</option>
-                        <option value="budget">งบประมาณ</option>
-                        <option value="progress">ความคืบหน้า</option>
+                        <option value="cancelled">ยกเลิก</option>
                     </select>
                 </div>
             </div>
@@ -214,33 +198,30 @@ const openQuickView = (item, type) => {
                     </thead>
                     <tbody class="divide-y divide-gray-100 text-sm">
                         <tr v-if="items.data.length === 0"><td colspan="7" class="px-6 py-8 text-center text-gray-400">ไม่พบข้อมูล</td></tr>
-                        <tr v-for="item in items.data" :key="item.id" class="hover:bg-purple-50 transition group">
+                        <tr v-for="item in items.data" :key="item.id" class="hover:bg-purple-50 transition group" :class="{'opacity-50 bg-gray-50 grayscale': item.status === 'cancelled'}">
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-[#7A2F8F] font-bold text-lg shrink-0">{{ type === 'plan' ? 'P' : 'J' }}</div>
+                                    <div class="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-[#7A2F8F] font-bold text-lg shrink-0" :class="item.status === 'cancelled' ? 'bg-gray-200 text-gray-500' : ''">{{ type === 'plan' ? 'P' : 'J' }}</div>
                                     <div class="min-w-0">
                                         <div class="flex items-center gap-2">
-                                            <Link :href="route('work-items.show', item.id)" class="font-bold text-gray-800 hover:text-[#7A2F8F] hover:underline truncate max-w-[280px]">{{ item.name }}</Link>
+                                            <Link :href="route('work-items.show', item.id)" class="font-bold text-gray-800 hover:text-[#7A2F8F] hover:underline truncate max-w-[280px]">
+                                                {{ item.name }} <span v-if="item.status === 'cancelled'" class="text-[10px] text-gray-500 font-normal">(ยกเลิก)</span>
+                                            </Link>
                                             <button v-if="hasActiveIssues(item.issues)" @click.stop="openQuickView(item, 'issue')" class="w-5 h-5 rounded-full bg-red-100 flex items-center justify-center hover:scale-110 transition"><div class="w-2 h-2 rounded-full bg-red-500 animate-pulse"></div></button>
-                                            <button v-if="hasActiveRisks(item.issues)" @click.stop="openQuickView(item, 'risk')" class="w-5 h-5 rounded-full bg-orange-100 flex items-center justify-center hover:scale-110 transition"><div class="w-2 h-2 rounded-full bg-orange-400"></div></button>
                                         </div>
-
                                         <div class="text-[10px] text-gray-500 mt-0.5 flex flex-wrap items-center gap-1">
                                             <span v-if="item.division" class="bg-blue-50 text-blue-600 px-1.5 rounded border border-blue-100">🏢 {{ item.division.name }}</span>
-                                            <span v-if="item.department" class="bg-indigo-50 text-indigo-600 px-1.5 rounded border border-indigo-100">🏷️ {{ item.department.name }}</span>
                                             <span v-if="item.parent" class="bg-gray-100 px-1.5 rounded border">📂 {{ item.parent.name }}</span>
                                         </div>
                                     </div>
                                 </div>
                             </td>
-
                             <td class="px-6 py-4 text-center">
                                 <span v-if="item.project_manager" class="bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">👤 {{ item.project_manager.name }}</span>
                                 <span v-else class="text-gray-300">-</span>
                             </td>
-
                             <td class="px-6 py-4 text-center"><span class="px-2 py-1 rounded text-xs font-bold uppercase" :class="statusColor(item.status)">{{ item.status }}</span></td>
-                            <td class="px-6 py-4"><div class="flex items-center gap-2"><div class="w-full bg-gray-200 rounded-full h-1.5"><div class="bg-[#7A2F8F] h-1.5 rounded-full" :style="`width: ${item.progress}%`"></div></div><span class="text-xs font-medium">{{ item.progress }}%</span></div></td>
+                            <td class="px-6 py-4"><div class="flex items-center gap-2"><div class="w-full bg-gray-200 rounded-full h-1.5"><div class="h-1.5 rounded-full" :class="item.status === 'cancelled' ? 'bg-gray-400' : 'bg-[#7A2F8F]'" :style="`width: ${item.progress}%`"></div></div><span class="text-xs font-medium">{{ item.progress }}%</span></div></td>
                             <td class="px-6 py-4 text-right font-mono font-bold text-gray-700">{{ Number(item.budget).toLocaleString() }}</td>
                             <td class="px-6 py-4 text-center text-xs text-gray-500">{{ formatDate(item.planned_start_date) }} - {{ formatDate(item.planned_end_date) }}</td>
                             <td class="px-6 py-4 text-center">
@@ -253,116 +234,87 @@ const openQuickView = (item, type) => {
                         </tr>
                     </tbody>
                 </table>
-                <div class="px-6 py-4 border-t border-gray-200 flex justify-between items-center" v-if="items.links.length > 3">
-                    <div class="flex gap-1"><Link v-for="(link, k) in items.links" :key="k" :href="link.url || '#'" v-html="link.label" class="px-3 py-1 rounded text-sm" :class="link.active ? 'bg-[#7A2F8F] text-white' : 'text-gray-400 hover:bg-gray-100 border'"/></div>
-                    <div class="text-xs text-gray-500">รวม: {{ items.total }}</div>
-                </div>
             </div>
         </div>
 
         <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
             <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl h-[90vh] flex flex-col">
-                <div class="bg-[#4A148C] px-6 py-4 flex justify-between items-center border-b-4 border-[#FDB913] shrink-0">
+                <div class="bg-[#4A148C] px-6 py-4 flex justify-between items-center border-b-4 border-[#FDB913]">
                     <h3 class="text-lg font-bold text-white">{{ modalTitle }}</h3>
                     <button @click="showModal = false" class="text-white hover:text-yellow-400 font-bold text-xl">&times;</button>
                 </div>
                 <form @submit.prevent="submit" class="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
-
-                    <div ref="parentDropdownRef" class="relative">
-                        <label class="block text-sm font-bold text-gray-700 mb-1">อยู่ภายใต้ (สังกัด) <span class="text-red-500">*</span></label>
-                        <input type="text" v-model="parentSearch" @focus="showParentDropdown = true" placeholder="พิมพ์เพื่อค้นหา..." class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
-                        <div v-if="showParentDropdown" class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                            <ul class="py-1 text-sm text-gray-700">
-                                <li v-if="filteredParents.length === 0" class="px-4 py-2 text-gray-400 italic">ไม่พบข้อมูล</li>
-                                <li v-for="parent in filteredParents" :key="parent.id" @click="selectParent(parent)" class="px-4 py-2 hover:bg-purple-50 cursor-pointer flex justify-between items-center group transition">
-                                    <span>{{ parent.name }}</span>
-                                    <span class="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded group-hover:bg-purple-100 group-hover:text-purple-700">{{ parent.type_label }}</span>
-                                </li>
-                            </ul>
-                        </div>
-                        <input type="hidden" v-model="form.parent_id">
-                    </div>
-
                     <div class="grid grid-cols-2 gap-4 bg-purple-50 p-3 rounded-lg border border-purple-100">
                         <div class="col-span-2 text-xs font-bold text-[#4A148C] uppercase">สังกัดหน่วยงาน</div>
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">กอง <span class="text-red-500">*</span></label>
-                            <select v-model="form.division_id" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.division_id}" required>
+                            <select v-model="form.division_id" class="w-full rounded-lg border-gray-300 text-sm" required>
                                 <option value="">-- เลือกกอง --</option>
                                 <option v-for="div in divisions" :key="div.id" :value="div.id">{{ div.name }}</option>
                             </select>
-                            <div v-if="form.errors.division_id" class="text-red-500 text-xs mt-1">{{ form.errors.division_id }}</div>
                         </div>
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">แผนก</label>
-                            <select v-model="form.department_id" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :disabled="!form.division_id">
-                                <option value="">-- ไม่ระบุ (สังกัดกอง) --</option>
+                            <select v-model="form.department_id" class="w-full rounded-lg border-gray-300 text-sm" :disabled="!form.division_id">
+                                <option value="">-- ไม่ระบุ --</option>
                                 <option v-for="dept in modalDepartments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
                             </select>
                         </div>
                     </div>
-
-                    <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแลโปรเจค (PM)</label>
-                        <PmAutocomplete v-model="form.pm_name" placeholder="พิมพ์ชื่อ หรือเลือกจากรายการ..." />
-                    </div>
-
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแล (PM)</label><PmAutocomplete v-model="form.pm_name" /></div>
                     <div>
                         <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
-                        <select v-model="form.type" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" required>
-                            <option value="plan">แผนงาน (Plan)</option>
-                            <option value="project">โครงการ (Project)</option>
-                            <option value="task">งานย่อย (Task)</option>
+                        <select v-model="form.type" class="w-full rounded-lg border-gray-300" required>
+                            <option value="plan">แผนงาน</option><option value="project">โครงการ</option><option value="task">งานย่อย</option>
                         </select>
                     </div>
+                    <div><label class="block text-sm font-bold text-gray-700 mb-1">ชื่อรายการ <span class="text-red-500">*</span></label><input v-model="form.name" class="w-full rounded-lg border-gray-300" required></div>
+                    <div class="grid grid-cols-2 gap-4">
+                        <div><label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label><input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300"></div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label>
+                            <select v-model="form.status" class="w-full rounded-lg border-gray-300">
+                                <option value="pending">รอเริ่ม</option><option value="in_progress">กำลังทำ</option>
+                                <option value="completed">เสร็จสิ้น</option><option value="delayed">ล่าช้า</option>
+                                <option value="cancelled">ยกเลิก</option>
+                            </select>
+                        </div>
+                    </div>
 
-                    <div><label class="block text-sm font-bold text-gray-700 mb-1">ชื่อรายการ <span class="text-red-500">*</span></label><input v-model="form.name" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" required></div>
+                    <div class="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border">
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน</label>
+                            <input v-model="form.weight" type="number" step="0.1" min="0" class="w-full rounded-lg border-gray-300">
+                        </div>
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">ความคืบหน้า (%)</label>
+                            <input v-model="form.progress" type="number" min="0" max="100" class="w-full rounded-lg border-gray-300">
+                        </div>
+                    </div>
 
                     <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label><input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]"></div>
-                         <div>
-                             <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label>
-                             <select v-model="form.status" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
-                                 <option value="pending">รอเริ่ม (Pending)</option>
-                                 <option value="in_progress">กำลังดำเนินการ (In Progress)</option>
-                                 <option value="completed">เสร็จสิ้น (Completed)</option>
-                                 <option value="delayed">ล่าช้า (Delayed)</option>
-                             </select>
-                         </div>
-                    </div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">วันเริ่ม</label><input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300"></div>
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">วันจบ</label><input v-model="form.planned_end_date" type="date" class="w-full rounded-lg border-gray-300"></div>
-                    </div>
-                    <div class="bg-gray-50 p-3 rounded-lg border border-gray-200">
-                        <label class="block text-xs font-bold text-gray-500 mb-2 flex justify-between"><span>ความคืบหน้า</span><span class="text-[#7A2F8F] font-black text-lg">{{ form.progress }}%</span></label>
-                        <input v-model="form.progress" type="range" min="0" max="100" class="w-full accent-[#7A2F8F] cursor-pointer">
+                        <div><label class="block text-sm font-bold text-gray-700 mb-1">เริ่ม</label><input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300"></div>
+                        <div><label class="block text-sm font-bold text-gray-700 mb-1">สิ้นสุด</label><input v-model="form.planned_end_date" type="date" class="w-full rounded-lg border-gray-300"></div>
                     </div>
                 </form>
                 <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0">
-                    <button type="button" @click="showModal = false" class="px-5 py-2.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg font-bold">ยกเลิก</button>
-                    <button @click="submit" class="px-5 py-2.5 bg-[#7A2F8F] hover:bg-[#5e2270] text-white rounded-lg font-bold shadow-md" :disabled="form.processing">
-                        {{ form.processing ? 'กำลังบันทึก...' : 'บันทึก' }}
-                    </button>
+                    <button @click="showModal = false" class="px-5 py-2.5 bg-white border rounded-lg font-bold">ยกเลิก</button>
+                    <button @click="submit" class="px-5 py-2.5 bg-[#7A2F8F] text-white rounded-lg font-bold shadow-md" :disabled="form.processing">บันทึก</button>
                 </div>
             </div>
         </div>
 
-        <div v-if="showQuickView" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" @click.self="showQuickView = false">
-            <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
-                <div class="px-6 py-4 flex justify-between items-center text-white" :class="quickViewType === 'issue' ? 'bg-red-500' : 'bg-orange-500'">
-                    <h3 class="text-lg font-bold flex items-center gap-2"><span>{{ quickViewType === 'issue' ? '🔥' : '⚠️' }}</span> {{ quickViewTitle }}</h3>
-                    <button @click="showQuickView = false" class="text-2xl">&times;</button>
-                </div>
-                <div class="p-6 bg-gray-50 max-h-[70vh] overflow-y-auto space-y-3">
-                    <div v-for="item in quickViewItems" :key="item.id" class="bg-white p-4 rounded-xl border shadow-sm">
-                        <div class="flex justify-between mb-2"><span class="text-[10px] font-bold uppercase px-2 py-0.5 rounded border" :class="getSeverityClass(item.severity)">{{ item.severity }}</span></div>
-                        <h4 class="font-bold text-gray-800">{{ item.title }}</h4>
-                        <p class="text-xs text-gray-600 mt-1">{{ item.description }}</p>
+        <Teleport to="body">
+            <div v-if="showSuccessModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm">
+                <div class="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center animate-fade-in">
+                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
+                        <svg class="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
                     </div>
+                    <h3 class="text-xl font-bold text-gray-800">บันทึกสำเร็จ!</h3>
+                    <p class="text-gray-500 mt-2">ข้อมูลถูกอัปเดตเรียบร้อยแล้ว</p>
                 </div>
             </div>
-        </div>
+        </Teleport>
 
     </PeaSidebarLayout>
 </template>

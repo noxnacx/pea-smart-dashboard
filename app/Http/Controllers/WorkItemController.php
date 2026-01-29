@@ -82,7 +82,6 @@ class WorkItemController extends Controller
 
     public function store(Request $request)
     {
-        // ✅ แปลงค่า department_id ที่เป็นค่าว่างให้เป็น null ก่อน validate
         if (empty($request->department_id)) {
             $request->merge(['department_id' => null]);
         }
@@ -96,12 +95,12 @@ class WorkItemController extends Controller
             'budget' => 'nullable|numeric',
             'planned_start_date' => 'nullable|date',
             'planned_end_date' => 'nullable|date',
-            'division_id' => 'required|exists:divisions,id', // ⚠️ ต้องเลือกกองเสมอ
+            'division_id' => 'required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
             'pm_name' => 'nullable|string|max:255',
+            'weight' => 'nullable|numeric|min:0',
         ]);
 
-        // จัดการ PM
         if ($request->filled('pm_name')) {
             $pm = ProjectManager::firstOrCreate(['name' => trim($request->pm_name)]);
             $validated['project_manager_id'] = $pm->id;
@@ -112,7 +111,15 @@ class WorkItemController extends Controller
         $validated['budget'] = $validated['budget'] ?? 0;
         $validated['status'] = $validated['status'] ?? 'pending';
 
+        // ✅ Auto Set Active: ถ้าสถานะไม่ใช่ 'cancelled' ให้ถือว่า Active (เปิดใช้งาน)
+        // ถ้าเป็น 'cancelled' ให้ is_active = false (ปิดการคำนวณน้ำหนัก)
+        $validated['is_active'] = $validated['status'] !== 'cancelled';
+
         $workItem = WorkItem::create($validated);
+
+        if ($workItem->parent) {
+            $workItem->parent->recalculateProgress();
+        }
 
         try {
             $msg = "✨ สร้างงานใหม่: " . $workItem->name . "\n" .
@@ -128,7 +135,6 @@ class WorkItemController extends Controller
 
     public function update(Request $request, WorkItem $workItem)
     {
-        // ✅ แปลงค่า department_id ที่เป็นค่าว่างให้เป็น null
         if (empty($request->department_id)) {
             $request->merge(['department_id' => null]);
         }
@@ -142,9 +148,10 @@ class WorkItemController extends Controller
             'planned_end_date' => 'nullable|date',
             'type' => 'required|string',
             'parent_id' => 'nullable|exists:work_items,id',
-            'division_id' => 'required|exists:divisions,id', // ⚠️ ต้องเลือกกองเสมอ
+            'division_id' => 'required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
             'pm_name' => 'nullable|string|max:255',
+            'weight' => 'nullable|numeric|min:0',
         ]);
 
         if ($request->has('pm_name')) {
@@ -162,6 +169,9 @@ class WorkItemController extends Controller
         } else {
             $validated['progress'] = 0;
         }
+
+        // ✅ Auto Set Active logic เดียวกับ Store
+        $validated['is_active'] = $validated['status'] !== 'cancelled';
 
         $workItem->update($validated);
 
@@ -184,48 +194,44 @@ class WorkItemController extends Controller
 
     public function destroy(WorkItem $workItem)
     {
+        $parent = $workItem->parent;
         $workItem->delete();
+
+        if ($parent) {
+            $parent->recalculateProgress();
+        }
+
         return back()->with('success', 'ลบงานสำเร็จ');
     }
 
     public function show(WorkItem $workItem)
     {
-        // 1. Load Data (Relations)
         $workItem->load([
             'parent.parent.parent',
             'attachments.uploader',
             'issues.user',
             'children' => function($q) {
-                $q->orderBy('order_index')->with('attachments');
+                // ดึง PM ของลูกมาด้วย เพื่อให้ตอน Edit Modal ไม่หาย
+                $q->orderBy('order_index')->with(['attachments', 'projectManager']);
             },
             'children.children' => function($q) { $q->orderBy('order_index'); },
             'children.children.children',
-            'division',        // ✅ โหลดข้อมูลกอง (สำหรับแสดงผล)
-            'department',      // ✅ โหลดข้อมูลแผนก (สำหรับแสดงผล)
-            'projectManager'   // ✅ โหลดข้อมูล PM (สำหรับแสดงผล)
+            'division',
+            'department',
+            'projectManager'
         ]);
 
-        // 2. Full S-Curve Logic
-        $months = [];
-        $plannedData = [];
-        $actualData = [];
+        // S-Curve Logic (ย่อไว้เหมือนเดิม)
+        $months = []; $plannedData = []; $actualData = [];
         $startDate = $workItem->planned_start_date ? $workItem->planned_start_date->copy()->startOfMonth() : now()->startOfYear();
         $endDate = $workItem->planned_end_date ? $workItem->planned_end_date->copy()->endOfMonth() : now()->endOfYear();
-
         if ($endDate->lt($startDate)) $endDate = $startDate->copy()->addMonths(1);
-
         $allChildren = collect([$workItem]);
         $tempQueue = [$workItem];
         while(count($tempQueue) > 0) {
             $current = array_shift($tempQueue);
-            if($current->children) {
-                foreach($current->children as $child) {
-                    $allChildren->push($child);
-                    $tempQueue[] = $child;
-                }
-            }
+            if($current->children) { foreach($current->children as $child) { $allChildren->push($child); $tempQueue[] = $child; } }
         }
-
         $budgetItems = $allChildren->filter(function($item) {
             if ($item->budget <= 0) return false;
             if ($item->children->isEmpty()) return true;
@@ -233,16 +239,13 @@ class WorkItemController extends Controller
             if ($childrenBudget > 0) return false;
             return true;
         });
-
         $totalProjectBudget = $budgetItems->sum('budget');
         if ($totalProjectBudget <= 0) $totalProjectBudget = 1;
-
         $currentDate = $startDate->copy();
         while ($currentDate->lte($endDate)) {
             $thaiMonths = [1 => 'ม.ค.', 2 => 'ก.พ.', 3 => 'มี.ค.', 4 => 'เม.ย.', 5 => 'พ.ค.', 6 => 'มิ.ย.', 7 => 'ก.ค.', 8 => 'ส.ค.', 9 => 'ก.ย.', 10 => 'ต.ค.', 11 => 'พ.ย.', 12 => 'ธ.ค.'];
             $months[] = $thaiMonths[$currentDate->month] . ' ' . substr($currentDate->year + 543, -2);
             $calcDate = $currentDate->copy()->endOfMonth();
-
             $pvMoney = $budgetItems->sum(function($item) use ($calcDate) {
                 if (!$item->planned_start_date || !$item->planned_end_date) return 0;
                 if ($calcDate->lt($item->planned_start_date)) return 0;
@@ -251,78 +254,30 @@ class WorkItemController extends Controller
                 $passedDays = $item->planned_start_date->diffInDays($calcDate) + 1;
                 return $item->budget * ($passedDays / max(1, $totalDays));
             });
-            $pvPercent = ($pvMoney / $totalProjectBudget) * 100;
-            $plannedData[] = round($pvPercent, 2);
-
+            $plannedData[] = round(($pvMoney / $totalProjectBudget) * 100, 2);
             if ($calcDate->lte(now()->endOfMonth())) {
                 $evMoney = $budgetItems->sum(fn($item) => $item->budget * ($item->progress / 100));
-                $evPercent = ($evMoney / $totalProjectBudget) * 100;
-                $actualData[] = round($evPercent, 2);
+                $actualData[] = round(($evMoney / $totalProjectBudget) * 100, 2);
             }
             $currentDate->addMonth();
         }
 
-        // 3. Timeline & Logs Logic
+        // Timeline Logic
         $relatedIds = collect([$workItem->id])->merge($allChildren->pluck('id'))->unique()->toArray();
-
-        $logs = AuditLog::with('user')
-            ->where(function($q) use ($relatedIds) {
-                $q->where('model_type', 'WorkItem')->whereIn('model_id', $relatedIds);
-            })
-            ->orWhere(function($q) use ($workItem) {
-                 $q->whereIn('model_type', ['Attachment', 'Issue'])
-                   ->where(function($sq) use ($workItem) {
-                       $sq->where('changes->work_item_id', $workItem->id)
-                          ->orWhere('changes->after->work_item_id', $workItem->id);
-                   });
-            })
-            ->get()
-            ->map(function ($item) use ($allChildren) {
-                $item->timeline_type = 'log';
-                if ($item->model_type === 'WorkItem') {
-                    $target = $allChildren->firstWhere('id', $item->model_id);
-                    $item->target_name = $target ? $target->name : 'รายการที่ถูกลบ';
-                }
-                return $item;
-            });
-
-        $comments = Comment::with('user')
-            ->whereIn('work_item_id', $relatedIds)
-            ->get()
-            ->map(function ($item) use ($allChildren) {
-                $item->timeline_type = 'comment';
-                $target = $allChildren->firstWhere('id', $item->work_item_id);
-                $item->target_name = $target ? $target->name : '';
-                return $item;
-            });
-
+        $logs = AuditLog::with('user')->where(function($q) use ($relatedIds) { $q->where('model_type', 'WorkItem')->whereIn('model_id', $relatedIds); })->orWhere(function($q) use ($workItem) { $q->whereIn('model_type', ['Attachment', 'Issue'])->where(function($sq) use ($workItem) { $sq->where('changes->work_item_id', $workItem->id)->orWhere('changes->after->work_item_id', $workItem->id); }); })->get()->map(function ($item) use ($allChildren) { $item->timeline_type = 'log'; if ($item->model_type === 'WorkItem') { $target = $allChildren->firstWhere('id', $item->model_id); $item->target_name = $target ? $target->name : 'รายการที่ถูกลบ'; } return $item; });
+        $comments = Comment::with('user')->whereIn('work_item_id', $relatedIds)->get()->map(function ($item) use ($allChildren) { $item->timeline_type = 'comment'; $target = $allChildren->firstWhere('id', $item->work_item_id); $item->target_name = $target ? $target->name : ''; return $item; });
         $timeline = $logs->concat($comments)->sortByDesc('created_at')->values();
-
-        $page = request()->get('page', 1);
-        $perPage = 10;
-        $total = $timeline->count();
+        $page = request()->get('page', 1); $perPage = 10; $total = $timeline->count();
         $paginatedItems = $timeline->slice(($page - 1) * $perPage, $perPage)->values();
+        $paginatedTimeline = new LengthAwarePaginator($paginatedItems, $total, $perPage, $page, ['path' => request()->url(), 'query' => request()->query()]);
 
-        $paginatedTimeline = new LengthAwarePaginator(
-            $paginatedItems,
-            $total,
-            $perPage,
-            $page,
-            ['path' => request()->url(), 'query' => request()->query()]
-        );
-
-        // ✅ 4. ดึงข้อมูล Master Data กอง/แผนก (สำคัญมากสำหรับ Dropdown ใน Modal แก้ไข)
         $divisions = Division::with('departments')->orderBy('name')->get();
 
         return Inertia::render('Project/Detail', [
             'item' => $workItem,
             'historyLogs' => $paginatedTimeline,
-            'chartData' => [
-                'categories' => $months,
-                'planned' => $plannedData,
-                'actual' => $actualData
-            ],
-            'divisions' => $divisions, // ✅ ส่งข้อมูลนี้ไปให้ Frontend
+            'chartData' => ['categories' => $months, 'planned' => $plannedData, 'actual' => $actualData],
+            'divisions' => $divisions,
         ]);
     }
 
@@ -384,6 +339,15 @@ class WorkItemController extends Controller
                     $start = $t->planned_start_date ? Carbon::parse($t->planned_start_date) : null;
                     $end = $t->planned_end_date ? Carbon::parse($t->planned_end_date) : null;
 
+                    // เช็คสถานะการใช้งาน
+                    $isActive = $t->is_active;
+
+                    // ปรับสีถ้า Disabled ให้เป็นสีเทา
+                    $color = $t->status === 'delayed' ? '#EF4444' : ($t->progress == 100 ? '#10B981' : '#3B82F6');
+                    if (!$isActive) {
+                        $color = '#9CA3AF'; // สีเทา
+                    }
+
                     return [
                         'id' => $t->id,
                         'text' => $t->name,
@@ -393,7 +357,7 @@ class WorkItemController extends Controller
                         'parent' => ($t->id == $workItem->id) ? 0 : $t->parent_id,
                         'open' => true,
                         'type' => $t->type === 'project' ? 'project' : 'task',
-                        'color' => $t->status === 'delayed' ? '#EF4444' : ($t->progress == 100 ? '#10B981' : '#3B82F6')
+                        'color' => $color,
                     ];
                 });
 
@@ -443,8 +407,7 @@ class WorkItemController extends Controller
         return response()->json(['message' => 'Logged successfully']);
     }
 
-    public function searchProjectManagers(Request $request)
-    {
+    public function searchProjectManagers(Request $request) {
         $search = $request->input('query');
         if (!$search) return response()->json([]);
         return ProjectManager::where('name', 'ilike', "%{$search}%")->limit(10)->get(['id', 'name']);

@@ -5,18 +5,40 @@ namespace App\Models;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes; // ✅ เพิ่ม SoftDeletes ตามที่เห็นในโค้ดเก่าบางส่วน ถ้าไม่ได้ใช้ลบออกได้
 
 class WorkItem extends Model
 {
     use HasFactory;
+    // use SoftDeletes; // เปิดใช้ถ้าต้องการ Soft Delete
 
-    protected $guarded = [];
+    // ✅ 1. เพิ่ม weight และ is_active ใน fillable
+    protected $fillable = [
+        'name',
+        'type',
+        'status',
+        'progress',
+        'budget',
+        'planned_start_date',
+        'planned_end_date',
+        'parent_id',
+        'project_manager_id',
+        'division_id',
+        'department_id',
+        'order_index',
+        'weight',      // น้ำหนักงาน
+        'is_active'    // สถานะเปิด/ปิด
+    ];
+
+    protected $guarded = []; // ถ้าใช้ fillable แล้ว guarded ไม่จำเป็นต้องมีก็ได้ แต่ใส่ไว้ไม่เสียหายถ้าว่าง
 
     protected $casts = [
         'planned_start_date' => 'date',
         'planned_end_date' => 'date',
         'actual_start_date' => 'date',
         'actual_end_date' => 'date',
+        'is_active' => 'boolean', // ✅ แปลงเป็น boolean อัตโนมัติ
+        'weight' => 'float',      // ✅ แปลงเป็นตัวเลขทศนิยม
     ];
 
     // ส่งค่า EV, PV, SV, Status ไปหน้าบ้านเสมอ (Append)
@@ -55,7 +77,7 @@ class WorkItem extends Model
         return $this->belongsTo(ProjectManager::class);
     }
 
-    // ✅ เพิ่ม: สังกัดแผนก (Department) ตามแผน Phase 1
+    // สังกัดแผนก (Department)
     public function department()
     {
         return $this->belongsTo(Department::class);
@@ -69,7 +91,6 @@ class WorkItem extends Model
     // เอกสารแนบ
     public function attachments()
     {
-        // เปลี่ยนจาก WorkItemAttachment เป็น Attachment
         return $this->hasMany(Attachment::class);
     }
 
@@ -139,18 +160,41 @@ class WorkItem extends Model
         return 'On Track';
     }
 
-    // ฟังก์ชันคำนวณ Progress ของตัวแม่ใหม่
+    // ✅ ฟังก์ชันคำนวณ Progress แบบถ่วงน้ำหนัก (Weighted Average)
     public function recalculateProgress()
     {
-        // 1. หาค่าเฉลี่ยจากลูกๆ
-        $average = $this->children()->avg('progress');
+        // 1. ดึงลูกๆ เฉพาะที่ "เปิดใช้งาน" (Active) เท่านั้น
+        $children = $this->children()->where('is_active', true)->get();
 
-        // 2. แปลงเป็นจำนวนเต็ม (Integer) ก่อนบันทึก
+        if ($children->isEmpty()) {
+            return; // ถ้าไม่มีลูกที่ Active เลย ไม่ต้องทำอะไร
+        }
+
+        // 2. หาน้ำหนักรวมทั้งหมด
+        $totalWeight = $children->sum('weight');
+
+        $aggregateProgress = 0;
+
+        // 3. เริ่มคำนวณ
+        if ($totalWeight > 0) {
+            // กรณีมีการตั้งน้ำหนัก: คำนวณแบบ Weighted Average
+            foreach ($children as $child) {
+                // สัดส่วนความสำคัญ = น้ำหนักตัวเอง / น้ำหนักรวม
+                $weightRatio = $child->weight / $totalWeight;
+                // ผลรวม Progress = Progress ลูก * สัดส่วน
+                $aggregateProgress += $child->progress * $weightRatio;
+            }
+        } else {
+            // กรณีน้ำหนักเป็น 0 ทั้งหมด (User ไม่ได้กรอก): ใช้ค่าเฉลี่ยปกติ (Simple Average)
+            $aggregateProgress = $children->avg('progress');
+        }
+
+        // 4. อัปเดตตัวเอง (แปลงเป็นจำนวนเต็ม หรือทศนิยมตามต้องการ)
         $this->update([
-            'progress' => (int) round($average)
+            'progress' => (int) round($aggregateProgress)
         ]);
 
-        // 3. ถ้ามีตัวแม่ขึ้นไปอีก ก็ให้คำนวณต่อขึ้นไปเรื่อยๆ (Recursive)
+        // 5. แจ้งพ่อให้คำนวณต่อ (Chain Reaction ขึ้นไปเรื่อยๆ)
         if ($this->parent) {
             $this->parent->recalculateProgress();
         }
