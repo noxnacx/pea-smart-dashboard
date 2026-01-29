@@ -42,7 +42,6 @@ watch(filterForm, throttle(() => {
 // --- Helpers ---
 const hasActiveIssues = (issues) => issues?.some(i => i.type === 'issue' && i.status !== 'resolved');
 const hasActiveRisks = (issues) => issues?.some(i => i.type === 'risk' && i.status !== 'resolved');
-const getSeverityClass = (s) => ({ critical: 'bg-red-100 text-red-700', high: 'bg-orange-100 text-orange-700', medium: 'bg-yellow-100 text-yellow-700', low: 'bg-green-100 text-green-700' }[s] || 'bg-gray-100');
 const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', pending: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
 const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
@@ -234,6 +233,17 @@ const openQuickView = (item, type) => {
                         </tr>
                     </tbody>
                 </table>
+                <div class="px-6 py-4 border-t border-gray-200 flex justify-between items-center bg-gray-50" v-if="items.links.length > 3">
+                    <div class="flex flex-wrap gap-1">
+                        <Link v-for="(link, key) in items.links" :key="key" :href="link.url || '#'" v-html="link.label"
+                            class="px-3 py-1 rounded-md text-sm transition-colors border"
+                            :class="link.active ? 'bg-[#7A2F8F] text-white border-[#7A2F8F]' : 'bg-white text-gray-600 border-gray-300 hover:bg-purple-50'"
+                            :preserve-scroll="true" />
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        แสดง {{ items.from }} ถึง {{ items.to }} จาก {{ items.total }} รายการ
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -244,6 +254,22 @@ const openQuickView = (item, type) => {
                     <button @click="showModal = false" class="text-white hover:text-yellow-400 font-bold text-xl">&times;</button>
                 </div>
                 <form @submit.prevent="submit" class="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+
+                    <div ref="parentDropdownRef" class="relative">
+                        <label class="block text-sm font-bold text-gray-700 mb-1">งานภายใต้ (สังกัด)</label>
+                        <input type="text" v-model="parentSearch" @focus="showParentDropdown = true" placeholder="พิมพ์ชื่อเพื่อค้นหา..." class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
+                        <div v-if="showParentDropdown" class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                            <ul class="py-1 text-sm text-gray-700">
+                                <li v-if="filteredParents.length === 0" class="px-4 py-2 text-gray-400 italic">ไม่พบข้อมูล</li>
+                                <li v-for="parent in filteredParents" :key="parent.id" @click="selectParent(parent)" class="px-4 py-2 hover:bg-purple-50 cursor-pointer flex justify-between items-center group transition">
+                                    <span>{{ parent.name }}</span>
+                                    <span class="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded group-hover:bg-purple-100 group-hover:text-purple-700">{{ parent.type_label }}</span>
+                                </li>
+                            </ul>
+                        </div>
+                        <input type="hidden" v-model="form.parent_id">
+                    </div>
+
                     <div class="grid grid-cols-2 gap-4 bg-purple-50 p-3 rounded-lg border border-purple-100">
                         <div class="col-span-2 text-xs font-bold text-[#4A148C] uppercase">สังกัดหน่วยงาน</div>
                         <div>
@@ -284,7 +310,7 @@ const openQuickView = (item, type) => {
                     <div class="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border">
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน</label>
-                            <input v-model="form.weight" type="number" step="0.1" min="0" class="w-full rounded-lg border-gray-300">
+                            <input v-model="form.weight" type="number" step="0.1" class="w-full rounded-lg border-gray-300">
                         </div>
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">ความคืบหน้า (%)</label>

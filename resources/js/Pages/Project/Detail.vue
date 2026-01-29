@@ -96,12 +96,13 @@ const breadcrumbs = computed(() => {
 
 // --- Modals Logic ---
 const showModal = ref(false), isEditing = ref(false), modalTitle = ref(''), showIssueModal = ref(false), showViewIssueModal = ref(false), selectedIssue = ref(null);
+const parentNameDisplay = ref(''); // ✅ ตัวแปรเก็บชื่อ Parent
 
 const form = useForm({
     id: null, parent_id: null, name: '', type: 'task', budget: 0, progress: 0,
     status: 'pending', planned_start_date: '', planned_end_date: '',
     division_id: '', department_id: '', pm_name: '',
-    weight: 1 // ✅ ใช้ weight แทน is_active
+    weight: 1
 });
 
 const modalDepartments = computed(() => {
@@ -120,9 +121,13 @@ const filteredFiles = computed(() => fileFilter.value==='all' ? props.item.attac
 const openCreateModal = () => {
     isEditing.value=false; modalTitle.value=`สร้างรายการย่อย`;
     form.reset(); form.parent_id=props.item.id;
-    form.type = 'task'; // Default
+    form.type = 'task';
     form.division_id = ''; form.department_id = ''; form.pm_name = '';
-    form.weight = 1; // ✅ Reset weight
+    form.weight = 1;
+
+    // ✅ Logic: สร้างลูกใหม่ -> Parent คือหน้าปัจจุบัน
+    parentNameDisplay.value = props.item.name;
+
     showModal.value=true;
 };
 
@@ -134,11 +139,19 @@ const openEditModal = (t) => {
     form.planned_end_date=formatDateForInput(t.planned_end_date);
 
     form.parent_id = t.parent_id;
+
+    // ✅ Logic: แก้ไข -> เช็คว่าเป็นตัวแม่หรือตัวลูก
+    if (t.id === props.item.id) {
+        // แก้ไขตัวแม่ -> Parent คือแม่ของมัน (ถ้าไม่มีคือ -)
+        parentNameDisplay.value = props.item.parent ? props.item.parent.name : '-';
+    } else {
+        // แก้ไขตัวลูก -> Parent คือหน้าปัจจุบัน
+        parentNameDisplay.value = props.item.name;
+    }
+
     form.division_id = t.division_id || '';
     form.department_id = t.department_id || '';
     form.pm_name = t.project_manager ? t.project_manager.name : '';
-
-    // ✅ Load ค่าใหม่
     form.weight = t.weight !== undefined ? t.weight : 1;
 
     showModal.value=true;
@@ -172,7 +185,6 @@ const uploadFile = () => {
         fileForm.post(route('attachments.store', props.item.id), {
             onSuccess: () => {
                 fileForm.reset();
-                // อาจจะเพิ่มแจ้งเตือน success ตรงนี้ได้
             }
         });
     }
@@ -435,6 +447,18 @@ const submitComment = () => {
                         </div>
                     </div>
                 </div>
+
+                <div class="mt-6 flex justify-between items-center" v-if="historyLogs.links.length > 3">
+                    <div class="flex flex-wrap gap-1">
+                        <Link v-for="(link, key) in historyLogs.links" :key="key" :href="link.url || '#'" v-html="link.label"
+                            class="px-3 py-1 rounded-md text-sm transition-colors border"
+                            :class="link.active ? 'bg-[#7A2F8F] text-white border-[#7A2F8F]' : 'bg-white text-gray-600 border-gray-300 hover:bg-purple-50'"
+                            :preserve-scroll="true" />
+                    </div>
+                    <div class="text-xs text-gray-500">
+                        แสดง {{ historyLogs.from }} ถึง {{ historyLogs.to }} จาก {{ historyLogs.total }} รายการ
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -446,6 +470,14 @@ const submitComment = () => {
                         <button @click="showModal=false" class="text-white hover:text-yellow-400 font-bold text-xl">&times;</button>
                     </div>
                     <form @submit.prevent="submit" class="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">งานภายใต้ (สังกัด)</label>
+                            <div class="w-full rounded-lg border border-gray-200 bg-gray-100 p-2 text-sm text-gray-600">
+                                📂 {{ parentNameDisplay }}
+                            </div>
+                            <input type="hidden" v-model="form.parent_id">
+                        </div>
 
                         <div class="grid grid-cols-2 gap-4 bg-purple-50 p-3 rounded-lg border border-purple-100">
                             <div class="col-span-2 text-xs font-bold text-[#4A148C] uppercase">สังกัดหน่วยงาน</div>
