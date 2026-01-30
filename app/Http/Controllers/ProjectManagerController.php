@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\ProjectManager;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\DB; // ✅ เพิ่ม DB
 
 class ProjectManagerController extends Controller
 {
@@ -60,5 +61,23 @@ class ProjectManagerController extends Controller
             'projects' => $projects,
             'stats' => $stats
         ]);
+    }
+
+    public function destroy($id)
+    {
+        // ตรวจสอบสิทธิ์ (ถ้าไม่ได้ทำที่ Middleware ก็เช็คตรงนี้เพิ่มได้)
+        // if (auth()->user()->role !== 'admin') abort(403);
+
+        $pm = ProjectManager::findOrFail($id);
+
+        DB::transaction(function () use ($pm) {
+            // 1. ปลดชื่อออกจากงานทั้งหมดที่ดูแล (Set Null)
+            $pm->workItems()->update(['project_manager_id' => null]);
+
+            // 2. ลบ PM
+            $pm->delete();
+        });
+
+        return redirect()->back()->with('success', 'ลบผู้ดูแลโครงการเรียบร้อยแล้ว');
     }
 }

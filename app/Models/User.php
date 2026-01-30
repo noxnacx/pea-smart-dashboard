@@ -39,8 +39,27 @@ class User extends Authenticatable
         'remember_token',
     ];
 
-    public function isAdmin() { return $this->role === 'admin'; }
-    public function isPM() { return $this->role === 'pm' || $this->role === 'admin'; }
+    public function isAdmin(): bool
+    {
+        return $this->role === 'admin'; // สมมติว่าใน DB เก็บ string 'admin'
+    }
+
+    public function isPm(): bool
+    {
+        // เป็น PM ถ้า is_pm เป็น true หรือ role เป็น project_manager
+        return $this->is_pm || $this->role === 'project_manager';
+    }
+
+    public function isGeneralUser(): bool
+    {
+        return !$this->isAdmin() && !$this->isPm();
+    }
+
+    // ฟังก์ชันสำหรับเช็คสิทธิ์แก้ไข (Admin และ PM แก้ไขได้, User ทั่วไปดูได้อย่างเดียว)
+    public function canEdit(): bool
+    {
+        return $this->isAdmin() || $this->isPm();
+    }
 
     /**
      * Get the attributes that should be cast.

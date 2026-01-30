@@ -1,11 +1,16 @@
 <script setup>
-import { Head, Link, useForm } from '@inertiajs/vue3';
-import { ref } from 'vue';
+// ✅ เพิ่ม usePage และ computed
+import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
+import { ref, computed } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 
 const props = defineProps({
     strategies: Array
 });
+
+// ✅ ตรวจสอบสิทธิ์ (Admin หรือ PM/Project Manager เห็นปุ่มสร้างได้)
+const page = usePage();
+const canCreate = computed(() => ['admin', 'pm', 'project_manager'].includes(page.props.auth.user.role));
 
 // --- Create Modal Logic ---
 const showCreateModal = ref(false);
@@ -34,7 +39,7 @@ const formatCurrency = (value) => new Intl.NumberFormat('th-TH').format(value);
                     <h2 class="text-3xl font-extrabold text-[#4A148C]">ยุทธศาสตร์ทั้งหมด</h2>
                     <p class="text-gray-500 mt-1">บริหารจัดการยุทธศาสตร์และแผนงานภายใต้สังกัด</p>
                 </div>
-                <button @click="showCreateModal = true" class="bg-[#7A2F8F] hover:bg-purple-800 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-purple-200 transition-all flex items-center gap-2 transform hover:-translate-y-0.5">
+                <button v-if="canCreate" @click="showCreateModal = true" class="bg-[#7A2F8F] hover:bg-purple-800 text-white px-5 py-2.5 rounded-xl font-bold shadow-lg shadow-purple-200 transition-all flex items-center gap-2 transform hover:-translate-y-0.5">
                     <span class="text-xl leading-none">+</span> เพิ่มยุทธศาสตร์
                 </button>
             </div>

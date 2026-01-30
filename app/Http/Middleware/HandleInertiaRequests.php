@@ -33,6 +33,17 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'auth' => [
                 'user' => $request->user(),
+                'roles' => [
+                    'is_admin' => $request->user()?->isAdmin() ?? false,
+                    'is_pm' => $request->user()?->isPm() ?? false,
+                    'is_user' => $request->user()?->isGeneralUser() ?? false,
+                ],
+                // ส่งสิทธิ์การกระทำไป
+                'can' => [
+                    'edit' => $request->user()?->canEdit() ?? false,
+                    'manage_users' => $request->user()?->isAdmin() ?? false,
+                    'manage_org' => $request->user()?->isAdmin() ?? false,
+                ]
             ],
         ];
     }

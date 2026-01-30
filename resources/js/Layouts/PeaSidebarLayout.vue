@@ -10,7 +10,7 @@ const toggleSearch = () => {
     isSearchOpen.value = !isSearchOpen.value;
 };
 
-// ✅ แก้ไข: เปลี่ยนปุ่มลัดเป็น Shift + S
+// ✅ ปุ่มลัด Shift + S สำหรับเปิด Search
 const handleKeydown = (e) => {
     if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
         // ป้องกันถ้ากำลังพิมพ์ใน input หรือ textarea อยู่
@@ -52,16 +52,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                 <div class="px-4 mt-2 mb-2 text-[10px] font-bold text-purple-300/60 uppercase tracking-widest">
                     General
                 </div>
-
-                <button @click="isSearchOpen = true"
-                        type="button"
-                        class="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group text-purple-100 hover:bg-purple-800/50 hover:text-white cursor-pointer border border-transparent hover:border-purple-700/50">
-                    <div class="flex items-center gap-3">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                        <span>ค้นหาอัจฉริยะ</span>
-                    </div>
-                    <span class="text-[10px] bg-purple-900/50 border border-purple-700 px-1.5 py-0.5 rounded text-purple-300 group-hover:text-white transition">Shift S</span>
-                </button>
 
                 <Link :href="route('dashboard')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group relative overflow-hidden"
@@ -106,6 +96,16 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     System
                 </div>
 
+                <button @click="isSearchOpen = true"
+                        type="button"
+                        class="w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group text-purple-100 hover:bg-purple-800/50 hover:text-white cursor-pointer border border-transparent hover:border-purple-700/50">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        <span>ค้นหาอัจฉริยะ</span>
+                    </div>
+                    <span class="text-[10px] bg-purple-900/50 border border-purple-700 px-1.5 py-0.5 rounded text-purple-300 group-hover:text-white transition">Shift S</span>
+                </button>
+
                 <Link :href="route('reports.index')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                       :class="route().current('reports.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
@@ -113,7 +113,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     รายงาน (Reports)
                 </Link>
 
-                <Link :href="route('organization.index')"
+                <Link v-if="$page.props.auth.user.role === 'admin'"
+                      :href="route('organization.index')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                       :class="route().current('organization.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
@@ -127,14 +128,16 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     ทำเนียบ PM
                 </Link>
 
-                <Link :href="route('users.index')"
+                <Link v-if="$page.props.auth.user.role === 'admin'"
+                      :href="route('users.index')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                       :class="route().current('users.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
                     จัดการผู้ใช้ (Users)
                 </Link>
 
-                <Link :href="route('audit-logs.index')"
+                <Link v-if="$page.props.auth.user.role === 'admin'"
+                    :href="route('audit-logs.index')"
                     class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                     :class="route().current('audit-logs.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
@@ -176,11 +179,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 
             <div v-if="showingNavigationDropdown" class="md:hidden bg-[#380d6b] text-white border-b border-purple-800 shadow-xl absolute w-full z-40 top-[60px]">
                  <nav class="px-4 py-4 space-y-2">
-                    <button @click="isSearchOpen = true" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-purple-800 rounded-lg">
-                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
-                        ค้นหาอัจฉริยะ
-                    </button>
-
                     <Link :href="route('dashboard')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">Dashboard</Link>
                     <Link :href="route('calendar.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ปฏิทินรวมงาน</Link>
 
@@ -190,10 +188,19 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     <Link :href="route('projects.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">โครงการทั้งหมด</Link>
 
                     <div class="px-4 text-[10px] text-purple-400 font-bold uppercase mt-2">System</div>
+                    <button @click="isSearchOpen = true" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-purple-800 rounded-lg">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        ค้นหาอัจฉริยะ
+                    </button>
+
                     <Link :href="route('reports.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">รายงาน</Link>
-                    <Link :href="route('organization.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">จัดการโครงสร้างองค์กร</Link>
+
+                    <Link v-if="$page.props.auth.user.role === 'admin'" :href="route('organization.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">จัดการโครงสร้างองค์กร</Link>
+
                     <Link :href="route('pm.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ทำเนียบ PM</Link>
-                    <Link :href="route('users.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ผู้ใช้งาน</Link>
+
+                    <Link v-if="$page.props.auth.user.role === 'admin'" :href="route('users.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ผู้ใช้งาน</Link>
+
                     <div class="border-t border-purple-800 mt-2 pt-2">
                          <Link :href="route('logout')" method="post" as="button" class="block w-full text-left px-4 py-3 text-red-300 hover:text-red-100">ออกจากระบบ</Link>
                     </div>

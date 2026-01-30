@@ -1,5 +1,6 @@
 <script setup>
-import { Head, Link, router, useForm } from '@inertiajs/vue3';
+// ✅ เพิ่ม usePage
+import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import PmAutocomplete from '@/Components/PmAutocomplete.vue';
@@ -12,6 +13,10 @@ const props = defineProps({
     parentOptions: Array,
     divisions: Array
 });
+
+// ✅ เพิ่ม Check Role
+const page = usePage();
+const canEdit = computed(() => ['admin', 'pm', 'project_manager'].includes(page.props.auth.user.role));
 
 const pageTitle = props.type === 'plan' ? 'แผนงานทั้งหมด' : 'โครงการทั้งหมด';
 const routeName = props.type === 'plan' ? 'plans.index' : 'projects.index';
@@ -152,7 +157,7 @@ const openQuickView = (item, type) => {
                     <h2 class="text-3xl font-extrabold text-[#4A148C]">{{ pageTitle }}</h2>
                     <p class="text-gray-500 mt-1">ค้นหาและติดตามสถานะในระบบ</p>
                 </div>
-                <button @click="openCreateModal" class="bg-[#FDB913] hover:bg-yellow-400 text-[#4A148C] px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center gap-2 transform hover:-translate-y-0.5">
+                <button v-if="canEdit" @click="openCreateModal" class="bg-[#FDB913] hover:bg-yellow-400 text-[#4A148C] px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center gap-2 transform hover:-translate-y-0.5">
                     <span class="text-xl leading-none">+</span> เพิ่มข้อมูล
                 </button>
             </div>
@@ -192,7 +197,7 @@ const openQuickView = (item, type) => {
                             <th class="px-6 py-4 text-center">ความคืบหน้า</th>
                             <th class="px-6 py-4 text-right">งบประมาณ</th>
                             <th class="px-6 py-4 text-center">ระยะเวลา</th>
-                            <th class="px-6 py-4 text-center w-32">จัดการ</th>
+                            <th v-if="canEdit" class="px-6 py-4 text-center w-32">จัดการ</th>
                         </tr>
                     </thead>
                     <tbody class="divide-y divide-gray-100 text-sm">
@@ -223,7 +228,7 @@ const openQuickView = (item, type) => {
                             <td class="px-6 py-4"><div class="flex items-center gap-2"><div class="w-full bg-gray-200 rounded-full h-1.5"><div class="h-1.5 rounded-full" :class="item.status === 'cancelled' ? 'bg-gray-400' : 'bg-[#7A2F8F]'" :style="`width: ${item.progress}%`"></div></div><span class="text-xs font-medium">{{ item.progress }}%</span></div></td>
                             <td class="px-6 py-4 text-right font-mono font-bold text-gray-700">{{ Number(item.budget).toLocaleString() }}</td>
                             <td class="px-6 py-4 text-center text-xs text-gray-500">{{ formatDate(item.planned_start_date) }} - {{ formatDate(item.planned_end_date) }}</td>
-                            <td class="px-6 py-4 text-center">
+                            <td v-if="canEdit" class="px-6 py-4 text-center">
                                 <div class="flex justify-center gap-2">
                                     <Link :href="route('work-items.show', item.id)" class="p-1.5 rounded-lg hover:bg-blue-50 text-lg transition">🔍</Link>
                                     <button @click="openEditModal(item)" class="p-1.5 rounded-lg hover:bg-yellow-50 text-lg transition">✏️</button>

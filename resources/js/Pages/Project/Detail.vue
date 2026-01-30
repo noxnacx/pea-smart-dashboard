@@ -20,7 +20,8 @@ const showSuccessModal = ref(false);
 // --- Check Role ---
 const page = usePage();
 const userRole = computed(() => page.props.auth.user.role);
-const canEdit = computed(() => userRole.value === 'admin' || userRole.value === 'pm');
+// ✅ แก้ไข: เพิ่ม 'project_manager' ในเงื่อนไขเผื่อไว้
+const canEdit = computed(() => ['admin', 'pm', 'project_manager'].includes(userRole.value));
 
 // --- Helpers ---
 const formatDate = (dateString) => {
@@ -96,7 +97,7 @@ const breadcrumbs = computed(() => {
 
 // --- Modals Logic ---
 const showModal = ref(false), isEditing = ref(false), modalTitle = ref(''), showIssueModal = ref(false), showViewIssueModal = ref(false), selectedIssue = ref(null);
-const parentNameDisplay = ref(''); // ✅ ตัวแปรเก็บชื่อ Parent
+const parentNameDisplay = ref('');
 
 const form = useForm({
     id: null, parent_id: null, name: '', type: 'task', budget: 0, progress: 0,
@@ -124,10 +125,7 @@ const openCreateModal = () => {
     form.type = 'task';
     form.division_id = ''; form.department_id = ''; form.pm_name = '';
     form.weight = 1;
-
-    // ✅ Logic: สร้างลูกใหม่ -> Parent คือหน้าปัจจุบัน
     parentNameDisplay.value = props.item.name;
-
     showModal.value=true;
 };
 
@@ -137,15 +135,11 @@ const openEditModal = (t) => {
     form.id=t.id; form.name=t.name; form.type=t.type; form.budget=t.budget; form.progress=t.progress; form.status=t.status;
     form.planned_start_date=formatDateForInput(t.planned_start_date);
     form.planned_end_date=formatDateForInput(t.planned_end_date);
-
     form.parent_id = t.parent_id;
 
-    // ✅ Logic: แก้ไข -> เช็คว่าเป็นตัวแม่หรือตัวลูก
     if (t.id === props.item.id) {
-        // แก้ไขตัวแม่ -> Parent คือแม่ของมัน (ถ้าไม่มีคือ -)
         parentNameDisplay.value = props.item.parent ? props.item.parent.name : '-';
     } else {
-        // แก้ไขตัวลูก -> Parent คือหน้าปัจจุบัน
         parentNameDisplay.value = props.item.name;
     }
 
@@ -153,7 +147,6 @@ const openEditModal = (t) => {
     form.department_id = t.department_id || '';
     form.pm_name = t.project_manager ? t.project_manager.name : '';
     form.weight = t.weight !== undefined ? t.weight : 1;
-
     showModal.value=true;
 };
 
@@ -280,7 +273,8 @@ const submitComment = () => {
                                     <th class="px-2 py-2 text-center w-28">ความคืบหน้า</th>
                                     <th class="px-2 py-2 text-center w-16">น้ำหนัก</th>
                                     <th class="px-2 py-2 text-center">เริ่ม</th>
-                                    <th class="px-2 py-2 text-center">สิ้นสุด</th> <th v-if="canEdit" class="px-2 py-2 text-center">จัดการ</th>
+                                    <th class="px-2 py-2 text-center">สิ้นสุด</th>
+                                    <th v-if="canEdit" class="px-2 py-2 text-center">จัดการ</th>
                                 </tr>
                             </thead>
                             <tbody class="text-xs text-gray-700 divide-y divide-gray-100">
@@ -339,7 +333,8 @@ const submitComment = () => {
             </div>
 
             <div v-show="activeTab==='issues'" class="space-y-6 animate-fade-in">
-                <div class="flex justify-between items-center"><h3 class="font-bold text-gray-700">รายการปัญหาและความเสี่ยง ({{ item.issues?.length || 0 }})</h3><button v-if="canEdit" @click="openCreateIssue" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow flex items-center gap-2"><span>+ แจ้งปัญหาใหม่</span></button></div>
+                <div class="flex justify-between items-center"><h3 class="font-bold text-gray-700">รายการปัญหาและความเสี่ยง ({{ item.issues?.length || 0 }})</h3>
+                <button v-if="canEdit" @click="openCreateIssue" class="bg-red-500 hover:bg-red-600 text-white px-4 py-2 rounded-lg text-sm font-bold shadow flex items-center gap-2"><span>+ แจ้งปัญหาใหม่</span></button></div>
                 <div v-if="!item.issues?.length" class="p-12 text-center text-gray-400 border rounded-xl bg-white border-dashed"><div class="text-4xl mb-2">🎉</div>ยังไม่มีปัญหา</div>
                 <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div v-for="issue in item.issues" :key="issue.id" @click="openViewIssue(issue)" class="bg-white p-5 rounded-xl shadow-sm border border-l-4 transition hover:shadow-md relative group cursor-pointer hover:bg-gray-50" :class="issue.type==='issue'?'border-l-red-500':'border-l-orange-400'">
@@ -549,7 +544,7 @@ const submitComment = () => {
             </div>
 
             <div v-if="showIssueModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-                <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
+                 <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl">
                     <div class="bg-red-500 px-6 py-4 flex justify-between items-center"><h3 class="text-lg font-bold text-white">⚠️ ปัญหา</h3><button @click="showIssueModal=false" class="text-white font-bold text-xl">&times;</button></div>
                     <form @submit.prevent="submitIssue" class="p-6 space-y-4">
                         <div><label class="block text-sm font-bold text-gray-700">หัวข้อ</label><input v-model="issueForm.title" class="w-full rounded-lg border-gray-300" required></div>

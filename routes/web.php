@@ -20,7 +20,10 @@ use Inertia\Inertia;
 | Public Routes (หน้าบ้าน)
 |--------------------------------------------------------------------------
 */
-Route::get('/', [DashboardController::class, 'publicDashboard'])->name('dashboard.public');
+// ✅ แก้ไข: เมื่อเข้าหน้าแรก (Root URL) ให้ Redirect ไปหน้า Login ทันที
+Route::get('/', function () {
+    return redirect()->route('login');
+});
 
 /*
 |--------------------------------------------------------------------------
@@ -59,17 +62,17 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // 5.1 Project Progress
     Route::get('/reports/progress/pdf', [ReportController::class, 'exportProgressPdf'])->name('reports.progress.pdf');
     Route::get('/reports/progress/excel', [ReportController::class, 'exportProgressExcel'])->name('reports.progress.excel');
-    Route::get('/reports/progress/csv', [ReportController::class, 'exportProgressCsv'])->name('reports.progress.csv'); // ✨ เพิ่มบรรทัดนี้
+    Route::get('/reports/progress/csv', [ReportController::class, 'exportProgressCsv'])->name('reports.progress.csv');
 
     // 5.2 Issues & Risks
     Route::get('/reports/issues/pdf', [ReportController::class, 'exportIssuesPdf'])->name('reports.issues.pdf');
     Route::get('/reports/issues/excel', [ReportController::class, 'exportIssuesExcel'])->name('reports.issues.excel');
-    Route::get('/reports/issues/csv', [ReportController::class, 'exportIssuesCsv'])->name('reports.issues.csv'); // ✨ เพิ่มบรรทัดนี้
+    Route::get('/reports/issues/csv', [ReportController::class, 'exportIssuesCsv'])->name('reports.issues.csv');
 
     // 5.3 Executive Summary
     Route::get('/reports/executive/pdf', [ReportController::class, 'exportExecutivePdf'])->name('reports.executive.pdf');
     Route::get('/reports/executive/excel', [ReportController::class, 'exportExecutiveExcel'])->name('reports.executive.excel');
-    Route::get('/reports/executive/csv', [ReportController::class, 'exportExecutiveCsv'])->name('reports.executive.csv'); // ✨ เพิ่มบรรทัดนี้
+    Route::get('/reports/executive/csv', [ReportController::class, 'exportExecutiveCsv'])->name('reports.executive.csv');
 
     // --- 6. User Profile ---
     Route::get('/profile', [ProfileController::class, 'edit'])->name('profile.edit');
@@ -116,6 +119,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // ✅ Routes สำหรับ PM Directory
     Route::get('/project-managers', [ProjectManagerController::class, 'index'])->name('pm.index');
     Route::get('/project-managers/{id}', [ProjectManagerController::class, 'show'])->name('pm.show');
+    Route::delete('/pm/{id}', [ProjectManagerController::class, 'destroy'])->name('pm.destroy')->middleware('auth');
 });
 
 require __DIR__.'/auth.php';
