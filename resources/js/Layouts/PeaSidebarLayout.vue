@@ -38,9 +38,11 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 
             <div class="h-20 flex items-center px-6 bg-[#380d6b] border-b border-purple-800/50 shadow-sm relative overflow-hidden">
                 <div class="absolute top-0 right-0 w-16 h-16 bg-purple-500 opacity-10 rounded-full -mr-8 -mt-8"></div>
-                <div class="w-10 h-10 bg-white rounded-xl flex items-center justify-center text-[#4A148C] font-black text-xl border-2 border-[#FDB913] mr-3 shadow-lg z-10">
-                    P
+
+                <div class="w-12 h-12 bg-white rounded-xl flex items-center justify-center border-2 border-[#FDB913] mr-3 shadow-lg z-10 p-1 overflow-hidden">
+                    <img src="/images/logo.jpg" alt="PEA Logo" class="w-full h-full object-contain" />
                 </div>
+
                 <div class="z-10">
                     <h1 class="font-bold text-lg tracking-wide leading-none text-[#FDB913]">PEA SMART</h1>
                     <span class="text-[10px] text-purple-300 font-medium tracking-wider">DASHBOARD</span>
@@ -137,7 +139,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                 </Link>
 
                 <Link v-if="$page.props.auth.user.role === 'admin'"
-                    :href="route('audit-logs.index')"
+                      :href="route('audit-logs.index')"
                     class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                     :class="route().current('audit-logs.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
@@ -164,7 +166,9 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
         <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
              <div class="md:hidden bg-[#4A148C] text-white p-4 flex justify-between items-center shadow-lg sticky top-0 z-30">
                 <div class="flex items-center gap-2">
-                    <div class="w-8 h-8 bg-white rounded-lg flex items-center justify-center text-[#4A148C] font-bold border border-[#FDB913]">P</div>
+                    <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-[#FDB913] p-1 overflow-hidden">
+                        <img src="/images/logo.jpg" alt="PEA Logo" class="w-full h-full object-contain" />
+                    </div>
                     <span class="font-bold tracking-wide">PEA SMART</span>
                 </div>
                 <div class="flex items-center gap-2">
