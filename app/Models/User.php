@@ -44,10 +44,10 @@ class User extends Authenticatable
         return $this->role === 'admin'; // สมมติว่าใน DB เก็บ string 'admin'
     }
 
-    public function isPm(): bool
+public function isPm(): bool
     {
-        // เป็น PM ถ้า is_pm เป็น true หรือ role เป็น project_manager
-        return $this->is_pm || $this->role === 'project_manager';
+        // ✅ เช็คทั้ง is_pm (boolean), 'project_manager' และ 'pm' (เผื่อไว้)
+        return $this->is_pm || $this->role === 'project_manager' || $this->role === 'pm';
     }
 
     public function isGeneralUser(): bool
@@ -83,9 +83,4 @@ class User extends Authenticatable
         return $this->belongsTo(Department::class);
     }
 
-    // 2. User เป็น PM ดูแลหลายโครงการ
-    public function responsibleProjects()
-    {
-        return $this->hasMany(WorkItem::class, 'responsible_user_id');
-    }
 }
