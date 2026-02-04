@@ -56,7 +56,13 @@ const navigateTo = (url, type = null) => {
 
 const onKeydown = (e) => {
     if (e.key === 'Escape' && props.show) close();
+    // เพิ่ม: กด Enter เพื่อเลือกรายการแรกสุด (ถ้ามี)
+    if (e.key === 'Enter' && results.value.length > 0) {
+        const first = results.value[0];
+        navigateTo(first.url, first.type);
+    }
 };
+
 onMounted(() => window.addEventListener('keydown', onKeydown));
 onUnmounted(() => window.removeEventListener('keydown', onKeydown));
 
@@ -80,7 +86,7 @@ const statusColor = (s) => ({ completed: 'text-green-600 bg-green-50', delayed: 
                         v-model="query"
                         type="text"
                         class="w-full border-0 focus:ring-0 text-lg text-gray-800 placeholder-gray-400 ml-3 bg-transparent h-12 outline-none"
-                        placeholder="ค้นหาโครงการ, กอง, แผนก หรือชื่อ PM..."
+                        placeholder="ค้นหาหน้าเมนู, โครงการ, หรือชื่อ PM..."
                     />
                     <button @click="close" class="bg-gray-100 text-gray-500 hover:text-gray-700 px-2 py-1 rounded text-xs font-bold uppercase tracking-wider">ESC</button>
                 </div>
@@ -95,7 +101,7 @@ const statusColor = (s) => ({ completed: 'text-green-600 bg-green-50', delayed: 
                     <div v-else-if="!query" class="flex flex-col items-center justify-center h-full text-center py-8">
                         <img src="/images/mascot.png" alt="PEA Mascot" class="w-32 h-auto mb-4 drop-shadow-lg animate-bounce-slow">
                         <h3 class="text-lg font-bold text-[#4A148C]">สวัสดีครับ! วันนี้ให้พี่วัตช่วยหาอะไรดี?</h3>
-                        <p class="text-sm text-gray-500 mt-1">พิมพ์คำค้นหาเพื่อเริ่มใช้งานได้เลยครับ</p>
+                        <p class="text-sm text-gray-500 mt-1">พิมพ์คำค้นหาเพื่อเริ่มใช้งาน (เช่น "Dashboard", "รายงาน")</p>
                     </div>
 
                     <div v-else-if="results.length === 0" class="flex flex-col items-center justify-center h-full text-center py-8">
@@ -132,15 +138,24 @@ const statusColor = (s) => ({ completed: 'text-green-600 bg-green-50', delayed: 
                             </div>
 
                             <div v-else @click="navigateTo(item.url, item.type)" class="flex items-center p-3 cursor-pointer">
-                                <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 mr-4"
+
+                                <div class="w-10 h-10 rounded-lg flex items-center justify-center shrink-0 mr-4 transition-colors"
                                      :class="{
-                                         'bg-blue-100 text-blue-600': item.category === 'Projects & Plans',
-                                         'bg-red-100 text-red-600': item.category === 'Issues & Risks',
-                                         'bg-gray-100 text-gray-600': item.category === 'Files'
+                                         'bg-indigo-100 text-indigo-600': item.type === 'page',
+                                         'bg-blue-100 text-blue-600': item.type === 'work_item',
+                                         'bg-red-100 text-red-600': item.type === 'issue',
+                                         'bg-gray-100 text-gray-600': item.type === 'download' || item.category === 'Files'
                                      }">
-                                    <span v-if="item.category === 'Projects & Plans'">📂</span>
-                                    <span v-else-if="item.category === 'Issues & Risks'">🔥</span>
-                                    <span v-else>📄</span>
+
+                                    <svg v-if="item.type === 'page'" class="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                        <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M13 10V3L4 14h7v7l9-11h-7z" />
+                                    </svg>
+
+                                    <span v-else-if="item.type === 'work_item'" class="text-lg">📂</span>
+
+                                    <span v-else-if="item.type === 'issue'" class="text-lg">🔥</span>
+
+                                    <span v-else class="text-lg">📄</span>
                                 </div>
 
                                 <div class="flex-1 min-w-0">

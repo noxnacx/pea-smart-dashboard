@@ -5,8 +5,10 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\WorkItem;
 use App\Models\Issue;
-use App\Models\ProjectManager; // ✅ Import PM
+use App\Models\ProjectManager;
 use App\Models\Attachment;
+use Illuminate\Support\Facades\Route;
+use Illuminate\Support\Facades\Gate; // ✅ เรียกใช้ Gate เพื่อเช็คสิทธิ์
 
 class GlobalSearchController extends Controller
 {
@@ -18,8 +20,73 @@ class GlobalSearchController extends Controller
             return response()->json([]);
         }
 
-        // 1. ค้นหา Project Managers (PM)
-        // ✅ ค้นหาชื่อ PM และดึงโครงการที่เขาดูแลมาด้วย (3 อันดับแรก)
+        // ==========================================
+        // 🚀 ส่วนที่ 1: ค้นหาเมนู (Filter ตาม Role/Gate)
+        // ==========================================
+        $systemPages = collect([
+            // --- ทุกคนเข้าได้ (General) ---
+            ['name' => 'Dashboard', 'route' => 'dashboard', 'keywords' => 'home admin overview graph chart'],
+            ['name' => 'Strategies (ยุทธศาสตร์)', 'route' => 'strategies.index', 'keywords' => 'strategy goal'],
+            ['name' => 'Plans (แผนงาน)', 'route' => 'plans.index', 'keywords' => 'plan master'],
+            ['name' => 'Projects (โครงการ)', 'route' => 'projects.index', 'keywords' => 'project list'],
+            ['name' => 'All Work Items (งานทั้งหมด)', 'route' => 'work-items.index', 'keywords' => 'task all work'],
+            ['name' => 'Reports (รายงาน)', 'route' => 'reports.index', 'keywords' => 'export pdf excel print status progress'],
+            ['name' => 'Calendar (ปฏิทิน)', 'route' => 'calendar.index', 'keywords' => 'schedule timeline date'],
+            ['name' => 'Project Managers (ผู้รับผิดชอบ)', 'route' => 'pm.index', 'keywords' => 'people staff user pm'],
+
+            // --- เฉพาะ Admin (manage-system) ---
+            [
+                'name' => 'Organization (โครงสร้างองค์กร)',
+                'route' => 'organization.index',
+                'keywords' => 'department division structure',
+                'gate' => 'manage-system' // 🔒 ระบุ Gate
+            ],
+            [
+                'name' => 'Audit Logs (ประวัติระบบ)',
+                'route' => 'audit-logs.index',
+                'keywords' => 'history log system action',
+                'gate' => 'manage-system' // 🔒 ระบุ Gate
+            ],
+            [
+                'name' => 'User Management (จัดการผู้ใช้)',
+                'route' => 'users.index',
+                'keywords' => 'user member account register',
+                'gate' => 'manage-system' // 🔒 ระบุ Gate
+            ],
+        ]);
+
+        // ✅ กรองตามสิทธิ์ (Gate)
+        $matchedPages = $systemPages->filter(function ($page) use ($query) {
+            // 1. ถ้ามี Gate ต้องเช็คก่อนว่า User ผ่านไหม
+            if (isset($page['gate']) && !Gate::allows($page['gate'])) {
+                return false; // ถ้าไม่ผ่าน Gate ให้ซ่อนไปเลย
+            }
+
+            // 2. เช็คว่ามี Route จริงไหม และคำค้นตรงไหม
+            return Route::has($page['route']) && (
+                stripos($page['name'], $query) !== false ||
+                stripos($page['keywords'], $query) !== false
+            );
+        })->map(function ($page) {
+            return [
+                'id' => 'nav-' . $page['route'],
+                'name' => 'Go to: ' . $page['name'],
+                'category' => 'Navigation',
+                'url' => route($page['route']),
+                'type' => 'page',
+                'description' => isset($page['gate']) ? 'Admin Only' : 'System Page' // บอก User หน่อยว่าเป็นหน้าพิเศษ
+            ];
+        })->values();
+
+
+        // ==========================================
+        // 💾 ส่วนที่ 2: ค้นหา Database (Role-based Query ถ้าจำเป็น)
+        // ==========================================
+        // หมายเหตุ: ตาม route/web.php หน้า work-items.show เปิดให้ auth ทุกคนดูได้
+        // ดังนั้น Logic Database จึงไม่ต้องแก้การ query
+        // แต่ถ้าอนาคตอยากให้เห็นเฉพาะโปรเจกต์ตัวเอง ให้แก้ตรง query ด้านล่างครับ
+
+        // 1. Project Managers
         $pms = ProjectManager::where('name', 'ilike', "%{$query}%")
             ->with(['workItems' => function($q) {
                 $q->select('id', 'name', 'project_manager_id')->limit(3);
@@ -31,8 +98,8 @@ class GlobalSearchController extends Controller
                     'id' => $pm->id,
                     'name' => $pm->name,
                     'category' => 'Project Managers',
-                    'url' => route('pm.show', $pm->id), // ลิงก์ไปหน้า Profile PM
-                    'type' => 'pm', // ✨ ระบุ Type พิเศษ
+                    'url' => route('pm.show', $pm->id),
+                    'type' => 'pm',
                     'related_projects' => $pm->workItems->map(function($w) {
                         return [
                             'name' => $w->name,
@@ -42,8 +109,7 @@ class GlobalSearchController extends Controller
                 ];
             });
 
-        // 2. ค้นหา Projects & Tasks
-        // ✅ ค้นหาจาก ชื่อโครงการ OR ชื่อกอง OR ชื่อแผนก
+        // 2. Work Items
         $workItems = WorkItem::with(['division', 'department'])
             ->where(function($q) use ($query) {
                 $q->where('name', 'ilike', "%{$query}%")
@@ -58,14 +124,13 @@ class GlobalSearchController extends Controller
             ->limit(5)
             ->get()
             ->map(function ($item) {
-                // สร้างคำอธิบายเพิ่มเติม (เช่น อยู่กองไหน)
                 $desc = $item->division ? $item->division->name : '';
                 if ($item->department) $desc .= ' / ' . $item->department->name;
 
                 return [
                     'id' => $item->id,
                     'name' => $item->name,
-                    'description' => $desc, // ส่งข้อมูลสังกัดไปโชว์
+                    'description' => $desc,
                     'category' => 'Projects & Plans',
                     'url' => route('work-items.show', $item->id),
                     'type' => 'work_item',
@@ -73,7 +138,7 @@ class GlobalSearchController extends Controller
                 ];
             });
 
-        // 3. ค้นหา Issues (เหมือนเดิม)
+        // 3. Issues
         $issues = Issue::where('title', 'ilike', "%{$query}%")
             ->with('workItem:id,name')
             ->limit(3)
@@ -89,7 +154,7 @@ class GlobalSearchController extends Controller
                 ];
             });
 
-        // 4. ค้นหา Files (เหมือนเดิม)
+        // 4. Files
         $files = Attachment::where('file_name', 'ilike', "%{$query}%")
             ->select('id', 'file_name', 'file_path')
             ->limit(3)
@@ -104,8 +169,12 @@ class GlobalSearchController extends Controller
                 ];
             });
 
-        // เอามารวมกัน (เอา PM ขึ้นก่อน ตามด้วยงาน)
-        $results = $pms->concat($workItems)->concat($issues)->concat($files);
+        // รวมผลลัพธ์
+        $results = $matchedPages
+            ->concat($pms)
+            ->concat($workItems)
+            ->concat($issues)
+            ->concat($files);
 
         return response()->json($results);
     }
