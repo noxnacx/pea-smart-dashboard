@@ -11,6 +11,7 @@ use Carbon\Carbon;
 use Carbon\CarbonPeriod;
 use Barryvdh\DomPDF\Facade\Pdf;
 use Inertia\Inertia;
+use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
 
 class CalendarController extends Controller
 {
@@ -19,7 +20,7 @@ class CalendarController extends Controller
      */
     public function index(Request $request)
     {
-        // 1. รับค่า Filter
+        // 1. รับค่า Filter (สร้าง Key สำหรับ Cache จากค่าพวกนี้)
         $defaultFilters = [
             'types' => ['plan', 'project', 'task', 'issue'],
             'division_id' => null,
@@ -30,100 +31,111 @@ class CalendarController extends Controller
         if (!is_array($requestFilters)) $requestFilters = [];
 
         $filters = array_merge($defaultFilters, $requestFilters);
-        $selectedTypes = $filters['types'] ?? [];
-        $divisionId = $filters['division_id'] ?? null;
-        $departmentId = $filters['department_id'] ?? null;
 
-        // 2. ดึงข้อมูล Issue
-        $issues = collect([]);
-        if (in_array('issue', $selectedTypes)) {
-            $issueQuery = Issue::with('workItem:id,name');
+        // สร้าง Cache Key ที่ไม่ซ้ำกันตาม Filter ที่ User เลือก
+        // เปลี่ยน Key ทุกชั่วโมง (H) เพื่อให้ข้อมูลไม่อ่านเก่านานเกินไป
+        $cacheKey = 'calendar_events_' . md5(json_encode($filters)) . '_' . date('Y-m-d_H');
 
-            if ($divisionId) {
-                $issueQuery->whereHas('workItem', function($q) use ($divisionId) {
-                    $q->where('division_id', $divisionId);
+        // 🚀 CACHE LOGIC: เก็บข้อมูล Event ไว้ 1 ชั่วโมง (3600 วินาที)
+        $events = Cache::remember($cacheKey, 3600, function () use ($filters) {
+
+            $selectedTypes = $filters['types'] ?? [];
+            $divisionId = $filters['division_id'] ?? null;
+            $departmentId = $filters['department_id'] ?? null;
+
+            // --- 2. ดึงข้อมูล Issue ---
+            $issues = collect([]);
+            if (in_array('issue', $selectedTypes)) {
+                $issueQuery = Issue::with('workItem:id,name');
+
+                if ($divisionId) {
+                    $issueQuery->whereHas('workItem', function($q) use ($divisionId) {
+                        $q->where('division_id', $divisionId);
+                    });
+                }
+                if ($departmentId) {
+                    $issueQuery->whereHas('workItem', function($q) use ($departmentId) {
+                        $q->where('department_id', $departmentId);
+                    });
+                }
+
+                $issues = $issueQuery->get()->map(function ($issue) {
+                    $color = match ($issue->severity) {
+                        'critical' => '#ef4444',
+                        'high' => '#f97316',
+                        'medium' => '#eab308',
+                        default => '#22c55e',
+                    };
+
+                    return [
+                        'id' => 'issue_' . $issue->id,
+                        'title' => $issue->title,
+                        'start' => $issue->start_date ?? $issue->created_at->format('Y-m-d'),
+                        'end' => $issue->end_date,
+                        'backgroundColor' => $color,
+                        'borderColor' => $color,
+                        'textColor' => '#ffffff',
+                        'displayOrder' => 1,
+                        'extendedProps' => [
+                            'type' => 'issue',
+                            'severity' => $issue->severity,
+                            'status' => $issue->status,
+                            'description' => $issue->description,
+                            'solution' => $issue->solution,
+                            'parent_name' => $issue->workItem ? $issue->workItem->name : '-',
+                            'url' => null,
+                        ]
+                    ];
                 });
             }
-            if ($departmentId) {
-                $issueQuery->whereHas('workItem', function($q) use ($departmentId) {
-                    $q->where('department_id', $departmentId);
+
+            // --- 3. ดึงข้อมูล WorkItem ---
+            $workItems = collect([]);
+            if (array_intersect(['plan', 'project', 'task'], $selectedTypes)) {
+                $query = WorkItem::whereIn('type', $selectedTypes)
+                    ->select('id', 'name', 'type', 'status', 'progress', 'planned_start_date', 'planned_end_date', 'parent_id', 'division_id', 'department_id')
+                    ->with('parent:id,name');
+
+                if ($divisionId) $query->where('division_id', $divisionId);
+                if ($departmentId) $query->where('department_id', $departmentId);
+
+                $workItems = $query->get()->map(function ($item) {
+                    $color = match ($item->type) {
+                        'plan' => '#3b82f6',
+                        'project' => '#8b5cf6',
+                        'task' => '#10b981',
+                        default => '#6b7280',
+                    };
+
+                    return [
+                        'id' => 'work_' . $item->id,
+                        'title' => $item->name,
+                        'start' => $item->planned_start_date,
+                        'end' => $item->planned_end_date,
+                        'backgroundColor' => $color,
+                        'borderColor' => $color,
+                        'textColor' => '#ffffff',
+                        'displayOrder' => 2,
+                        'extendedProps' => [
+                            'type' => 'work_item',
+                            'work_type' => $item->type,
+                            'status' => $item->status,
+                            'progress' => $item->progress . '%',
+                            'parent_name' => $item->parent ? $item->parent->name : '-',
+                            'url' => route('work-items.show', $item->id),
+                        ]
+                    ];
                 });
             }
 
-            $issues = $issueQuery->get()->map(function ($issue) {
-                $color = match ($issue->severity) {
-                    'critical' => '#ef4444',
-                    'high' => '#f97316',
-                    'medium' => '#eab308',
-                    default => '#22c55e',
-                };
+            // 4. รวม Events และคืนค่ากลับไปเก็บใน Cache
+            return $issues->concat($workItems);
+        });
 
-                return [
-                    'id' => 'issue_' . $issue->id,
-                    'title' => $issue->title,
-                    'start' => $issue->start_date ?? $issue->created_at->format('Y-m-d'),
-                    'end' => $issue->end_date,
-                    'backgroundColor' => $color,
-                    'borderColor' => $color,
-                    'textColor' => '#ffffff',
-                    'displayOrder' => 1,
-                    'extendedProps' => [
-                        'type' => 'issue',
-                        'severity' => $issue->severity,
-                        'status' => $issue->status,
-                        'description' => $issue->description,
-                        'solution' => $issue->solution,
-                        'parent_name' => $issue->workItem ? $issue->workItem->name : '-',
-                        'url' => null,
-                    ]
-                ];
-            });
-        }
-
-        // 3. ดึงข้อมูล WorkItem
-        $workItems = collect([]);
-        if (array_intersect(['plan', 'project', 'task'], $selectedTypes)) {
-            $query = WorkItem::whereIn('type', $selectedTypes)
-                ->select('id', 'name', 'type', 'status', 'progress', 'planned_start_date', 'planned_end_date', 'parent_id')
-                ->with('parent:id,name');
-
-            if ($divisionId) $query->where('division_id', $divisionId);
-            if ($departmentId) $query->where('department_id', $departmentId);
-
-            $workItems = $query->get()->map(function ($item) {
-                $color = match ($item->type) {
-                    'plan' => '#3b82f6',
-                    'project' => '#8b5cf6',
-                    'task' => '#10b981',
-                    default => '#6b7280',
-                };
-
-                return [
-                    'id' => 'work_' . $item->id,
-                    'title' => $item->name,
-                    'start' => $item->planned_start_date,
-                    'end' => $item->planned_end_date,
-                    'backgroundColor' => $color,
-                    'borderColor' => $color,
-                    'textColor' => '#ffffff',
-                    'displayOrder' => 2,
-                    'extendedProps' => [
-                        'type' => 'work_item',
-                        'work_type' => $item->type,
-                        'status' => $item->status,
-                        'progress' => $item->progress . '%',
-                        'parent_name' => $item->parent ? $item->parent->name : '-',
-                        'url' => route('work-items.show', $item->id),
-                    ]
-                ];
-            });
-        }
-
-        // 4. รวม Events
-        $events = $issues->concat($workItems);
-
-        // 5. ดึงข้อมูล Divisions
-        $divisions = Division::with('departments')->orderBy('name')->get();
+        // 5. ดึงข้อมูล Divisions (Cache ไว้ 24 ชั่วโมง เพราะข้อมูลกอง/แผนกเปลี่ยนไม่บ่อย)
+        $divisions = Cache::remember('calendar_divisions_list', 86400, function() {
+            return Division::with('departments')->orderBy('name')->get();
+        });
 
         return Inertia::render('Calendar/Index', [
             'events' => $events,

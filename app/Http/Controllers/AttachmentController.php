@@ -4,14 +4,16 @@ namespace App\Http\Controllers;
 
 use App\Models\Attachment;
 use App\Models\WorkItem;
-use App\Models\AuditLog; // ✅ Import AuditLog
+use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Facades\Redirect;
+use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
 
 class AttachmentController extends Controller
 {
-    // อัปโหลดไฟล์
+    // =========================================================================
+    // 1. อัปโหลดไฟล์
+    // =========================================================================
     public function store(Request $request, WorkItem $workItem)
     {
         $request->validate([
@@ -31,65 +33,95 @@ class AttachmentController extends Controller
             'category' => $request->category,
         ]);
 
-        // ✅ บันทึก Log การอัปโหลด
-        AuditLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'UPLOAD',
-            'model_type' => 'Attachment',
-            'model_id' => $attachment->id,
-            'target_name' => $attachment->file_name,
-            'changes' => [
-                'ขนาดไฟล์' => number_format($file->getSize() / 1024, 2) . ' KB',
-                'หมวดหมู่' => $request->category
-            ],
+        // ✅ อัปเดตเวลาล่าสุดของงาน
+        $workItem->touch();
+
+        // 🧹 Clear Cache ที่เกี่ยวข้อง
+        $this->clearRelatedCache($workItem->id);
+
+        // 📝 บันทึก Log
+        $this->logActivity('UPLOAD', $attachment, [
+            'ขนาดไฟล์' => number_format($file->getSize() / 1024, 2) . ' KB',
+            'หมวดหมู่' => $request->category
         ]);
 
         return redirect()->back()->with('success', 'อัปโหลดไฟล์สำเร็จ');
     }
 
-    // ดาวน์โหลดไฟล์
+    // =========================================================================
+    // 2. ดาวน์โหลดไฟล์
+    // =========================================================================
     public function download(Attachment $attachment)
     {
         if (!Storage::disk('public')->exists($attachment->file_path)) {
             return back()->with('error', 'ไม่พบไฟล์ต้นฉบับ');
         }
 
-        // ✅ บันทึก Log การดาวน์โหลด (ส่ง Array แทน json_encode)
-        AuditLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'DOWNLOAD',
-            'model_type' => 'Attachment',
-            'model_id' => $attachment->id,
-            'target_name' => $attachment->file_name,
-            'changes' => ['ชื่อไฟล์' => $attachment->file_name],
-        ]);
+        // 📝 บันทึก Log (ไม่ต้อง Clear Cache เพราะแค่โหลด)
+        $this->logActivity('DOWNLOAD', $attachment, ['ชื่อไฟล์' => $attachment->file_name]);
 
         return Storage::disk('public')->download($attachment->file_path, $attachment->file_name);
     }
 
-    // ลบไฟล์
+    // =========================================================================
+    // 3. ลบไฟล์
+    // =========================================================================
     public function destroy(Attachment $attachment)
     {
         if (Storage::disk('public')->exists($attachment->file_path)) {
             Storage::disk('public')->delete($attachment->file_path);
         }
 
-        // เก็บชื่อไว้ก่อนลบ
-        $fileName = $attachment->file_name;
-        $id = $attachment->id;
+        $workItemId = $attachment->work_item_id; // เก็บ ID ไว้ก่อนลบ
+        $oldData = $attachment->toArray(); // เก็บข้อมูลไว้ทำ Log
 
         $attachment->delete();
 
-        // ✅ บันทึก Log การลบ
-        AuditLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'DELETE',
-            'model_type' => 'Attachment',
-            'model_id' => $id,
-            'target_name' => $fileName,
-            'changes' => ['สถานะ' => 'ลบไฟล์ถาวร'],
-        ]);
+        // ✅ อัปเดตเวลาของงานหลัก
+        if ($workItemId) {
+            $workItem = WorkItem::find($workItemId);
+            if ($workItem) {
+                $workItem->touch();
+                $this->clearRelatedCache($workItemId);
+            }
+        }
+
+        // 📝 บันทึก Log
+        $this->logActivity('DELETE', (object)$oldData, ['สถานะ' => 'ลบไฟล์ถาวร']);
 
         return back()->with('success', 'ลบไฟล์เรียบร้อยแล้ว');
+    }
+
+    // =========================================================================
+    // 🔧 Helper Functions
+    // =========================================================================
+
+    /**
+     * ล้าง Cache ที่เกี่ยวข้องกับ WorkItem นี้
+     */
+    private function clearRelatedCache($workItemId)
+    {
+        // 1. เคลียร์ S-Curve หรือข้อมูล Detail ที่อาจจะ Cache ไว้
+        Cache::forget("report_project_{$workItemId}");
+        Cache::forget("work_item_{$workItemId}_s_curve");
+
+        // 2. (Optional) ถ้ามี Cache ส่วนกลางอื่นๆ ก็ใส่เพิ่มตรงนี้ได้
+        // Cache::tags(['work_items'])->flush();
+    }
+
+    /**
+     * บันทึก Audit Log แบบรวมศูนย์
+     */
+    private function logActivity($action, $model, $changes = [])
+    {
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => $action,
+            'model_type' => 'Attachment',
+            'model_id' => $model->id ?? 0,
+            'target_name' => $model->file_name ?? 'Unknown File',
+            'changes' => $changes,
+            'ip_address' => request()->ip(), // ✅ เก็บ IP
+        ]);
     }
 }

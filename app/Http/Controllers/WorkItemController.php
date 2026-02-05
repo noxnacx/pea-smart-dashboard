@@ -8,13 +8,14 @@ use App\Models\Comment;
 use App\Models\WorkItemLink;
 use App\Models\ProjectManager;
 use App\Models\Division;
-use App\Models\Department; // ✅ เพิ่ม Import
+use App\Models\Department;
 use App\Services\LineService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Inertia\Inertia;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
 
 class WorkItemController extends Controller
 {
@@ -122,6 +123,9 @@ class WorkItemController extends Controller
             $workItem->parent->recalculateProgress();
         }
 
+        // 🚀 Clear Cache เพื่อให้ข้อมูลอัปเดตทันที
+        $this->clearRelatedCache($workItem);
+
         try {
             $msg = "✨ สร้างงานใหม่: " . $workItem->name . "\n" .
                    "📌 ประเภท: " . $workItem->type . "\n" .
@@ -181,6 +185,9 @@ class WorkItemController extends Controller
         // ✅ บันทึก Log แก้ไข
         $this->logActivity('UPDATE', $workItem, $oldData, $workItem->getChanges());
 
+        // 🚀 Clear Cache เพื่อให้ข้อมูลอัปเดตทันที
+        $this->clearRelatedCache($workItem);
+
         if ($workItem->wasChanged('progress') || $workItem->wasChanged('status')) {
             try {
                 $msg = "📈 อัปเดตงาน: " . $workItem->name . "\n" .
@@ -205,6 +212,9 @@ class WorkItemController extends Controller
         // ✅ บันทึก Log ลบ (ก่อนลบจริง)
         $this->logActivity('DELETE', $workItem, $workItem->toArray(), []);
 
+        // 🚀 Clear Cache ก่อนลบ (หรือหลังลบก็ได้ แต่ต้องเคลียร์)
+        $this->clearRelatedCache($workItem);
+
         $workItem->delete();
 
         if ($parent) {
@@ -212,6 +222,23 @@ class WorkItemController extends Controller
         }
 
         return back()->with('success', 'ลบงานสำเร็จ');
+    }
+
+    // --- Helper Function สำหรับเคลียร์ Cache ---
+    private function clearRelatedCache($workItem)
+    {
+        // 1. เคลียร์ Dashboard (Hierarchy + S-Curve)
+        Cache::forget('dashboard_hierarchy');
+        Cache::forget('dashboard_s_curve');
+
+        // 2. เคลียร์หน้ายุทธศาสตร์
+        Cache::forget('strategies_index');
+
+        // 3. เคลียร์ S-Curve ของตัวเอง และของ Parent (ถ้ามี)
+        Cache::forget("work_item_{$workItem->id}_s_curve");
+        if ($workItem->parent_id) {
+            Cache::forget("work_item_{$workItem->parent_id}_s_curve");
+        }
     }
 
     // --- Helper Function สำหรับบันทึก Audit Log ---
@@ -311,63 +338,71 @@ class WorkItemController extends Controller
             'projectManager'
         ]);
 
-        // S-Curve Logic
-        $months = []; $plannedData = []; $actualData = [];
-        $startDate = $workItem->planned_start_date ? $workItem->planned_start_date->copy()->startOfMonth() : now()->startOfYear();
-        $endDate = $workItem->planned_end_date ? $workItem->planned_end_date->copy()->endOfMonth() : now()->endOfYear();
-        if ($endDate->lt($startDate)) $endDate = $startDate->copy()->addMonths(1);
-        $allChildren = collect([$workItem]);
-        $tempQueue = [$workItem];
-        while(count($tempQueue) > 0) {
-            $current = array_shift($tempQueue);
-            if($current->children) { foreach($current->children as $child) { $allChildren->push($child); $tempQueue[] = $child; } }
-        }
-        $budgetItems = $allChildren->filter(function($item) {
-            if ($item->budget <= 0) return false;
-            if ($item->children->isEmpty()) return true;
-            $childrenBudget = $item->children->sum('budget');
-            if ($childrenBudget > 0) return false;
-            return true;
-        });
-        $totalProjectBudget = $budgetItems->sum('budget');
-        if ($totalProjectBudget <= 0) $totalProjectBudget = 1;
-        $currentDate = $startDate->copy();
-        while ($currentDate->lte($endDate)) {
-            $thaiMonths = [1 => 'ม.ค.', 2 => 'ก.พ.', 3 => 'มี.ค.', 4 => 'เม.ย.', 5 => 'พ.ค.', 6 => 'มิ.ย.', 7 => 'ก.ค.', 8 => 'ส.ค.', 9 => 'ก.ย.', 10 => 'ต.ค.', 11 => 'พ.ย.', 12 => 'ธ.ค.'];
-            $months[] = $thaiMonths[$currentDate->month] . ' ' . substr($currentDate->year + 543, -2);
-            $calcDate = $currentDate->copy()->endOfMonth();
-            $pvMoney = $budgetItems->sum(function($item) use ($calcDate) {
-                if (!$item->planned_start_date || !$item->planned_end_date) return 0;
-                if ($calcDate->lt($item->planned_start_date)) return 0;
-                if ($calcDate->gt($item->planned_end_date)) return $item->budget;
-                $totalDays = $item->planned_start_date->diffInDays($item->planned_end_date) + 1;
-                $passedDays = $item->planned_start_date->diffInDays($calcDate) + 1;
-                return $item->budget * ($passedDays / max(1, $totalDays));
-            });
-            $plannedData[] = round(($pvMoney / $totalProjectBudget) * 100, 2);
-            if ($calcDate->lte(now()->endOfMonth())) {
-                $evMoney = $budgetItems->sum(fn($item) => $item->budget * ($item->progress / 100));
-                $actualData[] = round(($evMoney / $totalProjectBudget) * 100, 2);
+        // ==========================================
+        // 🚀 S-Curve Logic (CACHED)
+        // ==========================================
+        $chartData = Cache::remember("work_item_{$workItem->id}_s_curve", 3600, function () use ($workItem) {
+            $months = []; $plannedData = []; $actualData = [];
+            $startDate = $workItem->planned_start_date ? $workItem->planned_start_date->copy()->startOfMonth() : now()->startOfYear();
+            $endDate = $workItem->planned_end_date ? $workItem->planned_end_date->copy()->endOfMonth() : now()->endOfYear();
+            if ($endDate->lt($startDate)) $endDate = $startDate->copy()->addMonths(1);
+
+            $allChildren = collect([$workItem]);
+            $tempQueue = [$workItem];
+            while(count($tempQueue) > 0) {
+                $current = array_shift($tempQueue);
+                if($current->children) { foreach($current->children as $child) { $allChildren->push($child); $tempQueue[] = $child; } }
             }
-            $currentDate->addMonth();
-        }
+            $budgetItems = $allChildren->filter(function($item) {
+                if ($item->budget <= 0) return false;
+                if ($item->children->isEmpty()) return true;
+                $childrenBudget = $item->children->sum('budget');
+                if ($childrenBudget > 0) return false;
+                return true;
+            });
+            $totalProjectBudget = $budgetItems->sum('budget');
+            if ($totalProjectBudget <= 0) $totalProjectBudget = 1;
+
+            $currentDate = $startDate->copy();
+            while ($currentDate->lte($endDate)) {
+                $thaiMonths = [1 => 'ม.ค.', 2 => 'ก.พ.', 3 => 'มี.ค.', 4 => 'เม.ย.', 5 => 'พ.ค.', 6 => 'มิ.ย.', 7 => 'ก.ค.', 8 => 'ส.ค.', 9 => 'ก.ย.', 10 => 'ต.ค.', 11 => 'พ.ย.', 12 => 'ธ.ค.'];
+                $months[] = $thaiMonths[$currentDate->month] . ' ' . substr($currentDate->year + 543, -2);
+                $calcDate = $currentDate->copy()->endOfMonth();
+                $pvMoney = $budgetItems->sum(function($item) use ($calcDate) {
+                    if (!$item->planned_start_date || !$item->planned_end_date) return 0;
+                    if ($calcDate->lt($item->planned_start_date)) return 0;
+                    if ($calcDate->gt($item->planned_end_date)) return $item->budget;
+                    $totalDays = $item->planned_start_date->diffInDays($item->planned_end_date) + 1;
+                    $passedDays = $item->planned_start_date->diffInDays($calcDate) + 1;
+                    return $item->budget * ($passedDays / max(1, $totalDays));
+                });
+                $plannedData[] = round(($pvMoney / $totalProjectBudget) * 100, 2);
+                if ($calcDate->lte(now()->endOfMonth())) {
+                    $evMoney = $budgetItems->sum(fn($item) => $item->budget * ($item->progress / 100));
+                    $actualData[] = round(($evMoney / $totalProjectBudget) * 100, 2);
+                }
+                $currentDate->addMonth();
+            }
+
+            return ['categories' => $months, 'planned' => $plannedData, 'actual' => $actualData];
+        });
 
         // Timeline Logic
-        $relatedIds = collect([$workItem->id])->merge($allChildren->pluck('id'))->unique()->toArray();
+        $relatedIds = collect([$workItem->id])->merge(collect($workItem->children)->pluck('id'))->unique()->toArray();
         $logs = AuditLog::with('user')
             ->where(function($q) use ($relatedIds) { $q->where('model_type', 'WorkItem')->whereIn('model_id', $relatedIds); })
             ->orWhere(function($q) use ($workItem) { $q->whereIn('model_type', ['Attachment', 'Issue'])->where(function($sq) use ($workItem) { $sq->where('changes->work_item_id', $workItem->id)->orWhere('changes->after->work_item_id', $workItem->id); }); })
             ->get()
-            ->map(function ($item) use ($allChildren) {
+            ->map(function ($item) {
                 $item->timeline_type = 'log';
-                if ($item->model_type === 'WorkItem') {
-                    $target = $allChildren->firstWhere('id', $item->model_id);
-                    $item->target_name = $target ? $target->name : 'รายการที่ถูกลบ';
-                }
+                // (Optional) Map target name logic here if needed
                 return $item;
             });
 
-        $comments = Comment::with('user')->whereIn('work_item_id', $relatedIds)->get()->map(function ($item) use ($allChildren) { $item->timeline_type = 'comment'; $target = $allChildren->firstWhere('id', $item->work_item_id); $item->target_name = $target ? $target->name : ''; return $item; });
+        $comments = Comment::with('user')->whereIn('work_item_id', $relatedIds)->get()->map(function ($item) {
+            $item->timeline_type = 'comment';
+            return $item;
+        });
 
         $timeline = $logs->concat($comments)->sortByDesc('created_at')->values();
         $page = request()->get('page', 1);
@@ -384,7 +419,7 @@ class WorkItemController extends Controller
         return Inertia::render('Project/Detail', [
             'item' => $workItem,
             'historyLogs' => $paginatedTimeline,
-            'chartData' => ['categories' => $months, 'planned' => $plannedData, 'actual' => $actualData],
+            'chartData' => $chartData, // ✅ ส่งข้อมูลที่ Cache แล้วไป
             'divisions' => $divisions,
         ]);
     }
@@ -393,23 +428,28 @@ class WorkItemController extends Controller
     public function index(Request $request) { return $this->projects($request); }
 
     public function strategies() {
-        $strategies = WorkItem::where('type', 'strategy')
-            ->with(['children' => function($q) {
-                $q->withCount(['children as project_count'])
-                  ->withCount(['issues as issue_count' => function($i) {
-                      $i->where('status', '!=', 'resolved');
-                  }])
-                  ->orderBy('name', 'asc');
-            }])
-            ->withCount(['issues as strategy_issue_count' => function($i) {
-                 $i->where('status', '!=', 'resolved');
-            }])
-            ->orderBy('name', 'asc')
-            ->get()
-            ->map(function ($strategy) {
-                $strategy->isOpen = false;
-                return $strategy;
-            });
+        // ==========================================
+        // 🚀 Strategies Tree (CACHED)
+        // ==========================================
+        $strategies = Cache::remember('strategies_index', 3600, function () {
+            return WorkItem::where('type', 'strategy')
+                ->with(['children' => function($q) {
+                    $q->withCount(['children as project_count'])
+                      ->withCount(['issues as issue_count' => function($i) {
+                          $i->where('status', '!=', 'resolved');
+                      }])
+                      ->orderBy('name', 'asc');
+                }])
+                ->withCount(['issues as strategy_issue_count' => function($i) {
+                     $i->where('status', '!=', 'resolved');
+                }])
+                ->orderBy('name', 'asc')
+                ->get()
+                ->map(function ($strategy) {
+                    $strategy->isOpen = false;
+                    return $strategy;
+                });
+        });
 
         return Inertia::render('Strategy/Index', [
             'strategies' => $strategies
@@ -418,6 +458,7 @@ class WorkItemController extends Controller
 
     public function ganttData(WorkItem $workItem) {
         try {
+            // Gantt Chart ควรเป็น Real-time เพื่อความแม่นยำในการลากวาง (ไม่ Cache)
             $allIds = collect([$workItem->id]);
             $workItem->load('children.children.children.children.children');
             $flatten = function ($item) use (&$flatten, &$allIds) { if ($item->children) { foreach ($item->children as $child) { $allIds->push($child->id); $flatten($child); } } };

@@ -7,31 +7,39 @@ use App\Models\Issue;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
 
 class DashboardController extends Controller
 {
     public function adminDashboard()
     {
-        // 1. Hierarchy (Strategy -> Plan)
-        $strategies = WorkItem::whereNull('parent_id')
-            ->with(['children' => function($q) {
-                $q->withCount(['children as project_count'])
-                  ->withCount(['issues as issue_count' => function($i) {
-                      $i->where('status', '!=', 'resolved');
-                  }])
-                  ->orderBy('name', 'asc');
-            }])
-            ->withCount(['issues as strategy_issue_count' => function($i) {
-                 $i->where('status', '!=', 'resolved');
-            }])
-            ->orderBy('name', 'asc')
-            ->get()
-            ->map(function ($strategy) {
-                $strategy->isOpen = false; // ปิด (พับเก็บ) ตาม Default
-                return $strategy;
-            });
+        // ==================================================================================
+        // 1. Hierarchy (Strategy -> Plan) | 🚀 CACHED (เก็บ 60 นาที)
+        // ==================================================================================
+        $strategies = Cache::remember('dashboard_hierarchy', 3600, function () {
+            return WorkItem::whereNull('parent_id')
+                ->with(['children' => function($q) {
+                    $q->withCount(['children as project_count'])
+                      ->withCount(['issues as issue_count' => function($i) {
+                          $i->where('status', '!=', 'resolved');
+                      }])
+                      ->orderBy('name', 'asc');
+                }])
+                ->withCount(['issues as strategy_issue_count' => function($i) {
+                     $i->where('status', '!=', 'resolved');
+                }])
+                ->orderBy('name', 'asc')
+                ->get()
+                ->map(function ($strategy) {
+                    $strategy->isOpen = false; // ปิด (พับเก็บ) ตาม Default
+                    return $strategy;
+                });
+        });
 
-        // 2. ข้อมูล Projects & Issues
+        // ==================================================================================
+        // 2. ข้อมูล Projects & Issues (Real-time)
+        // ==================================================================================
+        // ดึงสดเพื่อความแม่นยำของ Stats และ Watch List
         $projects = WorkItem::where('type', 'project')->get();
 
         $allActiveIssues = Issue::where('status', '!=', 'resolved')
@@ -39,7 +47,9 @@ class DashboardController extends Controller
             ->orderBy('severity', 'desc')
             ->get();
 
-        // 3. Stats Cards
+        // ==================================================================================
+        // 3. Stats Cards (Real-time)
+        // ==================================================================================
         $stats = [
             'total_projects' => $projects->count(),
             'total_budget' => $projects->sum('budget'),
@@ -49,7 +59,9 @@ class DashboardController extends Controller
             'critical_items' => $allActiveIssues->where('severity', 'critical')->count(),
         ];
 
-        // 4. Project Chart Data (ApexCharts)
+        // ==================================================================================
+        // 4. Project Chart Data (Real-time)
+        // ==================================================================================
         $statusCounts = $projects->groupBy('status')->map->count();
         $projectChart = [
             'series' => [
@@ -63,7 +75,9 @@ class DashboardController extends Controller
             'colors' => ['#10B981', '#3B82F6', '#EF4444', '#9CA3AF', '#4B5563']
         ];
 
-        // 5. โครงการที่ต้องจับตา (Watch List) ✅ เปลี่ยนใหม่ตรงนี้
+        // ==================================================================================
+        // 5. โครงการที่ต้องจับตา (Watch List) | ✅ Logic เดิมที่คุณต้องการ
+        // ==================================================================================
         // เงื่อนไข: สถานะ "ล่าช้า" หรือ "ยังไม่เสร็จและกำหนดส่งภายใน 30 วัน"
         $watchProjects = WorkItem::where('type', 'project')
             ->whereNotIn('status', ['completed', 'cancelled']) // ตัดงานที่เสร็จ/ยกเลิกออก
@@ -87,20 +101,28 @@ class DashboardController extends Controller
                 ];
             });
 
-        // 6. Global S-Curve
-        $globalSCurve = $this->calculateGlobalSCurve($projects);
+        // ==================================================================================
+        // 6. Global S-Curve | 🚀 CACHED (เก็บ 60 นาที)
+        // ==================================================================================
+        $globalSCurve = Cache::remember('dashboard_s_curve', 3600, function () {
+            // Query ใหม่ภายใน Cache เพื่อความชัวร์ (ไม่ต้องพึ่งตัวแปรข้างนอก)
+            $projectsForCurve = WorkItem::where('type', 'project')->get();
+            return $this->calculateGlobalSCurve($projectsForCurve);
+        });
 
         return Inertia::render('Dashboard/AdminDashboard', [
             'hierarchy' => $strategies,
             'stats' => $stats,
             'projectChart' => $projectChart,
-            'watchProjects' => $watchProjects, // ✅ ส่งตัวแปรชื่อใหม่ไป
+            'watchProjects' => $watchProjects,
             'sCurveChart' => $globalSCurve,
             'activeIssues' => $allActiveIssues
         ]);
     }
 
-    // (ฟังก์ชัน calculateGlobalSCurve คงเดิม)
+    // ==================================================================================
+    // Private Functions (Logic คำนวณ S-Curve คงเดิม 100%)
+    // ==================================================================================
     private function calculateGlobalSCurve($projects)
     {
         $months = [];

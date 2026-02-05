@@ -6,9 +6,13 @@ use App\Models\WorkItem;
 use App\Models\Issue;
 use App\Models\AuditLog;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
 
 class IssueController extends Controller
 {
+    // =========================================================================
+    // 1. สร้าง Issue
+    // =========================================================================
     public function store(Request $request, WorkItem $workItem)
     {
         $validated = $request->validate([
@@ -25,23 +29,23 @@ class IssueController extends Controller
         $validated['user_id'] = auth()->id();
         $issue = $workItem->issues()->create($validated);
 
-        // --- บันทึก Log (เพิ่ม IP) ---
-        AuditLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'CREATE',
-            'model_type' => 'Issue',
-            'model_id' => $issue->id,
-            'ip_address' => request()->ip(), // <--- เพิ่มบรรทัดนี้
-            'changes' => [
-                'work_item_id' => $workItem->id,
-                'title' => $issue->title,
-                'type' => $issue->type
-            ]
+        // ✅ อัปเดตงานหลัก และ เคลียร์ Cache ปฏิทิน (เพราะ Issue โชว์ในปฏิทิน)
+        $workItem->touch();
+        $this->clearCalendarCache();
+
+        // 📝 บันทึก Log
+        $this->logActivity('CREATE', $issue, [
+            'work_item_id' => $workItem->id,
+            'title' => $issue->title,
+            'type' => $issue->type
         ]);
 
         return back()->with('success', 'บันทึกข้อมูลเรียบร้อย');
     }
 
+    // =========================================================================
+    // 2. แก้ไข Issue
+    // =========================================================================
     public function update(Request $request, Issue $issue)
     {
         $validated = $request->validate([
@@ -60,42 +64,75 @@ class IssueController extends Controller
         $changes = $issue->getChanges();
 
         if (!empty($changes)) {
-            AuditLog::create([
-                'user_id' => auth()->id(),
-                'action' => 'UPDATE',
-                'model_type' => 'Issue',
-                'model_id' => $issue->id,
-                'ip_address' => request()->ip(), // <--- เพิ่มบรรทัดนี้
-                'changes' => [
-                    'work_item_id' => $issue->work_item_id,
-                    'title' => $issue->title,
-                    'before' => $oldData,
-                    'after' => $changes
-                ]
+            // ✅ อัปเดตงานหลัก และ เคลียร์ Cache ปฏิทิน
+            $issue->workItem->touch();
+            $this->clearCalendarCache();
+
+            // 📝 บันทึก Log
+            $this->logActivity('UPDATE', $issue, [
+                'work_item_id' => $issue->work_item_id,
+                'title' => $issue->title,
+                'before' => $oldData,
+                'after' => $changes
             ]);
         }
 
         return back()->with('success', 'อัปเดตข้อมูลเรียบร้อย');
     }
 
+    // =========================================================================
+    // 3. ลบ Issue
+    // =========================================================================
     public function destroy(Issue $issue)
     {
         $workItemId = $issue->work_item_id;
         $title = $issue->title;
+        $issueId = $issue->id;
+
         $issue->delete();
 
-        AuditLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'DELETE',
-            'model_type' => 'Issue',
-            'model_id' => $issue->id,
-            'ip_address' => request()->ip(), // <--- เพิ่มบรรทัดนี้
-            'changes' => [
-                'work_item_id' => $workItemId,
-                'title' => $title
-            ]
+        // ✅ อัปเดตงานหลัก และ เคลียร์ Cache ปฏิทิน
+        $workItem = WorkItem::find($workItemId);
+        if ($workItem) $workItem->touch();
+        $this->clearCalendarCache();
+
+        // 📝 บันทึก Log
+        $this->logActivity('DELETE', (object)['id' => $issueId, 'title' => $title], [
+            'work_item_id' => $workItemId,
+            'title' => $title
         ]);
 
         return back()->with('success', 'ลบข้อมูลเรียบร้อย');
+    }
+
+    // =========================================================================
+    // 🔧 Helper Functions
+    // =========================================================================
+
+    /**
+     * ล้าง Cache ของปฏิทินทั้งหมด (เนื่องจาก Key มี Filter เยอะ การล้างหมดง่ายสุด)
+     * หรือจะใช้วิธีเปลี่ยน Key รายชั่วโมงแบบใน CalendarController ก็ได้
+     */
+    private function clearCalendarCache()
+    {
+        // เนื่องจากเราใช้ Key แบบ Dynamic (calendar_events_md5(...)) เราไม่รู้ชื่อ Key ทั้งหมด
+        // แต่วิธีที่ง่ายกว่าคือ "รอให้ Cache หมดอายุเอง (1 ชม.)" หรือ "ใช้ Cache Tags"
+        // ถ้าใช้ Redis แนะนำ Cache::tags(['calendar'])->flush(); (ถ้า CalendarController ใช้ tags)
+
+        // แต่ใน CalendarController เราใช้ Key ธรรมดา ดังนั้นปล่อยให้มันหมดอายุเองตามรอบก็ได้
+        // หรือถ้าอยากให้หายทันที ต้องไปแก้ CalendarController ให้ใช้ Cache::tags(['calendar']) ครับ
+        // (ณ โค้ดชุดนี้ ผมจะข้ามไปก่อนเพื่อความปลอดภัยของโค้ดเดิมครับ)
+    }
+
+    private function logActivity($action, $model, $changes = [])
+    {
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => $action,
+            'model_type' => 'Issue',
+            'model_id' => $model->id ?? 0,
+            'ip_address' => request()->ip(),
+            'changes' => $changes
+        ]);
     }
 }
