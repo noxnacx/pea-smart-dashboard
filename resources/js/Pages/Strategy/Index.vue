@@ -2,7 +2,8 @@
 import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
-import WorkItemNode from '@/Components/WorkItemNode.vue'; // ✅ เรียกใช้ Recursive Component
+import WorkItemNode from '@/Components/WorkItemNode.vue'; // ✅ Component แสดงผลแบบ Tree
+import MoveWorkItemModal from '@/Components/MoveWorkItemModal.vue'; // ✅ Component ย้ายสังกัด (ใหม่)
 
 const props = defineProps({
     strategies: Array
@@ -20,6 +21,15 @@ const submitCreate = () => {
     form.post(route('work-items.store'), {
         onSuccess: () => { showCreateModal.value = false; form.reset(); }
     });
+};
+
+// --- 🔄 Move Modal Logic (เพิ่มใหม่) ---
+const showMoveModal = ref(false);
+const itemToMove = ref(null);
+
+const openMoveModal = (item) => {
+    itemToMove.value = item;
+    showMoveModal.value = true;
 };
 </script>
 
@@ -56,11 +66,19 @@ const submitCreate = () => {
                         :key="strategy.id"
                         :item="strategy"
                         :level="0"
+                        @request-move="openMoveModal"
                     />
                 </div>
 
             </div>
         </div>
+
+        <MoveWorkItemModal
+            :show="showMoveModal"
+            :item="itemToMove"
+            @close="showMoveModal = false"
+            @success="showMoveModal = false"
+        />
 
         <Teleport to="body">
             <div v-if="showCreateModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm transition-opacity">

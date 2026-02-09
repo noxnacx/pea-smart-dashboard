@@ -1,11 +1,12 @@
 <script setup>
-import { ref, computed, onMounted, watch } from 'vue';
+import { ref, watch } from 'vue';
 import { useForm } from '@inertiajs/vue3';
 import axios from 'axios';
+import TreeOption from '@/Components/TreeOption.vue'; // ✅ นำเข้า Component ที่แยกออกมา
 
 const props = defineProps({
     show: Boolean,
-    item: Object, // งานที่จะถูกย้าย (The Item being moved)
+    item: Object,
 });
 
 const emit = defineEmits(['close', 'success']);
@@ -14,20 +15,17 @@ const emit = defineEmits(['close', 'success']);
 const treeData = ref([]);
 const isLoading = ref(false);
 const searchQuery = ref('');
-const expandedNodes = ref(new Set()); // เก็บ ID ของ Node ที่เปิดอยู่
 
-// Form สำหรับส่งข้อมูล
+// Form
 const form = useForm({
     parent_id: null
 });
 
-// --- Fetch Full Tree Data ---
-// ดึงข้อมูล Tree ทั้งหมดเพื่อมาแสดงให้เลือก
+// Fetch Data
 const fetchTree = async () => {
     isLoading.value = true;
     try {
-        // เราใช้ API เดียวกับหน้า Strategy เพื่อดึง Tree ทั้งหมด
-        const response = await axios.get(route('api.strategies.tree')); // * เดี๋ยวต้องไปเพิ่ม Route นี้
+        const response = await axios.get(route('api.strategies.tree'));
         treeData.value = response.data;
     } catch (error) {
         console.error("Failed to load tree:", error);
@@ -36,103 +34,9 @@ const fetchTree = async () => {
     }
 };
 
-// --- Logic การ Disable Node (ห้ามเลือกตัวเองและลูกหลาน) ---
-const isNodeDisabled = (node) => {
-    if (!props.item) return false;
-
-    // 1. ห้ามเลือกตัวเอง
-    if (node.id === props.item.id) return true;
-
-    // 2. ห้ามเลือก Node ที่เป็นลูกหลานของตัวเอง (เช็คจาก path หรือ recursive check)
-    // แต่วิธีที่ง่ายกว่าคือ: ใน Backend เราจะกันไว้แล้ว แต่ใน Frontend เพื่อ UX ที่ดี
-    // เราควร Disable Visual ด้วย.
-    // เนื่องจาก treeData เป็น Tree ใหม่ เราต้องเช็คว่า node นี้อยู่ใต้ item เราไหม
-    // *วิธีง่ายสุด:* คือการเช็คว่า node.id อยู่ใน list ของลูกหลาน props.item ไหม
-    // แต่ props.item อาจจะมีลูกไม่ครบถ้าหน้าเดิมโหลดไม่หมด
-    // ดังนั้น: เราจะใช้ Logic ง่ายๆ คือ "ถ้า node นี้มี ancestor เป็น props.item.id ให้ disable"
-    // (ซึ่งทำใน frontend ยากถ้าไม่มี parent pointer)
-
-    // *Workaround:* เราจะใช้วิธี Disable แค่ "ตัวเอง" ก่อนในเบื้องต้น
-    // ส่วนลูกหลาน ถ้า Tree มัน render ลูกหลานออกมาภายใต้ "ตัวมันเอง"
-    // ตัวมันเองโดน disable ไปแล้ว User ก็จะกดเข้าไปเลือกข้างในไม่ได้อยู่แล้ว (โดยธรรมชาติของ UI)
-
-    return false;
-};
-
-// --- Recursive Component สำหรับแสดง Tree ใน Modal ---
-const TreeOption = {
-    name: 'TreeOption',
-    props: ['nodes', 'level', 'currentItemId', 'search'],
-    template: `
-        <div v-for="node in nodes" :key="node.id" class="w-full">
-            <div v-if="matchesSearch(node)">
-                <div
-                    class="flex items-center p-2 rounded-lg cursor-pointer transition-colors border border-transparent"
-                    :class="[
-                        isSelected(node.id) ? 'bg-purple-100 border-purple-300 text-purple-800' : 'hover:bg-gray-50',
-                        isDisabled(node.id) ? 'opacity-50 cursor-not-allowed bg-gray-50' : ''
-                    ]"
-                    :style="{ paddingLeft: (level * 1.5) + 0.5 + 'rem' }"
-                    @click="!isDisabled(node.id) && selectNode(node)"
-                >
-                    <span class="mr-2 text-lg">{{ getIcon(node.type) }}</span>
-
-                    <span class="flex-1 text-sm font-medium truncate">
-                        {{ node.name }}
-                        <span v-if="isDisabled(node.id)" class="text-xs text-red-400 ml-2">(ตัวเอง/ลูกหลาน)</span>
-                    </span>
-
-                    <span v-if="isSelected(node.id)" class="text-purple-600 font-bold">✓</span>
-                </div>
-
-                <div v-if="node.children && node.children.length > 0" class="border-l border-gray-100 ml-4">
-                    <TreeOption
-                        :nodes="node.children"
-                        :level="level + 1"
-                        :currentItemId="currentItemId"
-                        :search="search"
-                        @select="$emit('select', $event)"
-                    />
-                </div>
-            </div>
-        </div>
-    `,
-    methods: {
-        getIcon(type) {
-            return { strategy: '🏛️', plan: '📁', project: '🚀', task: '📌' }[type] || '📄';
-        },
-        isDisabled(nodeId) {
-            // Disable ตัวเอง
-            if (nodeId === this.currentItemId) return true;
-            return false;
-            // หมายเหตุ: จริงๆ ควร Disable ลูกหลานด้วย แต่ใน UI แบบ Tree ถ้าพ่อ (ตัวเอง) ถูก Disable
-            // หรือถูกซ่อน (เพราะเรากำลังย้ายตัวเอง) ลูกหลานมันก็จะติดไปด้วยอยู่แล้ว
-        },
-        isSelected(nodeId) {
-            // เช็คว่า Parent ID ที่เลือกใน Form ตรงกับ Node นี้ไหม
-            // แต่ต้อง inject form มาใช้ หรือส่งผ่าน props.
-            // เพื่อความง่าย ใช้ event emit ขึ้นไปจัดการข้างบนดีกว่า
-            return this.$attrs.selectedId === nodeId;
-        },
-        selectNode(node) {
-            this.$emit('select', node);
-        },
-        matchesSearch(node) {
-            if (!this.search) return true;
-            // ถ้าตัวเองตรง หรือ ลูกหลานตรง ให้แสดง
-            const selfMatch = node.name.toLowerCase().includes(this.search.toLowerCase());
-            const childrenMatch = node.children && node.children.some(c => this.matchesSearch(c)); // Recursive check อย่างง่าย
-            return selfMatch || childrenMatch; // (Logic นี้อาจหนักถ้าข้อมูลเยอะ แต่พอถูไถ)
-        }
-    }
-};
-
-// --- Actions ---
+// Actions
 const selectParent = (node) => {
-    // ถ้าเลือกตัวเอง -> ห้าม
     if (node && node.id === props.item.id) return;
-
-    // ตั้งค่า parent_id ใหม่
     form.parent_id = node ? node.id : null;
 };
 
@@ -145,28 +49,19 @@ const submitMove = () => {
             emit('close');
             form.reset();
         },
-        onError: () => {
-            // Handle error
-        }
     });
 };
 
-// Watch Show prop เพื่อโหลดข้อมูล
 watch(() => props.show, (newVal) => {
     if (newVal) {
         fetchTree();
-        // ตั้งค่าเริ่มต้นเป็น Parent ปัจจุบัน
         form.parent_id = props.item?.parent_id || null;
     }
 });
-
-// Helper for icon inside main template
-const getIcon = (type) => ({ strategy: '🏛️', plan: '📁', project: '🚀', task: '📌' }[type] || '📄');
-
 </script>
 
 <template>
-    <div v-if="show" class="fixed inset-0 z-[200] overflow-y-auto" aria-labelledby="modal-title" role="dialog" aria-modal="true">
+    <div v-if="show" class="fixed inset-0 z-[200] overflow-y-auto">
 
         <div class="fixed inset-0 bg-gray-500 bg-opacity-75 transition-opacity" @click="$emit('close')"></div>
 
@@ -174,7 +69,7 @@ const getIcon = (type) => ({ strategy: '🏛️', plan: '📁', project: '🚀',
             <div class="relative transform overflow-hidden rounded-lg bg-white text-left shadow-xl transition-all sm:my-8 sm:w-full sm:max-w-lg flex flex-col max-h-[85vh]">
 
                 <div class="bg-purple-50 px-4 py-3 sm:px-6 border-b border-purple-100 flex justify-between items-center">
-                    <h3 class="text-base font-semibold leading-6 text-purple-900" id="modal-title">
+                    <h3 class="text-base font-semibold leading-6 text-purple-900">
                         🔄 ย้ายงาน: <span class="text-purple-600">{{ item?.name }}</span>
                     </h3>
                     <button @click="$emit('close')" class="text-gray-400 hover:text-gray-500">&times;</button>

@@ -4,7 +4,8 @@ import { ref, computed } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import SCurveChart from '@/Components/SCurveChart.vue';
 import VueApexCharts from 'vue3-apexcharts';
-import WorkItemNode from '@/Components/WorkItemNode.vue'; // ✅ เรียกใช้ Recursive Component
+import WorkItemNode from '@/Components/WorkItemNode.vue';
+import MoveWorkItemModal from '@/Components/MoveWorkItemModal.vue'; // ✅ Import Modal
 
 const props = defineProps({
     hierarchy: Array,
@@ -87,6 +88,15 @@ const filteredIssues = computed(() => {
 
 const safeRoute = (name) => {
     try { return route().has(name) ? route(name) : '#'; } catch (e) { return '#'; }
+};
+
+// --- 🔄 Move Modal Logic ---
+const showMoveModal = ref(false);
+const itemToMove = ref(null);
+
+const openMoveModal = (item) => {
+    itemToMove.value = item;
+    showMoveModal.value = true;
 };
 </script>
 
@@ -181,6 +191,7 @@ const safeRoute = (name) => {
                                 :key="strategy.id"
                                 :item="strategy"
                                 :level="0"
+                                @request-move="openMoveModal"
                             />
                         </div>
                     </div>
@@ -263,6 +274,13 @@ const safeRoute = (name) => {
                 </div>
             </div>
         </Teleport>
+
+        <MoveWorkItemModal
+            :show="showMoveModal"
+            :item="itemToMove"
+            @close="showMoveModal = false"
+            @success="showMoveModal = false"
+        />
 
     </PeaSidebarLayout>
 </template>

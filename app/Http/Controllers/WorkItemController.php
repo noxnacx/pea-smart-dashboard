@@ -182,6 +182,11 @@ class WorkItemController extends Controller
 
         $workItem->update($validated);
 
+        // ✅ Feature: Cascading Status (ถ้าเปลี่ยนสถานะแม่ -> ลูกหลานเปลี่ยนตาม)
+        if ($workItem->wasChanged('status')) {
+            $this->cascadeStatus($workItem, $workItem->status);
+        }
+
         // ✅ บันทึก Log แก้ไข
         $this->logActivity('UPDATE', $workItem, $oldData, $workItem->getChanges());
 
@@ -203,6 +208,75 @@ class WorkItemController extends Controller
         }
 
         return back()->with('success', 'บันทึกข้อมูลเรียบร้อยแล้ว');
+    }
+
+    // --- ✅ ฟังก์ชันใหม่: ย้ายสังกัด (Move) ---
+    public function move(Request $request, WorkItem $workItem)
+    {
+        $validated = $request->validate([
+            'parent_id' => 'nullable|exists:work_items,id',
+        ]);
+
+        $newParentId = $validated['parent_id'];
+
+        // 1. ห้ามเลือกตัวเอง
+        if ($newParentId == $workItem->id) {
+             return back()->withErrors(['parent_id' => 'ไม่สามารถย้ายงานไปหาตัวเองได้']);
+        }
+
+        // 2. ห้ามเลือก Node ที่เป็นลูกหลาน (ป้องกัน Circular Dependency)
+        if ($newParentId) {
+             // ต้องโหลดลูกหลานทั้งหมดมาเช็ค
+             $descendantIds = $this->getDescendantIds($workItem);
+             if (in_array($newParentId, $descendantIds)) {
+                 return back()->withErrors(['parent_id' => 'ไม่สามารถย้ายงานไปอยู่ภายใต้ลูกหลานของตัวเองได้']);
+             }
+        }
+
+        $oldParent = $workItem->parent;
+        $oldData = $workItem->getOriginal();
+
+        // Update Parent
+        $workItem->update(['parent_id' => $newParentId]);
+
+        // Log
+        $this->logActivity('MOVE', $workItem, $oldData, $workItem->getChanges());
+
+        // Clear Cache (ทั้งตัวมันเอง, พ่อเก่า, พ่อใหม่)
+        $this->clearRelatedCache($workItem);
+        if ($oldParent) $this->clearRelatedCache($oldParent);
+        if ($workItem->parent) $this->clearRelatedCache($workItem->parent);
+
+        // Recalculate Progress
+        if ($oldParent) $oldParent->recalculateProgress();
+        if ($workItem->parent) $workItem->parent->recalculateProgress();
+
+        return back()->with('success', 'ย้ายงานเรียบร้อยแล้ว');
+    }
+
+    // --- ✅ ฟังก์ชัน API สำหรับ Modal เลือก Tree (แก้ Logic ให้ตรงหน้าหลัก) ---
+    public function getTree()
+    {
+        // Closure สำหรับดึงลูกหลาน (เหมือน strategies())
+        $recursiveLoad = function ($q) {
+            $q->orderBy('name', 'asc');
+        };
+
+        $relations = [];
+        $depth = 'children';
+        for ($i = 0; $i < 10; $i++) {
+            $relations[$depth] = $recursiveLoad;
+            $depth .= '.children';
+        }
+
+        // 🔴 แก้ไขตรงนี้: เปลี่ยนจาก whereNull('parent_id') เป็น where('type', 'strategy')
+        $tree = WorkItem::where('type', 'strategy')
+            ->with($relations)
+            ->orderBy('name', 'asc')
+            ->get();
+
+        // ใช้วิธี Natural Sort เรียงลำดับให้สวยงาม (1, 2, 10)
+        return $tree->sortBy('name', SORT_NATURAL)->values();
     }
 
     public function destroy(WorkItem $workItem)
@@ -322,6 +396,40 @@ class WorkItemController extends Controller
         }
     }
 
+    // --- Helper Function: Recursive Status Update ---
+    private function cascadeStatus($item, $newStatus)
+    {
+        $isActive = $newStatus !== 'cancelled';
+
+        // ดึงลูกๆ ของ Node นี้มา
+        $children = $item->children;
+
+        foreach ($children as $child) {
+            // อัปเดตสถานะลูก
+            $child->update([
+                'status' => $newStatus,
+                'is_active' => $isActive
+            ]);
+
+            // เรียกซ้ำไปหาหลาน (Recursive)
+            $this->cascadeStatus($child, $newStatus);
+        }
+    }
+
+    // --- Helper Function: Get All Descendant IDs ---
+    private function getDescendantIds($item)
+    {
+        $ids = [];
+        $children = $item->children; // ควร Eager Load มาก่อนเพื่อ performance หรือใช้ Query
+
+        foreach ($children as $child) {
+            $ids[] = $child->id;
+            // เรียกซ้ำ
+            $ids = array_merge($ids, $this->getDescendantIds($child));
+        }
+        return $ids;
+    }
+
     public function show(WorkItem $workItem)
     {
         $workItem->load([
@@ -433,8 +541,10 @@ class WorkItemController extends Controller
         // ==========================================
         $strategies = Cache::remember('strategies_index', 3600, function () {
 
+            // Closure สำหรับจัดเรียงและนับ Issue ในทุกระดับชั้น
             $recursiveLoad = function ($q) {
-                $q->orderBy('name', 'asc') // เปลี่ยนจาก order_index เป็น name
+                // ✅ แก้ไข: เรียงตามชื่อล้วนๆ (Natural Sort) ตัด order_index ออก
+                $q->orderBy('name', 'asc')
                   ->withCount(['issues as issue_count' => function($i) {
                       $i->where('status', '!=', 'resolved');
                   }]);
@@ -454,7 +564,7 @@ class WorkItemController extends Controller
                 }])
                 ->get();
 
-            // 🟢 แก้ไขจุดนี้: เรียงตามชื่อล้วนๆ
+            // ✅ เรียงลำดับด้วย PHP (Natural Sort)
             return $rawStrategies->sortBy(function($item) {
                 return $item->name;
             }, SORT_NATURAL)->values();
@@ -520,4 +630,5 @@ class WorkItemController extends Controller
         if (!$search) return response()->json([]);
         return ProjectManager::where('name', 'ilike', "%{$search}%")->limit(10)->get(['id', 'name']);
     }
+
 }
