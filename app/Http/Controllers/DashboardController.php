@@ -20,7 +20,8 @@ class DashboardController extends Controller
 
             // Closure สำหรับจัดเรียงและนับ Issue ในทุกระดับชั้น (ใช้ซ้ำได้)
             $recursiveLoad = function ($q) {
-                $q->orderBy('order_index')->orderBy('name', 'asc')
+                // ✅ แก้ไข: เรียงตามชื่ออย่างเดียว (ตัด order_index ออก)
+                $q->orderBy('name', 'asc')
                   ->withCount(['issues as issue_count' => function($i) {
                       $i->where('status', '!=', 'resolved');
                   }]);
@@ -34,14 +35,24 @@ class DashboardController extends Controller
                 $depth .= '.children';
             }
 
-            return WorkItem::where('type', 'strategy') // ✅ เริ่มจาก Strategy
+            // 1. ดึงข้อมูลดิบมาก่อน
+            $rawStrategies = WorkItem::where('type', 'strategy')
                 ->with($relations) // ✅ โหลด Recursive 10 ชั้นรวดเดียว
                 ->withCount(['issues as strategy_issue_count' => function($i) {
                      $i->where('status', '!=', 'resolved');
                 }])
-                ->orderBy('order_index')
-                ->orderBy('name', 'asc')
                 ->get();
+
+            // 2. ✅ เรียงลำดับด้วย PHP (Natural Sort) โดยใช้แค่ "ชื่อ" เท่านั้น
+            // แก้ปัญหาเลข 1, 10, 2 และตัดปัญหา order_index ที่อาจผิดเพี้ยนใน DB
+            return $rawStrategies->sortBy(function($item) {
+                return $item->name;
+            }, SORT_NATURAL)
+            ->map(function ($strategy) {
+                $strategy->isOpen = false; // ปิด (พับเก็บ) ตาม Default
+                return $strategy;
+            })
+            ->values(); // Reset Array Keys สำคัญมาก
         });
 
         // ==================================================================================

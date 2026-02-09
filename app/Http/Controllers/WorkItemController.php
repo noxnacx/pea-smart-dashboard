@@ -433,16 +433,13 @@ class WorkItemController extends Controller
         // ==========================================
         $strategies = Cache::remember('strategies_index', 3600, function () {
 
-            // Closure สำหรับจัดเรียงและนับ Issue ในทุกระดับชั้น (Reused for every level)
             $recursiveLoad = function ($q) {
-                $q->orderBy('order_index')->orderBy('name', 'asc')
+                $q->orderBy('name', 'asc') // เปลี่ยนจาก order_index เป็น name
                   ->withCount(['issues as issue_count' => function($i) {
                       $i->where('status', '!=', 'resolved');
                   }]);
             };
 
-            // สร้าง Array เพื่อ Eager Load ลึก 10 ชั้น (Strategy -> Plan -> Project -> Sub-Project ...)
-            // ex: ['children', 'children.children', 'children.children.children', ...]
             $relations = [];
             $depth = 'children';
             for ($i = 0; $i < 10; $i++) {
@@ -450,14 +447,17 @@ class WorkItemController extends Controller
                 $depth .= '.children';
             }
 
-            return WorkItem::where('type', 'strategy')
-                ->with($relations) // ✅ โหลด Recursive 10 ชั้นรวดเดียว
+            $rawStrategies = WorkItem::where('type', 'strategy')
+                ->with($relations)
                 ->withCount(['issues as strategy_issue_count' => function($i) {
                      $i->where('status', '!=', 'resolved');
                 }])
-                ->orderBy('order_index')
-                ->orderBy('name', 'asc')
                 ->get();
+
+            // 🟢 แก้ไขจุดนี้: เรียงตามชื่อล้วนๆ
+            return $rawStrategies->sortBy(function($item) {
+                return $item->name;
+            }, SORT_NATURAL)->values();
         });
 
         return Inertia::render('Strategy/Index', [
