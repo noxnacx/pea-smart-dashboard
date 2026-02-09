@@ -429,26 +429,35 @@ class WorkItemController extends Controller
 
     public function strategies() {
         // ==========================================
-        // 🚀 Strategies Tree (CACHED)
+        // 🚀 Strategies Tree (CACHED) with Recursive Children
         // ==========================================
         $strategies = Cache::remember('strategies_index', 3600, function () {
+
+            // Closure สำหรับจัดเรียงและนับ Issue ในทุกระดับชั้น (Reused for every level)
+            $recursiveLoad = function ($q) {
+                $q->orderBy('order_index')->orderBy('name', 'asc')
+                  ->withCount(['issues as issue_count' => function($i) {
+                      $i->where('status', '!=', 'resolved');
+                  }]);
+            };
+
+            // สร้าง Array เพื่อ Eager Load ลึก 10 ชั้น (Strategy -> Plan -> Project -> Sub-Project ...)
+            // ex: ['children', 'children.children', 'children.children.children', ...]
+            $relations = [];
+            $depth = 'children';
+            for ($i = 0; $i < 10; $i++) {
+                $relations[$depth] = $recursiveLoad;
+                $depth .= '.children';
+            }
+
             return WorkItem::where('type', 'strategy')
-                ->with(['children' => function($q) {
-                    $q->withCount(['children as project_count'])
-                      ->withCount(['issues as issue_count' => function($i) {
-                          $i->where('status', '!=', 'resolved');
-                      }])
-                      ->orderBy('name', 'asc');
-                }])
+                ->with($relations) // ✅ โหลด Recursive 10 ชั้นรวดเดียว
                 ->withCount(['issues as strategy_issue_count' => function($i) {
                      $i->where('status', '!=', 'resolved');
                 }])
+                ->orderBy('order_index')
                 ->orderBy('name', 'asc')
-                ->get()
-                ->map(function ($strategy) {
-                    $strategy->isOpen = false;
-                    return $strategy;
-                });
+                ->get();
         });
 
         return Inertia::render('Strategy/Index', [

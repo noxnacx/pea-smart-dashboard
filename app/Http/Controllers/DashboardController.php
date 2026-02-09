@@ -14,26 +14,34 @@ class DashboardController extends Controller
     public function adminDashboard()
     {
         // ==================================================================================
-        // 1. Hierarchy (Strategy -> Plan) | 🚀 CACHED (เก็บ 60 นาที)
+        // 1. Hierarchy (Strategy -> Plan -> Project ...) | 🚀 CACHED (เก็บ 60 นาที)
         // ==================================================================================
         $strategies = Cache::remember('dashboard_hierarchy', 3600, function () {
-            return WorkItem::whereNull('parent_id')
-                ->with(['children' => function($q) {
-                    $q->withCount(['children as project_count'])
-                      ->withCount(['issues as issue_count' => function($i) {
-                          $i->where('status', '!=', 'resolved');
-                      }])
-                      ->orderBy('name', 'asc');
-                }])
+
+            // Closure สำหรับจัดเรียงและนับ Issue ในทุกระดับชั้น (ใช้ซ้ำได้)
+            $recursiveLoad = function ($q) {
+                $q->orderBy('order_index')->orderBy('name', 'asc')
+                  ->withCount(['issues as issue_count' => function($i) {
+                      $i->where('status', '!=', 'resolved');
+                  }]);
+            };
+
+            // สร้าง Array เพื่อ Eager Load ลึก 10 ชั้น (Strategy -> Plan -> Project -> Sub-Project ...)
+            $relations = [];
+            $depth = 'children';
+            for ($i = 0; $i < 10; $i++) {
+                $relations[$depth] = $recursiveLoad;
+                $depth .= '.children';
+            }
+
+            return WorkItem::where('type', 'strategy') // ✅ เริ่มจาก Strategy
+                ->with($relations) // ✅ โหลด Recursive 10 ชั้นรวดเดียว
                 ->withCount(['issues as strategy_issue_count' => function($i) {
                      $i->where('status', '!=', 'resolved');
                 }])
+                ->orderBy('order_index')
                 ->orderBy('name', 'asc')
-                ->get()
-                ->map(function ($strategy) {
-                    $strategy->isOpen = false; // ปิด (พับเก็บ) ตาม Default
-                    return $strategy;
-                });
+                ->get();
         });
 
         // ==================================================================================

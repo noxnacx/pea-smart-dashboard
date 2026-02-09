@@ -1,9 +1,10 @@
 <script setup>
-import { Head, Link, usePage, router } from '@inertiajs/vue3'; // ✅ เพิ่ม router
+import { Head, Link, usePage, router } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import SCurveChart from '@/Components/SCurveChart.vue';
 import VueApexCharts from 'vue3-apexcharts';
+import WorkItemNode from '@/Components/WorkItemNode.vue'; // ✅ เรียกใช้ Recursive Component
 
 const props = defineProps({
     hierarchy: Array,
@@ -33,22 +34,16 @@ const getStatusText = (s) => ({
     completed: 'เสร็จสิ้น', in_progress: 'กำลังทำ', delayed: 'ล่าช้า', pending: 'รอเริ่ม', cancelled: 'ยกเลิก'
 }[s] || s);
 
-// --- ApexCharts Options (พร้อม Drill-down Logic) ---
+// --- ApexCharts Options ---
 const chartOptions = computed(() => ({
     chart: {
         type: 'donut',
         fontFamily: 'Sarabun, sans-serif',
-        // ✨ เพิ่ม Event สำหรับการคลิก
         events: {
             dataPointSelection: (event, chartContext, config) => {
-                // 1. หาว่าคลิกที่ Index ไหน
                 const index = config.dataPointIndex;
-                // 2. แปลง Index เป็น Status Key (ต้องเรียงตามลำดับเดียวกับใน DashboardController)
-                // ลำดับ: ['completed', 'in_progress', 'delayed', 'pending', 'cancelled']
                 const statusKeys = ['completed', 'in_progress', 'delayed', 'pending', 'cancelled'];
                 const selectedStatus = statusKeys[index];
-
-                // 3. สั่ง Redirect ไปหน้า work-items พร้อมแนบ Filter
                 if (selectedStatus) {
                     router.get(route('work-items.index'), { status: selectedStatus });
                 }
@@ -80,23 +75,16 @@ const chartOptions = computed(() => ({
     dataLabels: { enabled: false },
     legend: { position: 'bottom', fontSize: '12px' },
     stroke: { show: false },
-    // เปลี่ยน Cursor ให้รู้ว่าคลิกได้
-    tooltip: {
-        enabled: true,
-        followCursor: true
-    }
+    tooltip: { enabled: true, followCursor: true }
 }));
 
-// --- Logic อื่นๆ คงเดิม ---
 const showIssueListModal = ref(false);
 const filterIssueType = ref('all');
-const toggle = (item) => { item.isOpen = !item.isOpen; };
 const filteredIssues = computed(() => {
     if (filterIssueType.value === 'all') return props.activeIssues;
     return props.activeIssues.filter(i => i.type === filterIssueType.value);
 });
 
-// Safe Route Check
 const safeRoute = (name) => {
     try { return route().has(name) ? route(name) : '#'; } catch (e) { return '#'; }
 };
@@ -180,46 +168,20 @@ const safeRoute = (name) => {
                         </div>
                     </div>
 
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden min-h-[400px]">
                         <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
-                            <h3 class="font-bold text-gray-700 flex items-center gap-2"><span>📑</span> โครงสร้างยุทธศาสตร์</h3>
+                            <h3 class="font-bold text-gray-700 flex items-center gap-2"><span>📑</span> โครงสร้างยุทธศาสตร์ (Infinite Tree)</h3>
                         </div>
-                        <div v-if="!hierarchy.length" class="p-8 text-center text-gray-400">ยังไม่มีข้อมูลยุทธศาสตร์</div>
-                        <div v-for="st in hierarchy" :key="st.id" class="border-b border-gray-100 last:border-0">
-                            <div class="p-4 bg-white hover:bg-purple-50 cursor-pointer flex items-center gap-4 group" @click="toggle(st)">
-                                <div class="w-10 h-10 rounded-lg bg-[#7A2F8F] text-white flex items-center justify-center font-bold shadow-sm shrink-0 transition-transform group-hover:scale-110">
-                                    {{ st.name.charAt(0) }}
-                                </div>
-                                <div class="flex-1 min-w-0">
-                                    <div class="flex justify-between items-center mb-1">
-                                        <h4 class="font-bold text-gray-800 text-base truncate pr-4">{{ st.name }}</h4>
-                                        <div class="flex items-center gap-3">
-                                            <span class="font-bold text-[#4A148C] text-sm">{{ st.progress }}%</span>
-                                            <svg class="w-5 h-5 text-gray-300 transition-transform duration-300" :class="{'rotate-180': st.isOpen}" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
-                                        </div>
-                                    </div>
-                                    <div class="w-full bg-gray-100 h-1.5 rounded-full overflow-hidden flex">
-                                        <div class="h-full bg-green-500" :style="`width: ${st.progress}%`"></div>
-                                    </div>
-                                </div>
-                            </div>
 
-                            <div v-show="st.isOpen" class="bg-gray-50 border-t border-gray-100 p-3 pl-[4.5rem] space-y-2 shadow-inner">
-                                <div v-if="!st.children.length" class="text-sm text-gray-400 italic">ยังไม่มีแผนงานย่อย</div>
-                                <div v-for="plan in st.children" :key="plan.id" class="bg-white p-3 rounded-lg border border-gray-200 shadow-sm flex justify-between items-center hover:border-purple-300 transition">
-                                    <div class="flex items-center gap-3 min-w-0">
-                                        <div class="w-1 h-8 bg-[#FDB913] rounded-full shrink-0"></div>
-                                        <div class="min-w-0">
-                                            <Link :href="safeRoute('work-items.show') !== '#' ? route('work-items.show', plan.id) : '#'" class="font-bold text-sm text-gray-700 hover:text-[#7A2F8F] hover:underline truncate block">{{ plan.name }}</Link>
-                                            <div class="text-[10px] text-gray-400">{{ plan.project_count }} โครงการ</div>
-                                        </div>
-                                    </div>
-                                    <div class="text-right w-16">
-                                        <div class="text-xs font-bold text-gray-600">{{ plan.progress }}%</div>
-                                        <div class="w-full bg-gray-100 h-1 rounded-full mt-1"><div class="h-full bg-[#FDB913]" :style="`width: ${plan.progress}%`"></div></div>
-                                    </div>
-                                </div>
-                            </div>
+                        <div v-if="!hierarchy.length" class="p-10 text-center text-gray-400">ยังไม่มีข้อมูลยุทธศาสตร์</div>
+
+                        <div v-else class="p-4">
+                            <WorkItemNode
+                                v-for="strategy in hierarchy"
+                                :key="strategy.id"
+                                :item="strategy"
+                                :level="0"
+                            />
                         </div>
                     </div>
                 </div>
