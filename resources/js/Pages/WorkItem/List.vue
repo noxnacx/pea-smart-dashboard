@@ -18,8 +18,20 @@ const props = defineProps({
 const page = usePage();
 const canEdit = computed(() => ['admin', 'pm', 'project_manager'].includes(page.props.auth.user.role));
 
-const pageTitle = props.type === 'plan' ? 'แผนงานทั้งหมด' : 'โครงการทั้งหมด';
-const routeName = props.type === 'plan' ? 'plans.index' : 'projects.index';
+const pageTitle = computed(() => {
+    if (props.type === 'plan') return 'แผนงานทั้งหมด';
+    if (props.type === 'project') return 'โครงการทั้งหมด';
+    if (props.type === 'task') return 'งานย่อยทั้งหมด';
+    return 'รายการงานทั้งหมด';
+});
+
+const routeName = computed(() => {
+    if (props.type === 'plan') return 'plans.index';
+    if (props.type === 'project') return 'projects.index';
+    if (props.type === 'task') return 'tasks.index';
+    return 'work-items.index';
+});
+
 const showSuccessModal = ref(false);
 
 // --- Search & Filter ---
@@ -41,7 +53,7 @@ const filterDepartments = computed(() => {
 
 watch(filterForm, throttle(() => {
     if (!filterForm.value.division_id) filterForm.value.department_id = '';
-    router.get(route(routeName), filterForm.value, { preserveState: true, replace: true });
+    router.get(route(routeName.value), filterForm.value, { preserveState: true, replace: true });
 }, 500), { deep: true });
 
 // --- Helpers ---
@@ -207,7 +219,9 @@ const openQuickView = (item, type) => {
                         <tr v-for="item in items.data" :key="item.id" class="hover:bg-purple-50 transition group" :class="{'opacity-50 bg-gray-50 grayscale': item.status === 'cancelled'}">
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-[#7A2F8F] font-bold text-lg shrink-0" :class="item.status === 'cancelled' ? 'bg-gray-200 text-gray-500' : ''">{{ type === 'plan' ? 'P' : 'J' }}</div>
+                                    <div class="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-[#7A2F8F] font-bold text-lg shrink-0" :class="item.status === 'cancelled' ? 'bg-gray-200 text-gray-500' : ''">
+                                        {{ item.type === 'plan' ? 'P' : (item.type === 'project' ? 'J' : 'T') }}
+                                    </div>
                                     <div class="min-w-0">
                                         <div class="flex items-center gap-2">
                                             <Link :href="route('work-items.show', item.id)" class="font-bold text-gray-800 hover:text-[#7A2F8F] hover:underline truncate max-w-[280px]">
@@ -368,7 +382,7 @@ const openQuickView = (item, type) => {
                             <div class="flex justify-between items-start mb-2">
                                 <span class="font-bold text-gray-800 text-sm">{{ item.title }}</span>
                                 <span class="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wide"
-                                      :class="item.severity === 'critical' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'">
+                                    :class="item.severity === 'critical' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'">
                                     {{ item.severity }}
                                 </span>
                             </div>

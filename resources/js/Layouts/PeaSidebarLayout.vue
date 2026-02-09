@@ -94,6 +94,20 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     โครงการทั้งหมด
                 </Link>
 
+                <Link :href="route('tasks.index')"
+                      class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                      :class="route().current('tasks.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
+                    งานย่อยทั้งหมด
+                </Link>
+
+                <Link :href="route('issues.index')"
+                      class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                      :class="route().current('issues.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    ปัญหาและความเสี่ยง
+                </Link>
+
                 <div class="px-4 mt-6 mb-2 text-[10px] font-bold text-purple-300/60 uppercase tracking-widest">
                     System
                 </div>
@@ -190,6 +204,8 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     <Link :href="route('strategies.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ยุทธศาสตร์ทั้งหมด</Link>
                     <Link :href="route('plans.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">แผนงานทั้งหมด</Link>
                     <Link :href="route('projects.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">โครงการทั้งหมด</Link>
+                    <Link :href="route('tasks.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">งานย่อยทั้งหมด</Link>
+                    <Link :href="route('issues.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ปัญหาและความเสี่ยง</Link>
 
                     <div class="px-4 text-[10px] text-purple-400 font-bold uppercase mt-2">System</div>
                     <button @click="isSearchOpen = true" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-purple-800 rounded-lg">

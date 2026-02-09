@@ -46,6 +46,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/plans', [WorkItemController::class, 'list'])->defaults('type', 'plan')->name('plans.index');
     Route::get('/projects', [WorkItemController::class, 'list'])->defaults('type', 'project')->name('projects.index');
     Route::get('/strategies', [WorkItemController::class, 'strategies'])->name('strategies.index');
+    Route::get('/tasks', [WorkItemController::class, 'list'])->defaults('type', 'task')->name('tasks.index'); // หน้า Task
+    Route::get('/issues', [IssueController::class, 'index'])->name('issues.index'); // หน้า Issue/Risk
+
 
     // ✅ Route สำหรับดึง Tree มาแสดงใน Modal ย้ายงาน (ใช้ได้ทุกคนที่มีสิทธิ์ดู)
     Route::get('/api/strategies/tree', [WorkItemController::class, 'getTree'])->name('api.strategies.tree');

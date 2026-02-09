@@ -7,6 +7,7 @@ use App\Models\Issue;
 use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
+use Inertia\Inertia;
 
 class IssueController extends Controller
 {
@@ -133,6 +134,39 @@ class IssueController extends Controller
             'model_id' => $model->id ?? 0,
             'ip_address' => request()->ip(),
             'changes' => $changes
+        ]);
+    }
+
+    public function index(Request $request)
+    {
+        $query = Issue::with(['workItem', 'user']);
+
+        // Search
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('title', 'ilike', "%{$search}%")
+                  ->orWhereHas('workItem', function($w) use ($search) {
+                      $w->where('name', 'ilike', "%{$search}%");
+                  });
+            });
+        }
+
+        // Filters
+        if ($request->filled('type')) $query->where('type', $request->type); // issue หรือ risk
+        if ($request->filled('severity')) $query->where('severity', $request->severity);
+        if ($request->filled('status')) $query->where('status', $request->status);
+
+        // Sorting
+        $sortField = $request->input('sort_by', 'created_at');
+        $sortDir = $request->input('sort_dir', 'desc');
+        $query->orderBy($sortField, $sortDir);
+
+        $issues = $query->paginate(10)->withQueryString();
+
+        return Inertia::render('Issue/Index', [
+            'issues' => $issues,
+            'filters' => $request->all(['search', 'type', 'severity', 'status', 'sort_by', 'sort_dir']),
         ]);
     }
 }
