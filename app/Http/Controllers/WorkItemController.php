@@ -9,14 +9,14 @@ use App\Models\WorkItemLink;
 use App\Models\ProjectManager;
 use App\Models\Division;
 use App\Models\Department;
-use App\Models\Attachment; // ✅ เพิ่ม Model Attachment
+use App\Models\Attachment;
 use App\Services\LineService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
 use Illuminate\Pagination\LengthAwarePaginator;
 use Inertia\Inertia;
 use Carbon\Carbon;
-use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
+use Illuminate\Support\Facades\Cache;
 
 class WorkItemController extends Controller
 {
@@ -92,7 +92,7 @@ class WorkItemController extends Controller
         $validated = $request->validate([
             'parent_id' => 'nullable|exists:work_items,id',
             'name' => 'required|string|max:255',
-            'description' => 'nullable|string', // ✅ เพิ่ม Description
+            'description' => 'nullable|string',
             'type' => 'required|string',
             'status' => 'nullable|string',
             'progress' => 'nullable|numeric|min:0|max:100',
@@ -102,7 +102,7 @@ class WorkItemController extends Controller
             'division_id' => 'required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
             'pm_name' => 'nullable|string|max:255',
-            'weight' => 'nullable|numeric|min:0', // ✅ เพิ่ม Weight
+            'weight' => 'nullable|numeric|min:0',
         ]);
 
         if ($request->filled('pm_name')) {
@@ -115,18 +115,16 @@ class WorkItemController extends Controller
         $validated['budget'] = $validated['budget'] ?? 0;
         $validated['status'] = $validated['status'] ?? 'pending';
         $validated['is_active'] = $validated['status'] !== 'cancelled';
-        $validated['weight'] = $validated['weight'] ?? 1; // Default Weight
+        $validated['weight'] = $validated['weight'] ?? 1;
 
         $workItem = WorkItem::create($validated);
 
-        // ✅ บันทึก Log สร้างใหม่
         $this->logActivity('CREATE', $workItem, [], $validated);
 
         if ($workItem->parent) {
             $workItem->parent->recalculateProgress();
         }
 
-        // 🚀 Clear Cache เพื่อให้ข้อมูลอัปเดตทันที
         $this->clearRelatedCache($workItem);
 
         try {
@@ -149,7 +147,7 @@ class WorkItemController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
-            'description' => 'nullable|string', // ✅ เพิ่ม Description
+            'description' => 'nullable|string',
             'progress' => 'nullable|numeric|min:0|max:100',
             'status' => 'required|string',
             'budget' => 'nullable|numeric',
@@ -160,7 +158,7 @@ class WorkItemController extends Controller
             'division_id' => 'required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
             'pm_name' => 'nullable|string|max:255',
-            'weight' => 'nullable|numeric|min:0', // ✅ เพิ่ม Weight
+            'weight' => 'nullable|numeric|min:0',
         ]);
 
         if ($request->has('pm_name')) {
@@ -173,40 +171,31 @@ class WorkItemController extends Controller
             unset($validated['pm_name']);
         }
 
-        // 🛡️ [GOLDEN RULE] ล็อค Parent: ถ้ามีลูก ห้ามแก้ Progress ด้วยมือ
         if (isset($validated['progress'])) {
             if ($workItem->children()->count() > 0) {
-                // ถ้ามีลูก -> ตัด progress ออกจาก input เลย (ใช้ค่าเดิมจากการคำนวณ)
                 unset($validated['progress']);
             } else {
-                // ถ้าเป็นลูกคนสุดท้อง (Leaf Node) -> ยอมให้อัปเดตได้
                 $validated['progress'] = (int) $validated['progress'];
             }
         }
 
         $validated['is_active'] = $validated['status'] !== 'cancelled';
 
-        // ✅ เก็บค่าเก่าก่อนอัปเดต
         $oldData = $workItem->getOriginal();
 
         $workItem->update($validated);
 
-        // ✅ Feature: Cascading Status (ถ้าเปลี่ยนสถานะแม่ -> ลูกหลานเปลี่ยนตาม)
         if ($workItem->wasChanged('status')) {
             $this->cascadeStatus($workItem, $workItem->status);
         }
 
-        // 🔄 ถ้ามีการเปลี่ยน Weight หรือ Parent -> ต้องคำนวณใหม่ทั้งสาย
         if ($workItem->wasChanged('weight') || $workItem->wasChanged('parent_id') || $workItem->wasChanged('progress')) {
             if ($workItem->parent) {
                 $workItem->parent->recalculateProgress();
             }
         }
 
-        // ✅ บันทึก Log แก้ไข
         $this->logActivity('UPDATE', $workItem, $oldData, $workItem->getChanges());
-
-        // 🚀 Clear Cache เพื่อให้ข้อมูลอัปเดตทันที
         $this->clearRelatedCache($workItem);
 
         if ($workItem->wasChanged('progress') || $workItem->wasChanged('status')) {
@@ -226,17 +215,14 @@ class WorkItemController extends Controller
         return back()->with('success', 'บันทึกข้อมูลเรียบร้อยแล้ว');
     }
 
-    // --- ✅ ฟังก์ชันใหม่: อัปเดตความคืบหน้าแบบทางการ (Formal Progress Update) ---
     public function updateProgress(Request $request, WorkItem $workItem)
     {
-        // 1. Validation
         $request->validate([
             'progress' => 'required|integer|min:0|max:100',
-            'comment' => 'required|string', // บังคับใส่ Note
-            'attachments.*' => 'nullable|file|max:20480', // รองรับไฟล์แนบ (20MB)
+            'comment' => 'required|string',
+            'attachments.*' => 'nullable|file|max:20480',
         ]);
 
-        // 2. 🛡️ เช็คก่อน: ถ้าเป็น Parent Node ห้ามอัปเดต Progress ผ่านช่องทางนี้
         if ($workItem->children()->count() > 0) {
             return back()->withErrors(['progress' => 'รายการนี้มีการคำนวณความคืบหน้าอัตโนมัติจากงานย่อย ไม่สามารถแก้ไขด้วยตนเองได้']);
         }
@@ -244,17 +230,14 @@ class WorkItemController extends Controller
         $oldProgress = $workItem->progress;
         $newProgress = $request->progress;
 
-        // 3. อัปเดต Progress
         $workItem->update(['progress' => $newProgress]);
 
-        // 4. บันทึก Comment (History Log)
         $commentBody = $request->comment . "\n(ปรับความคืบหน้า: {$oldProgress}% ➝ {$newProgress}%)";
-        $comment = $workItem->comments()->create([
+        $workItem->comments()->create([
             'user_id' => auth()->id(),
             'body' => $commentBody,
         ]);
 
-        // 5. บันทึกไฟล์แนบ (Attachments)
         if ($request->hasFile('attachments')) {
             foreach ($request->file('attachments') as $file) {
                 $path = $file->store('attachments', 'public');
@@ -264,24 +247,21 @@ class WorkItemController extends Controller
                     'file_path' => $path,
                     'file_type' => $file->getClientMimeType(),
                     'file_size' => $file->getSize(),
-                    'category' => 'progress_update' // ✅ ระบุหมวดหมู่พิเศษ
+                    'category' => 'progress_update'
                 ]);
             }
         }
 
-        // 6. 🔄 Trigger การคำนวณขึ้นไปหาพ่อ (Bubble Up Calculation)
         if ($workItem->parent) {
             $workItem->parent->recalculateProgress();
         }
 
-        // 7. Log & Cache
         $this->logActivity('UPDATE_PROGRESS', $workItem, ['progress' => $oldProgress], ['progress' => $newProgress]);
         $this->clearRelatedCache($workItem);
 
         return back()->with('success', 'อัปเดตความคืบหน้าเรียบร้อยแล้ว');
     }
 
-    // --- ✅ ฟังก์ชัน: ย้ายสังกัด (Move) ---
     public function move(Request $request, WorkItem $workItem)
     {
         $validated = $request->validate([
@@ -290,14 +270,11 @@ class WorkItemController extends Controller
 
         $newParentId = $validated['parent_id'];
 
-        // 1. ห้ามเลือกตัวเอง
         if ($newParentId == $workItem->id) {
              return back()->withErrors(['parent_id' => 'ไม่สามารถย้ายงานไปหาตัวเองได้']);
         }
 
-        // 2. ห้ามเลือก Node ที่เป็นลูกหลาน (ป้องกัน Circular Dependency)
         if ($newParentId) {
-             // ต้องโหลดลูกหลานทั้งหมดมาเช็ค
              $descendantIds = $this->getDescendantIds($workItem);
              if (in_array($newParentId, $descendantIds)) {
                  return back()->withErrors(['parent_id' => 'ไม่สามารถย้ายงานไปอยู่ภายใต้ลูกหลานของตัวเองได้']);
@@ -307,28 +284,22 @@ class WorkItemController extends Controller
         $oldParent = $workItem->parent;
         $oldData = $workItem->getOriginal();
 
-        // Update Parent
         $workItem->update(['parent_id' => $newParentId]);
 
-        // Log
         $this->logActivity('MOVE', $workItem, $oldData, $workItem->getChanges());
 
-        // Clear Cache (ทั้งตัวมันเอง, พ่อเก่า, พ่อใหม่)
         $this->clearRelatedCache($workItem);
         if ($oldParent) $this->clearRelatedCache($oldParent);
         if ($workItem->parent) $this->clearRelatedCache($workItem->parent);
 
-        // Recalculate Progress
         if ($oldParent) $oldParent->recalculateProgress();
         if ($workItem->parent) $workItem->parent->recalculateProgress();
 
         return back()->with('success', 'ย้ายงานเรียบร้อยแล้ว');
     }
 
-    // --- ✅ ฟังก์ชัน API สำหรับ Modal เลือก Tree ---
     public function getTree()
     {
-        // ใช้ Logic เดียวกับ Strategies แต่ดึงทุกคอลัมน์เพื่อความชัวร์
         $recursiveLoad = function ($q) {
             $q->orderBy('name', 'asc');
         };
@@ -340,13 +311,11 @@ class WorkItemController extends Controller
             $depth .= '.children';
         }
 
-        // แก้ไขให้ดึง type=strategy เพื่อให้ตรงกับหน้าหลัก
         $tree = WorkItem::where('type', 'strategy')
             ->with($relations)
             ->orderBy('name', 'asc')
             ->get();
 
-        // ใช้วิธี Natural Sort ด้วย PHP
         return $tree->sortBy('name', SORT_NATURAL)->values();
     }
 
@@ -354,10 +323,7 @@ class WorkItemController extends Controller
     {
         $parent = $workItem->parent;
 
-        // ✅ บันทึก Log ลบ (ก่อนลบจริง)
         $this->logActivity('DELETE', $workItem, $workItem->toArray(), []);
-
-        // 🚀 Clear Cache ก่อนลบ
         $this->clearRelatedCache($workItem);
 
         $workItem->delete();
@@ -369,24 +335,17 @@ class WorkItemController extends Controller
         return back()->with('success', 'ลบงานสำเร็จ');
     }
 
-    // --- Helper Function สำหรับเคลียร์ Cache ---
     private function clearRelatedCache($workItem)
     {
-        // 1. เคลียร์ Dashboard
         Cache::forget('dashboard_hierarchy');
         Cache::forget('dashboard_s_curve');
-
-        // 2. เคลียร์หน้ายุทธศาสตร์
         Cache::forget('strategies_index');
-
-        // 3. เคลียร์ S-Curve
         Cache::forget("work_item_{$workItem->id}_s_curve");
         if ($workItem->parent_id) {
             Cache::forget("work_item_{$workItem->parent_id}_s_curve");
         }
     }
 
-    // --- Helper Function สำหรับบันทึก Audit Log ---
     private function logActivity($action, $model, $oldData = [], $changes = [])
     {
         $relationMap = [
@@ -456,7 +415,6 @@ class WorkItemController extends Controller
         }
     }
 
-    // --- Helper Function: Recursive Status Update ---
     private function cascadeStatus($item, $newStatus)
     {
         $isActive = $newStatus !== 'cancelled';
@@ -471,7 +429,6 @@ class WorkItemController extends Controller
         }
     }
 
-    // --- Helper Function: Get All Descendant IDs ---
     private function getDescendantIds($item)
     {
         $ids = [];
@@ -499,52 +456,7 @@ class WorkItemController extends Controller
             'projectManager'
         ]);
 
-        // S-Curve Logic
-        $chartData = Cache::remember("work_item_{$workItem->id}_s_curve", 3600, function () use ($workItem) {
-            $months = []; $plannedData = []; $actualData = [];
-            $startDate = $workItem->planned_start_date ? $workItem->planned_start_date->copy()->startOfMonth() : now()->startOfYear();
-            $endDate = $workItem->planned_end_date ? $workItem->planned_end_date->copy()->endOfMonth() : now()->endOfYear();
-            if ($endDate->lt($startDate)) $endDate = $startDate->copy()->addMonths(1);
-
-            $allChildren = collect([$workItem]);
-            $tempQueue = [$workItem];
-            while(count($tempQueue) > 0) {
-                $current = array_shift($tempQueue);
-                if($current->children) { foreach($current->children as $child) { $allChildren->push($child); $tempQueue[] = $child; } }
-            }
-            $budgetItems = $allChildren->filter(function($item) {
-                if ($item->budget <= 0) return false;
-                if ($item->children->isEmpty()) return true;
-                $childrenBudget = $item->children->sum('budget');
-                if ($childrenBudget > 0) return false;
-                return true;
-            });
-            $totalProjectBudget = $budgetItems->sum('budget');
-            if ($totalProjectBudget <= 0) $totalProjectBudget = 1;
-
-            $currentDate = $startDate->copy();
-            while ($currentDate->lte($endDate)) {
-                $thaiMonths = [1 => 'ม.ค.', 2 => 'ก.พ.', 3 => 'มี.ค.', 4 => 'เม.ย.', 5 => 'พ.ค.', 6 => 'มิ.ย.', 7 => 'ก.ค.', 8 => 'ส.ค.', 9 => 'ก.ย.', 10 => 'ต.ค.', 11 => 'พ.ย.', 12 => 'ธ.ค.'];
-                $months[] = $thaiMonths[$currentDate->month] . ' ' . substr($currentDate->year + 543, -2);
-                $calcDate = $currentDate->copy()->endOfMonth();
-                $pvMoney = $budgetItems->sum(function($item) use ($calcDate) {
-                    if (!$item->planned_start_date || !$item->planned_end_date) return 0;
-                    if ($calcDate->lt($item->planned_start_date)) return 0;
-                    if ($calcDate->gt($item->planned_end_date)) return $item->budget;
-                    $totalDays = $item->planned_start_date->diffInDays($item->planned_end_date) + 1;
-                    $passedDays = $item->planned_start_date->diffInDays($calcDate) + 1;
-                    return $item->budget * ($passedDays / max(1, $totalDays));
-                });
-                $plannedData[] = round(($pvMoney / $totalProjectBudget) * 100, 2);
-                if ($calcDate->lte(now()->endOfMonth())) {
-                    $evMoney = $budgetItems->sum(fn($item) => $item->budget * ($item->progress / 100));
-                    $actualData[] = round(($evMoney / $totalProjectBudget) * 100, 2);
-                }
-                $currentDate->addMonth();
-            }
-
-            return ['categories' => $months, 'planned' => $plannedData, 'actual' => $actualData];
-        });
+        // ❌ เอา S-Curve ออกแล้ว
 
         // Timeline Logic
         $relatedIds = collect([$workItem->id])->merge(collect($workItem->children)->pluck('id'))->unique()->toArray();
@@ -575,7 +487,6 @@ class WorkItemController extends Controller
         return Inertia::render('Project/Detail', [
             'item' => $workItem,
             'historyLogs' => $paginatedTimeline,
-            'chartData' => $chartData,
             'divisions' => $divisions,
         ]);
     }
@@ -583,7 +494,6 @@ class WorkItemController extends Controller
     public function list(Request $request, $type) { return $this->renderList($request, $type); }
     public function index(Request $request) { return $this->projects($request); }
 
-    // --- ✅ ฟังก์ชัน Strategies (ที่เคยกู้คืนมา) ---
     public function strategies() {
         $strategies = Cache::remember('strategies_index', 3600, function () {
             $recursiveLoad = function ($q) {

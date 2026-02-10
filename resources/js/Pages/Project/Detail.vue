@@ -3,13 +3,12 @@ import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import GanttChart from '@/Components/GanttChart.vue';
-import SCurveChart from '@/Components/SCurveChart.vue';
 import PmAutocomplete from '@/Components/PmAutocomplete.vue';
 
 // --- Props ---
 const props = defineProps({
     item: Object,
-    chartData: Object,
+    chartData: Object, // (เก็บไว้กัน Error แต่ไม่ได้ใช้แล้ว)
     historyLogs: Object,
     divisions: Array
 });
@@ -50,28 +49,71 @@ const formatFileSize = (bytes) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-// --- S-Curve Logic ---
-const timeRange = ref('all');
-const rangeOptions = [
-    { label: '1 เดือน', value: 1 }, { label: '3 เดือน', value: 3 }, { label: '6 เดือน', value: 6 },
-    { label: '1 ปี', value: 12 }, { label: '2 ปี', value: 24 }, { label: '3 ปี', value: 36 }, { label: 'ทั้งหมด', value: 'all' },
-];
+// --- ✅ Feature 1: Project Health Logic (แทน S-Curve) ---
+const projectHealth = computed(() => {
+    const { status, planned_start_date, planned_end_date, progress } = props.item;
 
-const filteredChartData = computed(() => {
-    const { categories, planned, actual } = props.chartData;
-    if (!categories || categories.length === 0) return { categories: [], planned: [], actual: [] };
-    if (timeRange.value === 'all') return { categories, planned, actual };
+    // 1. ถ้าจบหรือยกเลิก
+    if (status === 'completed') return { color: 'bg-green-500', bg: 'bg-green-50', text: 'เสร็จสมบูรณ์', icon: '🏆' };
+    if (status === 'cancelled') return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'ยกเลิกโครงการ', icon: '⚪' };
 
-    const endIndex = actual.length > 0 ? actual.length : 1;
-    const startIndex = Math.max(0, endIndex - timeRange.value);
-    const targetEndIndex = startIndex + timeRange.value;
-    const finalEndIndex = Math.min(categories.length, targetEndIndex);
+    // 2. ถ้าไม่มีวันที่
+    if (!planned_start_date || !planned_end_date) return { color: 'bg-gray-300', bg: 'bg-gray-50', text: 'ไม่ระบุวัน', icon: '📅' };
 
-    return {
-        categories: categories.slice(startIndex, finalEndIndex),
-        planned: planned.slice(startIndex, finalEndIndex),
-        actual: actual.slice(startIndex, endIndex)
-    };
+    const start = new Date(planned_start_date).getTime();
+    const end = new Date(planned_end_date).getTime();
+    const now = new Date().getTime();
+    const totalDuration = end - start;
+
+    // 3. ยังไม่เริ่ม
+    if (now < start) return { color: 'bg-blue-400', bg: 'bg-blue-50', text: 'รอเริ่มดำเนินการ', icon: '⏳' };
+
+    // 4. คำนวณ Time Elapsed %
+    let timeProgress = 0;
+    if (now > end) {
+        timeProgress = 100; // เลยกำหนดแล้ว
+    } else {
+        timeProgress = ((now - start) / totalDuration) * 100;
+    }
+
+    const currentProgress = progress || 0;
+    const diff = currentProgress - timeProgress;
+
+    // 5. ตัดเกรด (Traffic Light)
+    if (now > end && currentProgress < 100) {
+        return { color: 'bg-red-600', bg: 'bg-red-50', text: 'Overdue (เกินกำหนด)', icon: '🔥' };
+    }
+    if (diff >= -5) {
+        return { color: 'bg-green-500', bg: 'bg-green-50', text: 'On Track (ตามแผน)', icon: '🟢' };
+    }
+    if (diff >= -20) {
+        return { color: 'bg-yellow-400', bg: 'bg-yellow-50', text: 'At Risk (ล่าช้าเล็กน้อย)', icon: '🟡' };
+    }
+    return { color: 'bg-red-500', bg: 'bg-red-50', text: 'Critical (ล่าช้ามาก)', icon: '🔴' };
+});
+
+// --- ✅ Feature 2: Date Validation (ตรวจสอบวันที่ลูก vs พ่อ) ---
+const dateValidationWarnings = computed(() => {
+    const warnings = [];
+    const parent = props.item.parent;
+
+    // ถ้าไม่มีพ่อ ไม่ต้องเช็ค
+    if (!parent) return warnings;
+
+    const myStart = props.item.planned_start_date ? new Date(props.item.planned_start_date) : null;
+    const myEnd = props.item.planned_end_date ? new Date(props.item.planned_end_date) : null;
+    const parentStart = parent.planned_start_date ? new Date(parent.planned_start_date) : null;
+    const parentEnd = parent.planned_end_date ? new Date(parent.planned_end_date) : null;
+
+    if (myStart && parentStart && myStart < parentStart) {
+        warnings.push(`⚠️ วันเริ่ม (${formatDate(props.item.planned_start_date)}) ก่อนวันเริ่มของงานแม่ (${formatDate(parent.planned_start_date)})`);
+    }
+
+    if (myEnd && parentEnd && myEnd > parentEnd) {
+        warnings.push(`⚠️ วันจบ (${formatDate(props.item.planned_end_date)}) เกินวันจบของงานแม่ (${formatDate(parent.planned_end_date)})`);
+    }
+
+    return warnings;
 });
 
 // --- Colors & Badges ---
@@ -94,23 +136,23 @@ const breadcrumbs = computed(() => {
 // --- Modals Logic ---
 const showModal = ref(false), isEditing = ref(false), modalTitle = ref('');
 const showIssueModal = ref(false), showViewIssueModal = ref(false), selectedIssue = ref(null);
-const showUpdateProgressModal = ref(false); // ✅ Modal อัปเดตงานแบบทางการ
+const showUpdateProgressModal = ref(false);
 
 const parentNameDisplay = ref('');
 
-// Form แก้ไขข้อมูลทั่วไป (General Edit)
+// Form แก้ไขข้อมูลทั่วไป
 const form = useForm({
     id: null, parent_id: null, name: '', description: '', type: 'task', budget: 0, progress: 0,
     status: 'pending', planned_start_date: '', planned_end_date: '',
     division_id: '', department_id: '', pm_name: '',
-    weight: 1 // ✅ เพิ่ม Weight
+    weight: 1
 });
 
-// Form อัปเดตความคืบหน้า (Formal Update)
+// Form อัปเดตความคืบหน้า
 const updateProgressForm = useForm({
     progress: 0,
     comment: '',
-    attachments: [] // รองรับไฟล์แนบหลายไฟล์
+    attachments: []
 });
 
 const modalDepartments = computed(() => {
@@ -140,7 +182,7 @@ const openCreateModal = () => {
 const openEditModal = (t) => {
     isEditing.value=true;
     modalTitle.value=`แก้ไข: ${t.name}`;
-    form.id=t.id; form.name=t.name; form.description=t.description; // ✅ Description
+    form.id=t.id; form.name=t.name; form.description=t.description;
     form.type=t.type; form.budget=t.budget; form.progress=t.progress; form.status=t.status;
     form.planned_start_date=formatDateForInput(t.planned_start_date);
     form.planned_end_date=formatDateForInput(t.planned_end_date);
@@ -155,18 +197,16 @@ const openEditModal = (t) => {
     form.division_id = t.division_id || '';
     form.department_id = t.department_id || '';
     form.pm_name = t.project_manager ? t.project_manager.name : '';
-    form.weight = t.weight !== undefined ? t.weight : 1; // ✅ Weight
+    form.weight = t.weight !== undefined ? t.weight : 1;
     showModal.value=true;
 };
 
-// ✅ ฟังก์ชันเปิด Modal อัปเดตงานแบบทางการ
 const openUpdateProgressModal = () => {
     updateProgressForm.reset();
-    updateProgressForm.progress = props.item.progress; // เริ่มต้นที่ค่าเดิม
+    updateProgressForm.progress = props.item.progress;
     showUpdateProgressModal.value = true;
 };
 
-// ✅ ส่งข้อมูลอัปเดตงาน (Progress + Comment + Attachments)
 const submitProgressUpdate = () => {
     updateProgressForm.post(route('work-items.update-progress', props.item.id), {
         onSuccess: () => {
@@ -237,6 +277,13 @@ const submitComment = () => {
                     <div class="flex-1">
                         <span class="bg-[#7A2F8F] text-white text-xs px-2 py-1 rounded uppercase">{{ item.type }}</span>
                         <h1 class="text-3xl font-bold text-[#4A148C] mt-2">{{ item.name }}</h1>
+
+                        <div v-if="dateValidationWarnings.length > 0" class="mt-2 space-y-1">
+                            <div v-for="(warning, idx) in dateValidationWarnings" :key="idx" class="text-xs bg-red-100 text-red-700 px-3 py-1.5 rounded-lg font-bold flex items-center gap-2 border border-red-200 w-fit">
+                                {{ warning }}
+                            </div>
+                        </div>
+
                         <p class="text-sm text-gray-500 mt-2">⏱ {{ formatDate(item.planned_start_date) }} - {{ formatDate(item.planned_end_date) }}</p>
 
                         <div v-if="item.description" class="mt-4 p-4 bg-purple-50 rounded-lg border border-purple-100 text-gray-700 text-sm leading-relaxed whitespace-pre-line">
@@ -286,24 +333,32 @@ const submitComment = () => {
                     </div>
                 </div>
 
-                <div class="mt-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
-                    <div class="flex justify-between text-xs font-bold mb-2">
-                        <span class="flex items-center gap-2">
-                            Progress
-                            <span v-if="isParent" class="bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full text-[10px] border border-purple-300">Auto-Calculated</span>
-                        </span>
-                        <span class="text-lg text-[#4A148C]">{{ item.progress }}%</span>
+                <div class="mt-6 p-4 rounded-xl border border-gray-200 relative overflow-hidden" :class="projectHealth.bg">
+                    <div class="flex justify-between items-center mb-2">
+                        <div class="flex items-center gap-4">
+                            <span class="flex items-center gap-2 text-xs font-bold text-gray-700">
+                                Progress
+                                <span v-if="isParent" class="bg-purple-200 text-purple-800 px-2 py-0.5 rounded-full text-[10px] border border-purple-300">Auto-Calculated</span>
+                            </span>
+
+                            <div class="flex items-center gap-2 px-3 py-1 rounded-full text-xs font-bold text-white shadow-sm" :class="projectHealth.color">
+                                <span>{{ projectHealth.icon }}</span>
+                                <span>{{ projectHealth.text }}</span>
+                            </div>
+                        </div>
+                        <span class="text-2xl font-black text-[#4A148C]">{{ item.progress }}%</span>
                     </div>
-                    <div class="w-full bg-gray-200 h-4 rounded-full overflow-hidden shadow-inner">
+
+                    <div class="w-full bg-white h-4 rounded-full overflow-hidden shadow-inner border border-gray-200">
                         <div class="bg-gradient-to-r from-[#7A2F8F] to-[#9C27B0] h-4 rounded-full transition-all duration-1000 ease-out flex items-center justify-end pr-2 text-[9px] text-white font-bold" :style="`width:${item.progress}%`"></div>
                     </div>
-                    <p class="text-[10px] text-gray-400 mt-1 text-right" v-if="isParent">* คำนวณอัตโนมัติจากงานย่อยตามน้ำหนักงาน (Weight)</p>
+
+                    <p class="text-[10px] text-gray-400 mt-2 text-right" v-if="isParent">* คำนวณอัตโนมัติจากงานย่อยตามน้ำหนักงาน (Weight)</p>
                 </div>
             </div>
 
             <div class="border-b border-gray-200 flex space-x-8 overflow-x-auto">
                 <button @click="activeTab='overview'" :class="activeTab==='overview'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap transition-colors">แผนงาน (Gantt)</button>
-                <button @click="activeTab='scurve'" :class="activeTab==='scurve'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap transition-colors">📈 กราฟความก้าวหน้า</button>
                 <button @click="activeTab='issues'" :class="activeTab==='issues'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap flex gap-2 items-center transition-colors"><span>⚠️ ปัญหา/ความเสี่ยง</span><span v-if="item.issues?.length" class="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{{ item.issues.length }}</span></button>
                 <button @click="activeTab='files'" :class="activeTab==='files'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap transition-colors">เอกสาร ({{ item.attachments?.length || 0 }})</button>
                 <button @click="activeTab='logs'" :class="activeTab==='logs'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap transition-colors">ประวัติ</button>
@@ -366,19 +421,6 @@ const submitComment = () => {
                 </div>
                 <div class="w-full lg:w-3/5 h-full">
                     <GanttChart :task-id="item.id" :task-name="item.name" />
-                </div>
-            </div>
-
-            <div v-show="activeTab==='scurve'" class="bg-white p-6 rounded-xl shadow-sm border border-gray-200 animate-fade-in">
-                <div class="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
-                    <div><h3 class="font-bold text-gray-700 text-lg">กราฟความก้าวหน้าโครงการ (S-Curve)</h3><p class="text-sm text-gray-500">แสดงเปรียบเทียบแผนงาน (Plan) vs ผลงานจริง (Actual)</p></div>
-                    <div class="flex bg-gray-100 p-1 rounded-lg flex-wrap justify-center"><button v-for="range in rangeOptions" :key="range.value" @click="timeRange = range.value" class="px-3 py-1.5 text-xs font-bold rounded-md transition-all whitespace-nowrap" :class="timeRange === range.value ? 'bg-white text-[#7A2F8F] shadow-sm' : 'text-gray-500 hover:text-gray-700'">{{ range.label }}</button></div>
-                </div>
-                <div class="bg-gray-50 rounded-xl border border-gray-200 p-4 relative min-h-[400px]">
-                    <div v-if="filteredChartData.categories.length > 0">
-                        <SCurveChart :categories="filteredChartData.categories" :planned="filteredChartData.planned" :actual="filteredChartData.actual" />
-                    </div>
-                    <div v-else class="flex flex-col items-center justify-center h-[350px] text-gray-400"><span>ยังไม่มีข้อมูลแผนงานในช่วงนี้</span></div>
                 </div>
             </div>
 

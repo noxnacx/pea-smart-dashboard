@@ -2,17 +2,15 @@
 import { Head, Link, usePage, router } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
-import SCurveChart from '@/Components/SCurveChart.vue';
 import VueApexCharts from 'vue3-apexcharts';
 import WorkItemNode from '@/Components/WorkItemNode.vue';
-import MoveWorkItemModal from '@/Components/MoveWorkItemModal.vue'; // ✅ Import Modal
+import MoveWorkItemModal from '@/Components/MoveWorkItemModal.vue';
 
 const props = defineProps({
     hierarchy: Array,
     stats: Object,
     projectChart: Object,
     watchProjects: Array,
-    sCurveChart: Object,
     activeIssues: Array
 });
 
@@ -46,7 +44,8 @@ const chartOptions = computed(() => ({
                 const statusKeys = ['completed', 'in_progress', 'delayed', 'pending', 'cancelled'];
                 const selectedStatus = statusKeys[index];
                 if (selectedStatus) {
-                    router.get(route('work-items.index'), { status: selectedStatus });
+                    // ✅ กดกราฟแล้วไปหน้า Projects พร้อมกรองสถานะ
+                    router.get(route('projects.index'), { status: selectedStatus });
                 }
             }
         }
@@ -79,18 +78,16 @@ const chartOptions = computed(() => ({
     tooltip: { enabled: true, followCursor: true }
 }));
 
-const showIssueListModal = ref(false);
-const filterIssueType = ref('all');
-const filteredIssues = computed(() => {
-    if (filterIssueType.value === 'all') return props.activeIssues;
-    return props.activeIssues.filter(i => i.type === filterIssueType.value);
-});
-
-const safeRoute = (name) => {
-    try { return route().has(name) ? route(name) : '#'; } catch (e) { return '#'; }
+// ฟังก์ชันช่วยเช็ค Route (กัน Error ถ้า Route ไม่มี)
+const safeRoute = (name, params = {}) => {
+    try {
+        return route().has(name) ? route(name, params) : '#';
+    } catch (e) {
+        return '#';
+    }
 };
 
-// --- 🔄 Move Modal Logic ---
+// --- Move Modal Logic ---
 const showMoveModal = ref(false);
 const itemToMove = ref(null);
 
@@ -125,20 +122,20 @@ const openMoveModal = (item) => {
                     </div>
                 </div>
 
-                <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm relative overflow-hidden hover:shadow-md transition">
+                <Link :href="safeRoute('plans.index')" class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm relative overflow-hidden hover:shadow-md transition block">
                     <div class="flex justify-between items-start">
                         <div>
-                            <p class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">งบประมาณรวม</p>
-                            <h3 class="text-2xl font-black text-gray-800">{{ formatCurrency(stats.total_budget) }}</h3>
+                            <p class="text-gray-400 text-xs font-bold uppercase tracking-wider mb-1">แผนงานทั้งหมด</p>
+                            <h3 class="text-4xl font-black text-[#1E88E5]">{{ stats.total_plans }}</h3>
                         </div>
-                        <div class="p-3 bg-green-50 rounded-xl text-green-600">
-                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"/></svg>
+                        <div class="p-3 bg-blue-50 rounded-xl text-[#1E88E5]">
+                            <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
                         </div>
                     </div>
-                    <div class="w-full bg-gray-100 h-1.5 mt-4 rounded-full overflow-hidden"><div class="bg-green-500 h-full w-[70%]"></div></div>
-                </div>
+                    <p class="text-xs text-gray-400 mt-2">คลิกเพื่อดูรายการแผนงาน</p>
+                </Link>
 
-                <div @click="showIssueListModal=true" class="cursor-pointer bg-gradient-to-br from-[#FDB913] to-[#F57F17] rounded-2xl p-6 text-white shadow-lg relative overflow-hidden hover:scale-[1.02] transition duration-300">
+                <Link :href="safeRoute('issues.index')" class="bg-gradient-to-br from-[#FDB913] to-[#F57F17] rounded-2xl p-6 text-white shadow-lg relative overflow-hidden hover:scale-[1.02] transition duration-300 block">
                     <div class="absolute right-0 bottom-0 w-24 h-24 bg-black opacity-10 rounded-full -mr-5 -mb-5"></div>
                     <div class="relative z-10">
                         <p class="text-yellow-100 text-xs font-bold uppercase tracking-wider mb-1">ปัญหาที่รอแก้ไข</p>
@@ -146,9 +143,9 @@ const openMoveModal = (item) => {
                             <h3 class="text-4xl font-black">{{ stats.open_issues }}</h3>
                             <span class="text-sm font-medium opacity-80" v-if="stats.critical_items > 0">({{ stats.critical_items }} Critical)</span>
                         </div>
-                        <p class="text-yellow-100 text-sm mt-2">คลิกเพื่อดูรายละเอียด</p>
+                        <p class="text-yellow-100 text-sm mt-2">คลิกเพื่อจัดการปัญหาและความเสี่ยง</p>
                     </div>
-                </div>
+                </Link>
 
                 <div class="bg-white border border-gray-100 rounded-2xl p-6 shadow-sm relative overflow-hidden hover:shadow-md transition">
                     <div class="flex justify-between items-start">
@@ -167,18 +164,7 @@ const openMoveModal = (item) => {
             <div class="grid grid-cols-12 gap-8">
 
                 <div class="col-span-12 lg:col-span-8 space-y-8">
-
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 p-6">
-                        <h4 class="font-bold text-gray-700 mb-4 text-lg flex items-center gap-2">
-                            <span class="bg-purple-100 p-1.5 rounded-lg text-purple-600">📈</span> ภาพรวมความก้าวหน้าทั้งองค์กร (S-Curve)
-                        </h4>
-                        <div class="h-[400px] w-full relative">
-                            <div v-if="sCurveChart.categories.length === 0" class="absolute inset-0 flex items-center justify-center text-gray-400 text-sm">ยังไม่มีข้อมูล</div>
-                            <SCurveChart v-else :categories="sCurveChart.categories" :planned="sCurveChart.planned" :actual="sCurveChart.actual" />
-                        </div>
-                    </div>
-
-                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden min-h-[400px]">
+                    <div class="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden min-h-[600px]">
                         <div class="p-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                             <h3 class="font-bold text-gray-700 flex items-center gap-2"><span>📑</span> โครงสร้างยุทธศาสตร์ (Infinite Tree)</h3>
                         </div>
@@ -214,7 +200,9 @@ const openMoveModal = (item) => {
                             <h3 class="font-bold text-gray-700 flex items-center gap-2 text-sm">
                                 <span class="text-red-500">🔥</span> โครงการที่ต้องจับตา (Watch List)
                             </h3>
-                            <Link :href="safeRoute('work-items.index')" class="text-[10px] text-[#4A148C] font-bold hover:underline">ดูทั้งหมด</Link>
+                            <Link :href="safeRoute('projects.index', { status: 'delayed' })" class="text-[10px] text-[#4A148C] font-bold hover:underline">
+                                ดูทั้งหมด ➤
+                            </Link>
                         </div>
                         <div class="overflow-x-auto">
                             <table class="w-full text-left text-xs">
@@ -222,16 +210,25 @@ const openMoveModal = (item) => {
                                     <tr v-if="watchProjects.length === 0">
                                         <td colspan="2" class="p-4 text-center text-gray-400">ไม่มีโครงการที่ต้องจับตาในขณะนี้</td>
                                     </tr>
-                                    <tr v-for="project in watchProjects" :key="project.id" class="hover:bg-purple-50 transition cursor-pointer" @click="router.get(safeRoute('work-items.show') !== '#' ? route('work-items.show', project.id) : '#')">
+                                    <tr v-for="project in watchProjects" :key="project.id" class="hover:bg-purple-50 transition cursor-pointer" @click="router.get(safeRoute('work-items.show', project.id))">
                                         <td class="px-4 py-3">
-                                            <div class="font-bold text-gray-700 truncate max-w-[150px]" :title="project.name">{{ project.name }}</div>
-                                            <div class="text-[10px] text-gray-400 mt-0.5">งบ: {{ formatCurrency(project.budget) }}</div>
+                                            <div class="font-bold text-gray-700 truncate max-w-[180px]" :title="project.name">{{ project.name }}</div>
+
+                                            <div class="text-[10px] text-gray-500 mt-1 flex items-center gap-2">
+                                                <span class="flex items-center gap-1" title="ผู้รับผิดชอบ">
+                                                    👤 {{ project.pm_name }}
+                                                </span>
+                                                <span class="text-gray-300">|</span>
+                                                <span class="flex items-center gap-1 font-bold text-[#4A148C]" title="ความคืบหน้า">
+                                                    📊 {{ project.progress }}%
+                                                </span>
+                                            </div>
                                         </td>
-                                        <td class="px-4 py-3 text-center">
+                                        <td class="px-4 py-3 text-center align-top">
                                             <span class="px-2 py-0.5 rounded text-[10px] font-bold uppercase block w-fit mx-auto mb-1" :class="getStatusColor(project.status)">
                                                 {{ getStatusText(project.status) }}
                                             </span>
-                                            <div class="text-[9px] text-gray-500" :class="{'text-red-500 font-bold': project.is_urgent}">
+                                            <div class="text-[9px] text-gray-500 whitespace-nowrap" :class="{'text-red-500 font-bold': project.is_urgent}">
                                                 ส่ง: {{ project.due_date }}
                                             </div>
                                         </td>
@@ -244,36 +241,6 @@ const openMoveModal = (item) => {
                 </div>
             </div>
         </div>
-
-        <Teleport to="body">
-            <div v-if="showIssueListModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm" @click.self="showIssueListModal=false">
-                <div class="bg-white rounded-2xl w-full max-w-4xl h-[80vh] overflow-hidden shadow-2xl flex flex-col">
-                    <div class="bg-gray-800 text-white px-6 py-4 flex justify-between items-center shrink-0">
-                        <h3 class="text-lg font-bold">📋 รายการปัญหาและความเสี่ยง</h3>
-                        <button @click="showIssueListModal=false" class="text-2xl hover:text-red-400">&times;</button>
-                    </div>
-                    <div class="flex-1 overflow-y-auto p-6 bg-gray-50">
-                        <div v-if="filteredIssues.length === 0" class="text-center text-gray-400 py-20 text-lg">ไม่มีรายการในหมวดนี้</div>
-                        <div v-else class="grid gap-4">
-                            <div v-for="issue in filteredIssues" :key="issue.id" class="bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-md transition flex gap-4">
-                                <div class="text-2xl pt-1">{{ issue.type === 'issue' ? '🔥' : '⚠️' }}</div>
-                                <div class="flex-1">
-                                    <div class="flex justify-between items-start mb-1">
-                                        <h4 class="font-bold text-gray-800 text-lg">{{ issue.title }}</h4>
-                                        <span class="text-[10px] px-2 py-1 rounded font-bold uppercase" :class="issue.severity==='critical'?'bg-red-100 text-red-700':'bg-yellow-100 text-yellow-700'">{{ issue.severity }}</span>
-                                    </div>
-                                    <p class="text-sm text-gray-600 mb-2">{{ issue.description }}</p>
-                                    <div class="text-xs text-gray-400 flex gap-3 items-center">
-                                        <span>โครงการ: {{ issue.work_item?.name }}</span>
-                                        <Link :href="safeRoute('work-items.show') !== '#' ? route('work-items.show', issue.work_item_id) : '#'" class="text-[#7A2F8F] hover:underline font-bold">ไปที่หน้างาน ➤</Link>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </Teleport>
 
         <MoveWorkItemModal
             :show="showMoveModal"
