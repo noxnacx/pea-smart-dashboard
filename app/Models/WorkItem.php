@@ -27,7 +27,8 @@ class WorkItem extends Model
         'department_id',
         'order_index',
         'weight',      // น้ำหนักงาน
-        'is_active'    // สถานะเปิด/ปิด
+        'is_active',    // สถานะเปิด/ปิด
+        'description'
     ];
 
     protected $guarded = []; // ถ้าใช้ fillable แล้ว guarded ไม่จำเป็นต้องมีก็ได้ แต่ใส่ไว้ไม่เสียหายถ้าว่าง

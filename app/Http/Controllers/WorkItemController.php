@@ -9,6 +9,7 @@ use App\Models\WorkItemLink;
 use App\Models\ProjectManager;
 use App\Models\Division;
 use App\Models\Department;
+use App\Models\Attachment; // ✅ เพิ่ม Model Attachment
 use App\Services\LineService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Redirect;
@@ -91,6 +92,7 @@ class WorkItemController extends Controller
         $validated = $request->validate([
             'parent_id' => 'nullable|exists:work_items,id',
             'name' => 'required|string|max:255',
+            'description' => 'nullable|string', // ✅ เพิ่ม Description
             'type' => 'required|string',
             'status' => 'nullable|string',
             'progress' => 'nullable|numeric|min:0|max:100',
@@ -100,7 +102,7 @@ class WorkItemController extends Controller
             'division_id' => 'required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
             'pm_name' => 'nullable|string|max:255',
-            'weight' => 'nullable|numeric|min:0',
+            'weight' => 'nullable|numeric|min:0', // ✅ เพิ่ม Weight
         ]);
 
         if ($request->filled('pm_name')) {
@@ -113,6 +115,7 @@ class WorkItemController extends Controller
         $validated['budget'] = $validated['budget'] ?? 0;
         $validated['status'] = $validated['status'] ?? 'pending';
         $validated['is_active'] = $validated['status'] !== 'cancelled';
+        $validated['weight'] = $validated['weight'] ?? 1; // Default Weight
 
         $workItem = WorkItem::create($validated);
 
@@ -146,6 +149,7 @@ class WorkItemController extends Controller
 
         $validated = $request->validate([
             'name' => 'required|string|max:255',
+            'description' => 'nullable|string', // ✅ เพิ่ม Description
             'progress' => 'nullable|numeric|min:0|max:100',
             'status' => 'required|string',
             'budget' => 'nullable|numeric',
@@ -156,7 +160,7 @@ class WorkItemController extends Controller
             'division_id' => 'required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
             'pm_name' => 'nullable|string|max:255',
-            'weight' => 'nullable|numeric|min:0',
+            'weight' => 'nullable|numeric|min:0', // ✅ เพิ่ม Weight
         ]);
 
         if ($request->has('pm_name')) {
@@ -169,10 +173,15 @@ class WorkItemController extends Controller
             unset($validated['pm_name']);
         }
 
+        // 🛡️ [GOLDEN RULE] ล็อค Parent: ถ้ามีลูก ห้ามแก้ Progress ด้วยมือ
         if (isset($validated['progress'])) {
-            $validated['progress'] = (int) $validated['progress'];
-        } else {
-            $validated['progress'] = 0;
+            if ($workItem->children()->count() > 0) {
+                // ถ้ามีลูก -> ตัด progress ออกจาก input เลย (ใช้ค่าเดิมจากการคำนวณ)
+                unset($validated['progress']);
+            } else {
+                // ถ้าเป็นลูกคนสุดท้อง (Leaf Node) -> ยอมให้อัปเดตได้
+                $validated['progress'] = (int) $validated['progress'];
+            }
         }
 
         $validated['is_active'] = $validated['status'] !== 'cancelled';
@@ -185,6 +194,13 @@ class WorkItemController extends Controller
         // ✅ Feature: Cascading Status (ถ้าเปลี่ยนสถานะแม่ -> ลูกหลานเปลี่ยนตาม)
         if ($workItem->wasChanged('status')) {
             $this->cascadeStatus($workItem, $workItem->status);
+        }
+
+        // 🔄 ถ้ามีการเปลี่ยน Weight หรือ Parent -> ต้องคำนวณใหม่ทั้งสาย
+        if ($workItem->wasChanged('weight') || $workItem->wasChanged('parent_id') || $workItem->wasChanged('progress')) {
+            if ($workItem->parent) {
+                $workItem->parent->recalculateProgress();
+            }
         }
 
         // ✅ บันทึก Log แก้ไข
@@ -210,7 +226,62 @@ class WorkItemController extends Controller
         return back()->with('success', 'บันทึกข้อมูลเรียบร้อยแล้ว');
     }
 
-    // --- ✅ ฟังก์ชันใหม่: ย้ายสังกัด (Move) ---
+    // --- ✅ ฟังก์ชันใหม่: อัปเดตความคืบหน้าแบบทางการ (Formal Progress Update) ---
+    public function updateProgress(Request $request, WorkItem $workItem)
+    {
+        // 1. Validation
+        $request->validate([
+            'progress' => 'required|integer|min:0|max:100',
+            'comment' => 'required|string', // บังคับใส่ Note
+            'attachments.*' => 'nullable|file|max:20480', // รองรับไฟล์แนบ (20MB)
+        ]);
+
+        // 2. 🛡️ เช็คก่อน: ถ้าเป็น Parent Node ห้ามอัปเดต Progress ผ่านช่องทางนี้
+        if ($workItem->children()->count() > 0) {
+            return back()->withErrors(['progress' => 'รายการนี้มีการคำนวณความคืบหน้าอัตโนมัติจากงานย่อย ไม่สามารถแก้ไขด้วยตนเองได้']);
+        }
+
+        $oldProgress = $workItem->progress;
+        $newProgress = $request->progress;
+
+        // 3. อัปเดต Progress
+        $workItem->update(['progress' => $newProgress]);
+
+        // 4. บันทึก Comment (History Log)
+        $commentBody = $request->comment . "\n(ปรับความคืบหน้า: {$oldProgress}% ➝ {$newProgress}%)";
+        $comment = $workItem->comments()->create([
+            'user_id' => auth()->id(),
+            'body' => $commentBody,
+        ]);
+
+        // 5. บันทึกไฟล์แนบ (Attachments)
+        if ($request->hasFile('attachments')) {
+            foreach ($request->file('attachments') as $file) {
+                $path = $file->store('attachments', 'public');
+                $workItem->attachments()->create([
+                    'user_id' => auth()->id(),
+                    'file_name' => $file->getClientOriginalName(),
+                    'file_path' => $path,
+                    'file_type' => $file->getClientMimeType(),
+                    'file_size' => $file->getSize(),
+                    'category' => 'progress_update' // ✅ ระบุหมวดหมู่พิเศษ
+                ]);
+            }
+        }
+
+        // 6. 🔄 Trigger การคำนวณขึ้นไปหาพ่อ (Bubble Up Calculation)
+        if ($workItem->parent) {
+            $workItem->parent->recalculateProgress();
+        }
+
+        // 7. Log & Cache
+        $this->logActivity('UPDATE_PROGRESS', $workItem, ['progress' => $oldProgress], ['progress' => $newProgress]);
+        $this->clearRelatedCache($workItem);
+
+        return back()->with('success', 'อัปเดตความคืบหน้าเรียบร้อยแล้ว');
+    }
+
+    // --- ✅ ฟังก์ชัน: ย้ายสังกัด (Move) ---
     public function move(Request $request, WorkItem $workItem)
     {
         $validated = $request->validate([
@@ -254,10 +325,10 @@ class WorkItemController extends Controller
         return back()->with('success', 'ย้ายงานเรียบร้อยแล้ว');
     }
 
-    // --- ✅ ฟังก์ชัน API สำหรับ Modal เลือก Tree (แก้ Logic ให้ตรงหน้าหลัก) ---
+    // --- ✅ ฟังก์ชัน API สำหรับ Modal เลือก Tree ---
     public function getTree()
     {
-        // Closure สำหรับดึงลูกหลาน (เหมือน strategies())
+        // ใช้ Logic เดียวกับ Strategies แต่ดึงทุกคอลัมน์เพื่อความชัวร์
         $recursiveLoad = function ($q) {
             $q->orderBy('name', 'asc');
         };
@@ -269,13 +340,13 @@ class WorkItemController extends Controller
             $depth .= '.children';
         }
 
-        // 🔴 แก้ไขตรงนี้: เปลี่ยนจาก whereNull('parent_id') เป็น where('type', 'strategy')
+        // แก้ไขให้ดึง type=strategy เพื่อให้ตรงกับหน้าหลัก
         $tree = WorkItem::where('type', 'strategy')
             ->with($relations)
             ->orderBy('name', 'asc')
             ->get();
 
-        // ใช้วิธี Natural Sort เรียงลำดับให้สวยงาม (1, 2, 10)
+        // ใช้วิธี Natural Sort ด้วย PHP
         return $tree->sortBy('name', SORT_NATURAL)->values();
     }
 
@@ -286,7 +357,7 @@ class WorkItemController extends Controller
         // ✅ บันทึก Log ลบ (ก่อนลบจริง)
         $this->logActivity('DELETE', $workItem, $workItem->toArray(), []);
 
-        // 🚀 Clear Cache ก่อนลบ (หรือหลังลบก็ได้ แต่ต้องเคลียร์)
+        // 🚀 Clear Cache ก่อนลบ
         $this->clearRelatedCache($workItem);
 
         $workItem->delete();
@@ -301,14 +372,14 @@ class WorkItemController extends Controller
     // --- Helper Function สำหรับเคลียร์ Cache ---
     private function clearRelatedCache($workItem)
     {
-        // 1. เคลียร์ Dashboard (Hierarchy + S-Curve)
+        // 1. เคลียร์ Dashboard
         Cache::forget('dashboard_hierarchy');
         Cache::forget('dashboard_s_curve');
 
         // 2. เคลียร์หน้ายุทธศาสตร์
         Cache::forget('strategies_index');
 
-        // 3. เคลียร์ S-Curve ของตัวเอง และของ Parent (ถ้ามี)
+        // 3. เคลียร์ S-Curve
         Cache::forget("work_item_{$workItem->id}_s_curve");
         if ($workItem->parent_id) {
             Cache::forget("work_item_{$workItem->parent_id}_s_curve");
@@ -318,7 +389,6 @@ class WorkItemController extends Controller
     // --- Helper Function สำหรับบันทึก Audit Log ---
     private function logActivity($action, $model, $oldData = [], $changes = [])
     {
-        // รายการฟิลด์ที่จะแปลง ID เป็นชื่อ เพื่อให้อ่านง่าย
         $relationMap = [
             'project_manager_id' => ['model' => ProjectManager::class, 'label' => 'ผู้ดูแล (PM)'],
             'parent_id' => ['model' => WorkItem::class, 'label' => 'งานภายใต้'],
@@ -326,9 +396,9 @@ class WorkItemController extends Controller
             'department_id' => ['model' => Department::class, 'label' => 'แผนก'],
         ];
 
-        // รายการฟิลด์ทั่วไปที่จะเปลี่ยนชื่อ Key ให้อ่านง่าย
         $fieldLabels = [
             'name' => 'ชื่อรายการ',
+            'description' => 'รายละเอียด',
             'status' => 'สถานะ',
             'progress' => 'ความคืบหน้า',
             'budget' => 'งบประมาณ',
@@ -345,44 +415,34 @@ class WorkItemController extends Controller
         } elseif ($action === 'DELETE') {
             $logChanges['before'] = $oldData;
         } else {
-            // กรณี UPDATE: วนลูปสิ่งที่เปลี่ยนไป
             foreach ($changes as $key => $newValue) {
-                if ($key === 'updated_at') continue; // ข้าม timestamp
+                if ($key === 'updated_at') continue;
 
                 $oldValue = $oldData[$key] ?? null;
                 $label = $fieldLabels[$key] ?? $key;
 
-                // 1. ถ้าเป็น Relation ID ให้ไปหาชื่อมาใส่แทน
                 if (array_key_exists($key, $relationMap)) {
                     $config = $relationMap[$key];
                     $label = $config['label'];
-
-                    // หาชื่อเก่า
                     $oldName = '-';
                     if ($oldValue) {
                         $oldModel = $config['model']::find($oldValue);
                         $oldName = $oldModel ? $oldModel->name : $oldValue;
                     }
-
-                    // หาชื่อใหม่
                     $newName = '-';
                     if ($newValue) {
                         $newModel = $config['model']::find($newValue);
                         $newName = $newModel ? $newModel->name : $newValue;
                     }
-
                     $logChanges['before'][$label] = $oldName;
                     $logChanges['after'][$label] = $newName;
-                }
-                // 2. ข้อมูลปกติ
-                else {
+                } else {
                     $logChanges['before'][$label] = $oldValue;
                     $logChanges['after'][$label] = $newValue;
                 }
             }
         }
 
-        // บันทึกลง Database ถ้ามีความเปลี่ยนแปลง
         if (!empty($logChanges['after']) || !empty($logChanges['before']) || $action === 'DELETE') {
             AuditLog::create([
                 'user_id' => auth()->id(),
@@ -400,18 +460,13 @@ class WorkItemController extends Controller
     private function cascadeStatus($item, $newStatus)
     {
         $isActive = $newStatus !== 'cancelled';
-
-        // ดึงลูกๆ ของ Node นี้มา
         $children = $item->children;
 
         foreach ($children as $child) {
-            // อัปเดตสถานะลูก
             $child->update([
                 'status' => $newStatus,
                 'is_active' => $isActive
             ]);
-
-            // เรียกซ้ำไปหาหลาน (Recursive)
             $this->cascadeStatus($child, $newStatus);
         }
     }
@@ -420,11 +475,9 @@ class WorkItemController extends Controller
     private function getDescendantIds($item)
     {
         $ids = [];
-        $children = $item->children; // ควร Eager Load มาก่อนเพื่อ performance หรือใช้ Query
-
+        $children = $item->children;
         foreach ($children as $child) {
             $ids[] = $child->id;
-            // เรียกซ้ำ
             $ids = array_merge($ids, $this->getDescendantIds($child));
         }
         return $ids;
@@ -446,9 +499,7 @@ class WorkItemController extends Controller
             'projectManager'
         ]);
 
-        // ==========================================
-        // 🚀 S-Curve Logic (CACHED)
-        // ==========================================
+        // S-Curve Logic
         $chartData = Cache::remember("work_item_{$workItem->id}_s_curve", 3600, function () use ($workItem) {
             $months = []; $plannedData = []; $actualData = [];
             $startDate = $workItem->planned_start_date ? $workItem->planned_start_date->copy()->startOfMonth() : now()->startOfYear();
@@ -503,7 +554,6 @@ class WorkItemController extends Controller
             ->get()
             ->map(function ($item) {
                 $item->timeline_type = 'log';
-                // (Optional) Map target name logic here if needed
                 return $item;
             });
 
@@ -518,8 +568,6 @@ class WorkItemController extends Controller
         $total = $timeline->count();
         $paginatedItems = $timeline->slice(($page - 1) * $perPage, $perPage)->values();
         $paginatedTimeline = new LengthAwarePaginator($paginatedItems, $total, $perPage, $page, ['path' => request()->url(), 'query' => request()->query()]);
-
-        // ✅ เพิ่มตรงนี้เพื่อให้ Pagination จำ Query String (เช่น ?tab=logs)
         $paginatedTimeline->withQueryString();
 
         $divisions = Division::with('departments')->orderBy('name')->get();
@@ -527,7 +575,7 @@ class WorkItemController extends Controller
         return Inertia::render('Project/Detail', [
             'item' => $workItem,
             'historyLogs' => $paginatedTimeline,
-            'chartData' => $chartData, // ✅ ส่งข้อมูลที่ Cache แล้วไป
+            'chartData' => $chartData,
             'divisions' => $divisions,
         ]);
     }
@@ -535,15 +583,10 @@ class WorkItemController extends Controller
     public function list(Request $request, $type) { return $this->renderList($request, $type); }
     public function index(Request $request) { return $this->projects($request); }
 
+    // --- ✅ ฟังก์ชัน Strategies (ที่เคยกู้คืนมา) ---
     public function strategies() {
-        // ==========================================
-        // 🚀 Strategies Tree (CACHED) with Recursive Children
-        // ==========================================
         $strategies = Cache::remember('strategies_index', 3600, function () {
-
-            // Closure สำหรับจัดเรียงและนับ Issue ในทุกระดับชั้น
             $recursiveLoad = function ($q) {
-                // ✅ แก้ไข: เรียงตามชื่อล้วนๆ (Natural Sort) ตัด order_index ออก
                 $q->orderBy('name', 'asc')
                   ->withCount(['issues as issue_count' => function($i) {
                       $i->where('status', '!=', 'resolved');
@@ -564,7 +607,6 @@ class WorkItemController extends Controller
                 }])
                 ->get();
 
-            // ✅ เรียงลำดับด้วย PHP (Natural Sort)
             return $rawStrategies->sortBy(function($item) {
                 return $item->name;
             }, SORT_NATURAL)->values();
@@ -577,7 +619,6 @@ class WorkItemController extends Controller
 
     public function ganttData(WorkItem $workItem) {
         try {
-            // Gantt Chart ควรเป็น Real-time เพื่อความแม่นยำในการลากวาง (ไม่ Cache)
             $allIds = collect([$workItem->id]);
             $workItem->load('children.children.children.children.children');
             $flatten = function ($item) use (&$flatten, &$allIds) { if ($item->children) { foreach ($item->children as $child) { $allIds->push($child->id); $flatten($child); } } };
@@ -630,5 +671,4 @@ class WorkItemController extends Controller
         if (!$search) return response()->json([]);
         return ProjectManager::where('name', 'ilike', "%{$search}%")->limit(10)->get(['id', 'name']);
     }
-
 }

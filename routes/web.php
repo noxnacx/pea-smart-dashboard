@@ -57,7 +57,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/work-items/{workItem}', [WorkItemController::class, 'show'])
         ->name('work-items.show')
         ->whereNumber('workItem');
-
+    Route::post('/work-items/{workItem}/update-progress', [WorkItemController::class, 'updateProgress'])->name('work-items.update-progress');
     // --- Reports & Tools ---
     Route::get('/reports', [ReportController::class, 'index'])->name('reports.index');
     Route::get('/calendar', [CalendarController::class, 'index'])->name('calendar.index');
