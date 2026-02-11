@@ -10,26 +10,23 @@ const toggleSearch = () => {
     isSearchOpen.value = !isSearchOpen.value;
 };
 
-// เช็คสิทธิ์ว่าเป็น Admin หรือ PM หรือไม่ (สำหรับโชว์เมนูงานของฉัน)
+// ✅ แก้ไข: เช็คสิทธิ์เฉพาะ PM เท่านั้น (Admin ไม่ต้องเห็น)
 const page = usePage();
-const isPmOrAdmin = computed(() => ['admin', 'pm', 'project_manager'].includes(page.props.auth.user.role));
+const isPmOnly = computed(() => ['pm', 'project_manager'].includes(page.props.auth.user.role));
 
 // ✅ ปุ่มลัด Shift + S สำหรับเปิด Search
 const handleKeydown = (e) => {
     if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
-        // ป้องกันถ้ากำลังพิมพ์ใน input หรือ textarea อยู่
         if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
-
         e.preventDefault();
         isSearchOpen.value = true;
     }
-    // ปิดด้วย Esc
     if (e.key === 'Escape') {
         isSearchOpen.value = false;
     }
 };
 
-// ฟังก์ชันช่วยเช็ค Route (กัน Error กรณี Route ยังไม่ได้สร้าง)
+// ฟังก์ชันช่วยเช็ค Route
 const safeRoute = (name) => {
     try { return route(name); } catch (e) { return '#'; }
 };
@@ -81,7 +78,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     ปฏิทินรวมงาน
                 </Link>
 
-                <Link v-if="isPmOrAdmin"
+                <Link v-if="isPmOnly"
                       :href="safeRoute('my-works.index')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                       :class="isRouteActive('my-works.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
@@ -103,7 +100,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                 <Link :href="route('plans.index')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                       :class="route().current('plans.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 00-2-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
                     แผนงานทั้งหมด
                 </Link>
 
@@ -220,7 +217,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     <Link :href="route('dashboard')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">Dashboard</Link>
                     <Link :href="route('calendar.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ปฏิทินรวมงาน</Link>
 
-                    <Link v-if="isPmOrAdmin" :href="safeRoute('my-works.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">งานของฉัน (My Works)</Link>
+                    <Link v-if="isPmOnly" :href="safeRoute('my-works.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">งานของฉัน (My Works)</Link>
 
                     <div class="px-4 text-[10px] text-purple-400 font-bold uppercase mt-2">Work Management</div>
                     <Link :href="route('strategies.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ยุทธศาสตร์ทั้งหมด</Link>

@@ -55,15 +55,16 @@ class ProjectManagerController extends Controller
     public function show($id)
     {
         // 🚀 CACHE LOGIC: เก็บข้อมูลหน้า Profile 5 นาที
-        $data = Cache::remember("pm_profile_{$id}", 300, function () use ($id) {
+        // 🔧 เปลี่ยน Key เป็น v3 เพื่อบังคับโหลดใหม่ (เพิ่ม Logs)
+        $data = Cache::remember("pm_profile_v3_{$id}", 300, function () use ($id) {
 
-            // ✅ ดึงข้อมูล PM พร้อมสังกัด (Division/Department)
+            // 1. ข้อมูล PM
             $pm = User::withCount('projects')
                 ->withSum('projects', 'budget')
-                ->with(['division', 'department']) // ✅ สำคัญ: ต้อง Load ความสัมพันธ์นี้ด้วย
+                ->with(['division', 'department.division']) // ✅ โหลดสังกัด (และกองของแผนก)
                 ->findOrFail($id);
 
-            // ✅ ดึงรายการงานที่ดูแล (ใช้ relation projects)
+            // 2. โปรเจคที่ดูแล
             $projects = $pm->projects()
                 ->whereIn('type', ['project', 'plan'])
                 ->with(['division', 'department', 'issues'])
@@ -76,7 +77,7 @@ class ProjectManagerController extends Controller
                     return $item;
                 });
 
-            // สรุปสถานะงาน
+            // 3. สถิติ
             $stats = [
                 'completed' => $projects->where('status', 'completed')->count(),
                 'in_progress' => $projects->where('status', 'in_progress')->count(),
@@ -84,13 +85,20 @@ class ProjectManagerController extends Controller
                 'pending' => $projects->where('status', 'pending')->count(),
             ];
 
-            return compact('pm', 'projects', 'stats');
+            // 4. ✅ เพิ่ม Audit Logs (กิจกรรมล่าสุดของ PM คนนี้)
+            $logs = AuditLog::where('user_id', $id)
+                ->orderByDesc('created_at')
+                ->limit(20) // ดึงมาแค่ 20 รายการล่าสุด
+                ->get();
+
+            return compact('pm', 'projects', 'stats', 'logs');
         });
 
         return Inertia::render('ProjectManager/Show', [
             'pm' => $data['pm'],
             'projects' => $data['projects'],
-            'stats' => $data['stats']
+            'stats' => $data['stats'],
+            'logs' => $data['logs'] // ✅ ส่ง logs ไปหน้าบ้าน
         ]);
     }
 
@@ -118,7 +126,7 @@ class ProjectManagerController extends Controller
 
         // 🧹 Clear Cache
         Cache::tags(['project_managers'])->flush();
-        Cache::forget("pm_profile_{$id}");
+        Cache::forget("pm_profile_v3_{$id}"); // ล้าง Cache ของคนนี้
 
         // 📝 บันทึก Log
         AuditLog::create([

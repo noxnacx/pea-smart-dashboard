@@ -55,14 +55,17 @@ const openQuickView = (item, type) => {
                     <p v-if="pm.position" class="text-sm text-gray-400 mt-1">{{ pm.position }}</p>
 
                     <div class="flex flex-wrap items-center justify-center md:justify-start gap-4 mt-2 text-sm text-gray-600 bg-gray-50 p-2 rounded-lg border border-gray-100 w-fit mx-auto md:mx-0">
-                        <div v-if="pm.division" class="flex items-center gap-1.5">
+
+                        <div v-if="pm.division || pm.department?.division" class="flex items-center gap-1.5">
                             <span class="text-lg">🏢</span>
-                            <span>{{ pm.division.name }}</span>
+                            <span class="font-semibold">{{ pm.division?.name || pm.department?.division?.name }}</span>
                         </div>
-                        <div v-if="pm.department" class="flex items-center gap-1.5 border-l border-gray-300 pl-4">
+
+                        <div v-if="pm.department" class="flex items-center gap-1.5" :class="{'border-l border-gray-300 pl-4': pm.division || pm.department?.division}">
                             <span class="text-lg">🏷️</span>
                             <span>{{ pm.department.name }}</span>
                         </div>
+
                         <div v-if="!pm.division && !pm.department" class="text-gray-400 italic text-xs">
                             ไม่ระบุสังกัด
                         </div>
