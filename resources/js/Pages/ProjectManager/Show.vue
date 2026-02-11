@@ -1,5 +1,6 @@
 <script setup>
 import { Head, Link } from '@inertiajs/vue3';
+import { ref } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 
 const props = defineProps({
@@ -10,6 +11,26 @@ const props = defineProps({
 
 const statusColor = (s) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', pending: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700' }[s] || 'bg-gray-100');
 const formatBudget = (val) => Number(val).toLocaleString();
+
+// --- ⚡ Quick View Logic (เพิ่มใหม่) ---
+const showQuickView = ref(false);
+const quickViewTitle = ref('');
+const quickViewItems = ref([]);
+const quickViewType = ref('');
+const quickViewItemId = ref(null);
+
+const openQuickView = (item, type) => {
+    // กรองเอาเฉพาะที่ยังไม่แก้ (Active)
+    const activeItems = item.issues?.filter(i => i.type === type && i.status !== 'resolved') || [];
+
+    if (!activeItems.length) return;
+
+    quickViewType.value = type;
+    quickViewItemId.value = item.id;
+    quickViewTitle.value = type === 'issue' ? `🔥 ปัญหาที่พบ (${activeItems.length})` : `⚠️ ความเสี่ยง (${activeItems.length})`;
+    quickViewItems.value = activeItems;
+    showQuickView.value = true;
+};
 </script>
 
 <template>
@@ -88,9 +109,11 @@ const formatBudget = (val) => Number(val).toLocaleString();
                             </td>
                             <td class="px-6 py-4 text-right font-mono">{{ formatBudget(item.budget) }}</td>
                             <td class="px-6 py-4 text-center">
-                                <span v-if="item.has_issues" class="text-lg" title="มีปัญหา">🔥</span>
-                                <span v-if="item.has_risks" class="text-lg" title="มีความเสี่ยง">⚠️</span>
-                                <span v-if="!item.has_issues && !item.has_risks" class="text-gray-300">-</span>
+                                <div class="flex justify-center gap-2">
+                                    <button v-if="item.has_issues" @click.stop="openQuickView(item, 'issue')" class="text-lg hover:scale-110 transition cursor-pointer p-1 rounded hover:bg-red-50" title="กดเพื่อดูปัญหา">🔥</button>
+                                    <button v-if="item.has_risks" @click.stop="openQuickView(item, 'risk')" class="text-lg hover:scale-110 transition cursor-pointer p-1 rounded hover:bg-yellow-50" title="กดเพื่อดูความเสี่ยง">⚠️</button>
+                                    <span v-if="!item.has_issues && !item.has_risks" class="text-gray-300">-</span>
+                                </div>
                             </td>
                         </tr>
                         <tr v-if="projects.length === 0">
@@ -101,5 +124,35 @@ const formatBudget = (val) => Number(val).toLocaleString();
             </div>
 
         </div>
+
+        <Teleport to="body">
+            <div v-if="showQuickView" class="fixed inset-0 z-[100] flex items-center justify-center" @click.self="showQuickView = false">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"></div>
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-fade-in mx-4">
+                    <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                        <h3 class="font-bold text-lg" :class="quickViewType === 'issue' ? 'text-red-700' : 'text-yellow-700'">{{ quickViewTitle }}</h3>
+                        <button @click="showQuickView = false" class="text-gray-400 hover:text-gray-700 font-bold text-xl">&times;</button>
+                    </div>
+                    <div class="p-4 max-h-[60vh] overflow-y-auto space-y-3 bg-gray-50/50 custom-scrollbar">
+                        <div v-for="item in quickViewItems" :key="item.id" class="bg-white p-4 rounded-lg border border-gray-200 shadow-sm">
+                            <div class="flex justify-between items-start mb-2">
+                                <span class="font-bold text-gray-800 text-sm">{{ item.title }}</span>
+                                <span class="text-[10px] px-2 py-0.5 rounded font-bold uppercase tracking-wide"
+                                    :class="item.severity === 'critical' ? 'bg-red-100 text-red-600' : 'bg-yellow-100 text-yellow-600'">
+                                    {{ item.severity }}
+                                </span>
+                            </div>
+                            <p class="text-xs text-gray-500 mb-3">{{ item.description }}</p>
+                        </div>
+                    </div>
+                    <div class="px-4 py-3 border-t border-gray-100 bg-white text-right">
+                        <Link v-if="quickViewItemId" :href="route('work-items.show', quickViewItemId)" class="text-sm font-bold text-[#7A2F8F] hover:underline flex items-center justify-end gap-1">
+                            ไปจัดการที่หน้างาน <span class="text-lg">›</span>
+                        </Link>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
+
     </PeaSidebarLayout>
 </template>

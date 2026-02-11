@@ -7,10 +7,11 @@ defineOptions({ name: 'WorkItemNode' });
 const props = defineProps({
     item: Object,
     level: { type: Number, default: 0 },
-    isLast: { type: Boolean, default: false }
+    isLast: { type: Boolean, default: false },
+    // ✅ รับค่า Permission มาจากแม่ (ถ้าเป็น true ถึงจะโชว์ปุ่มย้าย)
+    canManage: { type: Boolean, default: false }
 });
 
-// ✅ ประกาศ Event ที่ Component นี้จะส่งออกไป
 const emit = defineEmits(['request-move']);
 
 const isOpen = ref(false);
@@ -103,6 +104,7 @@ const toggle = () => { if (hasChildren.value) isOpen.value = !isOpen.value; };
 
                 <div class="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
+                        v-if="canManage"
                         @click.stop="$emit('request-move', item)"
                         class="p-2 text-gray-400 hover:text-orange-600 hover:bg-orange-50 rounded-lg transition"
                         title="ย้ายสังกัด"
@@ -134,9 +136,10 @@ const toggle = () => { if (hasChildren.value) isOpen.value = !isOpen.value; };
                     :item="child"
                     :level="level + 1"
                     :isLast="index === item.children.length - 1"
+                    :can-manage="canManage"
                     @request-move="$emit('request-move', $event)"
                 />
-                </div>
+            </div>
         </transition>
 
     </div>

@@ -1,5 +1,4 @@
 <script setup>
-// ✅ เพิ่ม usePage
 import { Head, Link, router, useForm, usePage } from '@inertiajs/vue3';
 import { ref, watch, computed, onMounted, onUnmounted } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
@@ -14,14 +13,28 @@ const props = defineProps({
     divisions: Array
 });
 
-// ✅ เพิ่ม Check Role
+// --- Check Role & Permissions ---
 const page = usePage();
-const canEdit = computed(() => ['admin', 'pm', 'project_manager'].includes(page.props.auth.user.role));
+const userRole = computed(() => page.props.auth.user.role);
+const userId = computed(() => page.props.auth.user.id);
+
+// 1. สิทธิ์รวม: ใครเห็นคอลัมน์ "จัดการ" และปุ่ม "เพิ่มข้อมูล" บ้าง (Admin & PM)
+const canEdit = computed(() => ['admin', 'pm', 'project_manager'].includes(userRole.value));
+
+// 2. สิทธิ์รายตัว: เช็คว่าเป็นเจ้าของงานนั้นหรือไม่ (สำหรับปุ่ม แก้ไข/ลบ ในตาราง)
+const canManageItem = (item) => {
+    if (userRole.value === 'admin') return true; // Admin ทำได้ทุกอย่าง
+    if (['pm', 'project_manager'].includes(userRole.value)) {
+        return item.project_manager_id === userId.value; // PM ทำได้เฉพาะงานตัวเอง
+    }
+    return false;
+};
 
 const pageTitle = computed(() => {
     if (props.type === 'plan') return 'แผนงานทั้งหมด';
     if (props.type === 'project') return 'โครงการทั้งหมด';
     if (props.type === 'task') return 'งานย่อยทั้งหมด';
+    if (props.type === 'my-work') return 'งานของฉัน (My Works)'; // ✅ เพิ่ม Title
     return 'รายการงานทั้งหมด';
 });
 
@@ -29,6 +42,7 @@ const routeName = computed(() => {
     if (props.type === 'plan') return 'plans.index';
     if (props.type === 'project') return 'projects.index';
     if (props.type === 'task') return 'tasks.index';
+    if (props.type === 'my-work') return 'my-works.index'; // ✅ เพิ่ม Route
     return 'work-items.index';
 });
 
@@ -88,10 +102,11 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 const showModal = ref(false);
 const modalTitle = ref('');
 const form = useForm({
-    id: null, name: '', type: props.type, budget: 0, progress: 0,
+    id: null, name: '', type: props.type === 'my-work' ? 'project' : props.type, // Default type
+    budget: 0, progress: 0,
     status: 'pending', planned_start_date: '', planned_end_date: '', parent_id: '',
     division_id: '', department_id: '',
-    pm_name: '', project_manager_id: null, // ✅ เพิ่ม project_manager_id
+    pm_name: '', project_manager_id: null,
     weight: 1
 });
 
@@ -103,10 +118,18 @@ const modalDepartments = computed(() => {
 
 const openCreateModal = () => {
     form.reset(); form.clearErrors();
-    form.id = null; form.type = props.type;
+    form.id = null; form.type = props.type === 'my-work' ? 'project' : props.type;
     form.parent_id = ''; parentSearch.value = '';
     form.division_id = ''; form.department_id = '';
-    form.pm_name = ''; form.project_manager_id = null; // ✅ Reset PM
+
+    // ถ้าเป็น PM สร้างเอง ให้ Default เป็นตัวเองเลย
+    if (['pm', 'project_manager'].includes(userRole.value)) {
+        form.pm_name = page.props.auth.user.name;
+        form.project_manager_id = userId.value;
+    } else {
+        form.pm_name = ''; form.project_manager_id = null;
+    }
+
     form.weight = 1;
     modalTitle.value = `✨ เพิ่มข้อมูลใหม่`;
     showModal.value = true;
@@ -123,7 +146,6 @@ const openEditModal = (item) => {
     form.division_id = item.division_id || '';
     form.department_id = item.department_id || '';
 
-    // ✅ Load PM Info Correctly
     form.pm_name = item.project_manager ? item.project_manager.name : '';
     form.project_manager_id = item.project_manager_id || null;
 
@@ -262,8 +284,12 @@ const openQuickView = (item, type) => {
                             <td v-if="canEdit" class="px-6 py-4 text-center">
                                 <div class="flex justify-center gap-2">
                                     <Link :href="route('work-items.show', item.id)" class="p-1.5 rounded-lg hover:bg-blue-50 text-lg transition">🔍</Link>
-                                    <button @click="openEditModal(item)" class="p-1.5 rounded-lg hover:bg-yellow-50 text-lg transition">✏️</button>
-                                    <button @click="deleteItem(item.id)" class="p-1.5 rounded-lg hover:bg-red-50 text-lg transition">🗑️</button>
+
+                                    <template v-if="canManageItem(item)">
+                                        <button @click="openEditModal(item)" class="p-1.5 rounded-lg hover:bg-yellow-50 text-lg transition">✏️</button>
+                                        <button @click="deleteItem(item.id)" class="p-1.5 rounded-lg hover:bg-red-50 text-lg transition">🗑️</button>
+                                    </template>
+
                                 </div>
                             </td>
                         </tr>

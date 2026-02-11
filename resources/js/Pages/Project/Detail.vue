@@ -17,10 +17,23 @@ const props = defineProps({
 const activeTab = ref('overview');
 const showSuccessModal = ref(false);
 
-// --- Check Role ---
+// --- Check Role & Permissions (✅ แก้ไขตรงนี้) ---
 const page = usePage();
 const userRole = computed(() => page.props.auth.user.role);
-const canEdit = computed(() => ['admin', 'pm', 'project_manager'].includes(userRole.value));
+const userId = computed(() => page.props.auth.user.id);
+
+const canEdit = computed(() => {
+    // 1. Admin แก้ได้ทุกอย่าง
+    if (userRole.value === 'admin') return true;
+
+    // 2. PM แก้ได้เฉพาะงานที่ตัวเองเป็นเจ้าของ (project_manager_id ตรงกับ ID ตัวเอง)
+    if (['pm', 'project_manager'].includes(userRole.value)) {
+        return props.item.project_manager_id === userId.value;
+    }
+
+    // 3. User ทั่วไป ดูได้อย่างเดียว
+    return false;
+});
 
 // ✅ Computed: เช็คว่าเป็น Parent Node หรือไม่
 const isParent = computed(() => props.item.children && props.item.children.length > 0);
@@ -139,7 +152,7 @@ const form = useForm({
     id: null, parent_id: null, name: '', description: '', type: 'task', budget: 0, progress: 0,
     status: 'pending', planned_start_date: '', planned_end_date: '',
     division_id: '', department_id: '', pm_name: '',
-    project_manager_id: null, // ✅ เพิ่ม field รับ ID ของ PM
+    project_manager_id: null,
     weight: 1
 });
 
@@ -168,7 +181,7 @@ const openCreateModal = () => {
     form.reset(); form.parent_id=props.item.id;
     form.type = 'task';
     form.division_id = ''; form.department_id = '';
-    form.pm_name = ''; form.project_manager_id = null; // ✅ Reset PM
+    form.pm_name = ''; form.project_manager_id = null;
     form.weight = 1;
     form.description = '';
     parentNameDisplay.value = props.item.name;
@@ -193,7 +206,6 @@ const openEditModal = (t) => {
     form.division_id = t.division_id || '';
     form.department_id = t.department_id || '';
 
-    // ✅ Load PM info correctly (Name & ID)
     form.pm_name = t.project_manager ? t.project_manager.name : '';
     form.project_manager_id = t.project_manager_id || null;
 

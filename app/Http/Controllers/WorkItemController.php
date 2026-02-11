@@ -6,7 +6,7 @@ use App\Models\WorkItem;
 use App\Models\AuditLog;
 use App\Models\Comment;
 use App\Models\WorkItemLink;
-use App\Models\User; // ✅ เปลี่ยนมาใช้ User แทน ProjectManager
+use App\Models\User;
 use App\Models\Division;
 use App\Models\Department;
 use App\Models\Attachment;
@@ -30,6 +30,48 @@ class WorkItemController extends Controller
     public function projects(Request $request)
     {
         return $this->renderList($request, 'project');
+    }
+
+    // --- 3. ✅ หน้างานของฉัน (My Works) ---
+    public function myWorks(Request $request)
+    {
+        // Reuse หน้า List แต่กรองเฉพาะงานของตัวเอง
+        $query = WorkItem::with(['issues', 'parent', 'division', 'department', 'projectManager'])
+            ->where('project_manager_id', auth()->id()); // ✅ กรองด้วย ID คน Login
+
+        // Apply Filters (Search, Status, etc.)
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where('name', 'ilike', '%' . $search . '%');
+        }
+        if ($request->filled('status')) $query->where('status', $request->status);
+        if ($request->filled('year')) $query->whereYear('planned_start_date', $request->year);
+
+        $sortField = $request->input('sort_by', 'created_at');
+        $sortDir = $request->input('sort_dir', 'desc');
+        $query->orderBy($sortField, $sortDir);
+
+        $items = $query->paginate(10)->withQueryString();
+
+        // ตัวเลือก Parent สำหรับ Modal (โหลดเหมือนเดิม)
+        $parentOptions = WorkItem::select('id', 'name', 'type')
+            ->orderByRaw("CASE WHEN type = 'strategy' THEN 1 WHEN type = 'plan' THEN 2 WHEN type = 'project' THEN 3 ELSE 4 END")
+            ->orderBy('name')->get()
+            ->map(function($item) {
+                $map = ['strategy'=>'ยุทธศาสตร์', 'plan'=>'แผนงาน', 'project'=>'โครงการ', 'task'=>'งานย่อย'];
+                $item->type_label = $map[$item->type] ?? $item->type;
+                return $item;
+            });
+
+        $divisions = Division::with('departments')->orderBy('name')->get();
+
+        return Inertia::render('WorkItem/List', [
+            'type' => 'my-work', // ✅ ส่ง type พิเศษไปบอก Frontend
+            'items' => $items,
+            'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir']),
+            'parentOptions' => $parentOptions,
+            'divisions' => $divisions,
+        ]);
     }
 
     // --- ฟังก์ชันกลางสำหรับดึงข้อมูลและ Render หน้า List ---
@@ -101,12 +143,9 @@ class WorkItemController extends Controller
             'planned_end_date' => 'nullable|date',
             'division_id' => 'required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
-            // ✅ เปลี่ยนการตรวจสอบ PM ให้เช็คจากตาราง Users แทน
             'project_manager_id' => 'nullable|exists:users,id',
             'weight' => 'nullable|numeric|min:0',
         ]);
-
-        // ไม่มีการสร้าง PM ใหม่ด้วยชื่อแล้ว (ใช้ ID จาก Dropdown เท่านั้น)
 
         $validated['progress'] = (int) ($validated['progress'] ?? 0);
         $validated['budget'] = $validated['budget'] ?? 0;
@@ -154,11 +193,11 @@ class WorkItemController extends Controller
             'parent_id' => 'nullable|exists:work_items,id',
             'division_id' => 'required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
-            // ✅ เปลี่ยนการตรวจสอบ PM ให้เช็คจากตาราง Users แทน
             'project_manager_id' => 'nullable|exists:users,id',
             'weight' => 'nullable|numeric|min:0',
         ]);
 
+        // Logic เดิม: ถ้าเป็น Parent ห้ามแก้ Progress เอง
         if (isset($validated['progress'])) {
             if ($workItem->children()->count() > 0) {
                 unset($validated['progress']);
@@ -336,7 +375,6 @@ class WorkItemController extends Controller
 
     private function logActivity($action, $model, $oldData = [], $changes = [])
     {
-        // ✅ เปลี่ยน Mapping ให้ดึงข้อมูลจาก User Model แทน
         $relationMap = [
             'project_manager_id' => ['model' => User::class, 'label' => 'ผู้ดูแล (PM)'],
             'parent_id' => ['model' => WorkItem::class, 'label' => 'งานภายใต้'],
@@ -445,7 +483,6 @@ class WorkItemController extends Controller
             'projectManager'
         ]);
 
-        // Timeline Logic
         $relatedIds = collect([$workItem->id])->merge(collect($workItem->children)->pluck('id'))->unique()->toArray();
         $logs = AuditLog::with('user')
             ->where(function($q) use ($relatedIds) { $q->where('model_type', 'WorkItem')->whereIn('model_id', $relatedIds); })
@@ -563,14 +600,12 @@ class WorkItemController extends Controller
         return response()->json(['message' => 'Logged successfully']);
     }
 
-    // ✅ ฟังก์ชันค้นหา PM (เปลี่ยนไปค้นใน Users แทน)
     public function searchProjectManagers(Request $request) {
         $search = $request->input('query');
         if (!$search) return response()->json([]);
 
         return User::where('name', 'ilike', "%{$search}%")
             ->where(function($q) {
-                // ค้นหาคนที่เป็น PM (เช็คทั้ง is_pm flag และ role string)
                 $q->where('is_pm', true)
                   ->orWhereIn('role', ['pm', 'project_manager']);
             })
