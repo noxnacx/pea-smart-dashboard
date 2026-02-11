@@ -5,11 +5,11 @@ namespace App\Http\Controllers;
 use Illuminate\Http\Request;
 use App\Models\WorkItem;
 use App\Models\Issue;
-use App\Models\ProjectManager;
+use App\Models\User; // ✅ เปลี่ยนจาก ProjectManager เป็น User
 use App\Models\Attachment;
 use Illuminate\Support\Facades\Route;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
+use Illuminate\Support\Facades\Cache;
 
 class GlobalSearchController extends Controller
 {
@@ -21,18 +21,16 @@ class GlobalSearchController extends Controller
             return response()->json([]);
         }
 
-        // สร้าง Cache Key จากคำค้นหา (ไม่ซ้ำกันตามคำที่พิมพ์)
+        // สร้าง Cache Key
         $cacheKey = 'global_search_' . md5(strtolower(trim($query)));
 
-        // 🚀 CACHE LOGIC: เก็บผลการค้นหา 2 นาที (120 วินาที)
-        // เก็บสั้นๆ เพราะ User คาดหวังผลลัพธ์ที่ Real-time พอสมควร
+        // 🚀 CACHE LOGIC: เก็บ 2 นาที
         $results = Cache::remember($cacheKey, 120, function () use ($query) {
 
             // ==========================================
-            // 🚀 ส่วนที่ 1: ค้นหาเมนู (Filter ตาม Role/Gate)
+            // 🚀 ส่วนที่ 1: ค้นหาเมนู (System Pages)
             // ==========================================
             $systemPages = collect([
-                // --- ทุกคนเข้าได้ (General) ---
                 ['name' => 'Dashboard', 'route' => 'dashboard', 'keywords' => 'home admin overview graph chart'],
                 ['name' => 'Strategies (ยุทธศาสตร์)', 'route' => 'strategies.index', 'keywords' => 'strategy goal'],
                 ['name' => 'Plans (แผนงาน)', 'route' => 'plans.index', 'keywords' => 'plan master'],
@@ -42,35 +40,31 @@ class GlobalSearchController extends Controller
                 ['name' => 'Calendar (ปฏิทิน)', 'route' => 'calendar.index', 'keywords' => 'schedule timeline date'],
                 ['name' => 'Project Managers (ผู้รับผิดชอบ)', 'route' => 'pm.index', 'keywords' => 'people staff user pm'],
 
-                // --- เฉพาะ Admin (manage-system) ---
+                // เฉพาะ Admin
                 [
                     'name' => 'Organization (โครงสร้างองค์กร)',
                     'route' => 'organization.index',
                     'keywords' => 'department division structure',
-                    'gate' => 'manage-system' // 🔒 ระบุ Gate
+                    'gate' => 'manage-system'
                 ],
                 [
                     'name' => 'Audit Logs (ประวัติระบบ)',
                     'route' => 'audit-logs.index',
                     'keywords' => 'history log system action',
-                    'gate' => 'manage-system' // 🔒 ระบุ Gate
+                    'gate' => 'manage-system'
                 ],
                 [
                     'name' => 'User Management (จัดการผู้ใช้)',
                     'route' => 'users.index',
                     'keywords' => 'user member account register',
-                    'gate' => 'manage-system' // 🔒 ระบุ Gate
+                    'gate' => 'manage-system'
                 ],
             ]);
 
-            // ✅ กรองตามสิทธิ์ (Gate)
             $matchedPages = $systemPages->filter(function ($page) use ($query) {
-                // 1. ถ้ามี Gate ต้องเช็คก่อนว่า User ผ่านไหม
                 if (isset($page['gate']) && !Gate::allows($page['gate'])) {
-                    return false; // ถ้าไม่ผ่าน Gate ให้ซ่อนไปเลย
+                    return false;
                 }
-
-                // 2. เช็คว่ามี Route จริงไหม และคำค้นตรงไหม
                 return Route::has($page['route']) && (
                     stripos($page['name'], $query) !== false ||
                     stripos($page['keywords'], $query) !== false
@@ -91,9 +85,14 @@ class GlobalSearchController extends Controller
             // 💾 ส่วนที่ 2: ค้นหา Database
             // ==========================================
 
-            // 1. Project Managers
-            $pms = ProjectManager::where('name', 'ilike', "%{$query}%")
-                ->with(['workItems' => function($q) {
+            // 1. ✅ Project Managers (แก้เป็น User)
+            $pms = User::where('name', 'ilike', "%{$query}%")
+                ->where(function($q) {
+                    $q->where('is_pm', true)
+                      ->orWhereIn('role', ['pm', 'project_manager']);
+                })
+                // ✅ เปลี่ยน relation จาก workItems เป็น projects
+                ->with(['projects' => function($q) {
                     $q->select('id', 'name', 'project_manager_id')->limit(3);
                 }])
                 ->limit(3)
@@ -105,7 +104,8 @@ class GlobalSearchController extends Controller
                         'category' => 'Project Managers',
                         'url' => route('pm.show', $pm->id),
                         'type' => 'pm',
-                        'related_projects' => $pm->workItems->map(function($w) {
+                        // ✅ แมพข้อมูล projects
+                        'related_projects' => $pm->projects->map(function($w) {
                             return [
                                 'name' => $w->name,
                                 'url' => route('work-items.show', $w->id)
@@ -174,7 +174,6 @@ class GlobalSearchController extends Controller
                     ];
                 });
 
-            // รวมผลลัพธ์และส่งกลับ Cache
             return $matchedPages
                 ->concat($pms)
                 ->concat($workItems)
