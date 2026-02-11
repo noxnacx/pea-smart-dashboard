@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\User; // ✅ เปลี่ยนมาใช้ User
+use App\Models\User; // ✅ ใช้ User Model
 use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -30,8 +30,8 @@ class ProjectManagerController extends Controller
                 $q->where('is_pm', true)
                   ->orWhereIn('role', ['pm', 'project_manager']);
             })
-            ->withCount('projects') // ✅ เปลี่ยนจาก workItems เป็น projects
-            ->withSum('projects', 'budget'); // ✅ รวมงบประมาณจาก projects
+            ->withCount('projects') // ✅ นับจำนวนโครงการ
+            ->withSum('projects', 'budget'); // ✅ รวมงบประมาณ
 
             if ($search) {
                 $query->where('name', 'ilike', '%' . $search . '%');
@@ -57,8 +57,10 @@ class ProjectManagerController extends Controller
         // 🚀 CACHE LOGIC: เก็บข้อมูลหน้า Profile 5 นาที
         $data = Cache::remember("pm_profile_{$id}", 300, function () use ($id) {
 
+            // ✅ ดึงข้อมูล PM พร้อมสังกัด (Division/Department)
             $pm = User::withCount('projects')
                 ->withSum('projects', 'budget')
+                ->with(['division', 'department']) // ✅ สำคัญ: ต้อง Load ความสัมพันธ์นี้ด้วย
                 ->findOrFail($id);
 
             // ✅ ดึงรายการงานที่ดูแล (ใช้ relation projects)
@@ -107,7 +109,7 @@ class ProjectManagerController extends Controller
 
         DB::transaction(function () use ($user) {
             // 1. ปลดชื่อออกจากงานทั้งหมดที่ดูแล (Set Null)
-            // ✅ ใช้ relation projects
+            // ✅ ใช้ relation projects ของ User Model
             $user->projects()->update(['project_manager_id' => null]);
 
             // 2. ลบ User
@@ -122,7 +124,7 @@ class ProjectManagerController extends Controller
         AuditLog::create([
             'user_id' => auth()->id(),
             'action' => 'DELETE',
-            'model_type' => 'User (PM)', // ระบุว่าเป็น User
+            'model_type' => 'User (PM)',
             'model_id' => $id,
             'target_name' => $userName,
             'changes' => ['note' => 'Deleted PM User and unlinked from projects'],

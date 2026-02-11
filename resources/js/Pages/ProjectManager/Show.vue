@@ -12,7 +12,7 @@ const props = defineProps({
 const statusColor = (s) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', pending: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700' }[s] || 'bg-gray-100');
 const formatBudget = (val) => Number(val).toLocaleString();
 
-// --- ⚡ Quick View Logic (เพิ่มใหม่) ---
+// --- ⚡ Quick View Logic ---
 const showQuickView = ref(false);
 const quickViewTitle = ref('');
 const quickViewItems = ref([]);
@@ -20,9 +20,7 @@ const quickViewType = ref('');
 const quickViewItemId = ref(null);
 
 const openQuickView = (item, type) => {
-    // กรองเอาเฉพาะที่ยังไม่แก้ (Active)
     const activeItems = item.issues?.filter(i => i.type === type && i.status !== 'resolved') || [];
-
     if (!activeItems.length) return;
 
     quickViewType.value = type;
@@ -55,6 +53,20 @@ const openQuickView = (item, type) => {
                     <h1 class="text-3xl font-bold text-gray-800">{{ pm.name }}</h1>
                     <p class="text-gray-500 uppercase">{{ pm.role }}</p>
                     <p v-if="pm.position" class="text-sm text-gray-400 mt-1">{{ pm.position }}</p>
+
+                    <div class="flex flex-wrap items-center justify-center md:justify-start gap-4 mt-2 text-sm text-gray-600 bg-gray-50 p-2 rounded-lg border border-gray-100 w-fit mx-auto md:mx-0">
+                        <div v-if="pm.division" class="flex items-center gap-1.5">
+                            <span class="text-lg">🏢</span>
+                            <span>{{ pm.division.name }}</span>
+                        </div>
+                        <div v-if="pm.department" class="flex items-center gap-1.5 border-l border-gray-300 pl-4">
+                            <span class="text-lg">🏷️</span>
+                            <span>{{ pm.department.name }}</span>
+                        </div>
+                        <div v-if="!pm.division && !pm.department" class="text-gray-400 italic text-xs">
+                            ไม่ระบุสังกัด
+                        </div>
+                    </div>
 
                     <div class="flex flex-wrap gap-4 mt-4 justify-center md:justify-start">
                         <div class="bg-purple-50 px-4 py-2 rounded-xl border border-purple-100">
