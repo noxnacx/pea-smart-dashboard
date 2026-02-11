@@ -22,7 +22,7 @@ class User extends Authenticatable
         'email',
         'password',
         'role',
-        // ✅ เพิ่มฟิลด์ใหม่ (Phase 1)
+        'division_id',
         'department_id',
         'is_pm',
         'position',
@@ -39,14 +39,16 @@ class User extends Authenticatable
         'remember_token',
     ];
 
+    // --- Helper Functions สำหรับเช็คสิทธิ์ ---
+
     public function isAdmin(): bool
     {
-        return $this->role === 'admin'; // สมมติว่าใน DB เก็บ string 'admin'
+        return $this->role === 'admin';
     }
 
-public function isPm(): bool
+    public function isPm(): bool
     {
-        // ✅ เช็คทั้ง is_pm (boolean), 'project_manager' และ 'pm' (เผื่อไว้)
+        // เช็คว่าเป็น PM หรือไม่ (ใช้ทั้ง boolean และ role string)
         return $this->is_pm || $this->role === 'project_manager' || $this->role === 'pm';
     }
 
@@ -55,10 +57,19 @@ public function isPm(): bool
         return !$this->isAdmin() && !$this->isPm();
     }
 
-    // ฟังก์ชันสำหรับเช็คสิทธิ์แก้ไข (Admin และ PM แก้ไขได้, User ทั่วไปดูได้อย่างเดียว)
+    // ✅ เพิ่มฟังก์ชันนี้ (Fix Error: Call to undefined method canEdit)
     public function canEdit(): bool
     {
         return $this->isAdmin() || $this->isPm();
+    }
+
+    // ฟังก์ชันเช็คสิทธิ์แบบละเอียด: PM แก้ได้เฉพาะงานตัวเอง
+    public function canManageProject($workItem): bool
+    {
+        if ($this->isAdmin()) return true;
+        // ถ้าเป็น PM ต้องเช็คว่าเป็นเจ้าของโปรเจคหรือไม่ (เช็คจาก project_manager_id ที่เป็น User ID แล้ว)
+        if ($this->isPm() && $workItem->project_manager_id === $this->id) return true;
+        return false;
     }
 
     /**
@@ -71,16 +82,27 @@ public function isPm(): bool
         return [
             'email_verified_at' => 'datetime',
             'password' => 'hashed',
-            'is_pm' => 'boolean', // ✅ Cast เป็น boolean เพื่อความชัวร์
+            'is_pm' => 'boolean',
         ];
     }
 
-    // --- ✅ เพิ่ม Relationships (แก้ปัญหา Call to undefined relationship) ---
+    // --- Relationships ---
 
-    // 1. User สังกัดแผนก
+    // 1. สังกัดกอง
+    public function division()
+    {
+        return $this->belongsTo(Division::class);
+    }
+
+    // 2. สังกัดแผนก
     public function department()
     {
         return $this->belongsTo(Department::class);
     }
 
+    // 3. งานที่ดูแล (ในฐานะ PM)
+    public function projects()
+    {
+        return $this->hasMany(WorkItem::class, 'project_manager_id');
+    }
 }

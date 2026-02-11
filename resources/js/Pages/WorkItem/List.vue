@@ -90,7 +90,9 @@ const modalTitle = ref('');
 const form = useForm({
     id: null, name: '', type: props.type, budget: 0, progress: 0,
     status: 'pending', planned_start_date: '', planned_end_date: '', parent_id: '',
-    division_id: '', department_id: '', pm_name: '', weight: 1
+    division_id: '', department_id: '',
+    pm_name: '', project_manager_id: null, // ✅ เพิ่ม project_manager_id
+    weight: 1
 });
 
 const modalDepartments = computed(() => {
@@ -103,7 +105,8 @@ const openCreateModal = () => {
     form.reset(); form.clearErrors();
     form.id = null; form.type = props.type;
     form.parent_id = ''; parentSearch.value = '';
-    form.division_id = ''; form.department_id = ''; form.pm_name = '';
+    form.division_id = ''; form.department_id = '';
+    form.pm_name = ''; form.project_manager_id = null; // ✅ Reset PM
     form.weight = 1;
     modalTitle.value = `✨ เพิ่มข้อมูลใหม่`;
     showModal.value = true;
@@ -119,7 +122,11 @@ const openEditModal = (item) => {
     form.parent_id = item.parent_id;
     form.division_id = item.division_id || '';
     form.department_id = item.department_id || '';
+
+    // ✅ Load PM Info Correctly
     form.pm_name = item.project_manager ? item.project_manager.name : '';
+    form.project_manager_id = item.project_manager_id || null;
+
     form.weight = item.weight || 1;
 
     if (item.parent) {
@@ -143,18 +150,18 @@ const submit = () => {
 
 const deleteItem = (id) => { if (confirm('ยืนยันลบข้อมูลนี้?')) useForm({}).delete(route('work-items.destroy', id)); };
 
-// --- Quick View (เพิ่มส่วนที่ขาดไป) ---
+// --- Quick View ---
 const showQuickView = ref(false);
 const quickViewTitle = ref('');
 const quickViewItems = ref([]);
 const quickViewType = ref('');
-const quickViewItemId = ref(null); // ✅ เพิ่มตัวแปรเก็บ ID
+const quickViewItemId = ref(null);
 
 const openQuickView = (item, type) => {
     const activeItems = item.issues?.filter(i => i.type === type && i.status !== 'resolved') || [];
     if (!activeItems.length) return;
     quickViewType.value = type;
-    quickViewItemId.value = item.id; // ✅ เก็บ ID ไว้ทำ Link
+    quickViewItemId.value = item.id;
     quickViewTitle.value = type === 'issue' ? `🔥 ปัญหา (${activeItems.length})` : `⚠️ ความเสี่ยง (${activeItems.length})`;
     quickViewItems.value = activeItems;
     showQuickView.value = true;
@@ -316,7 +323,16 @@ const openQuickView = (item, type) => {
                             </select>
                         </div>
                     </div>
-                    <div><label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแล (PM)</label><PmAutocomplete v-model="form.pm_name" /></div>
+
+                    <div>
+                        <label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแล (PM)</label>
+                        <PmAutocomplete
+                            v-model="form.pm_name"
+                            @update:id="(id) => form.project_manager_id = id"
+                            placeholder="ค้นหาจากชื่อ User..."
+                        />
+                    </div>
+
                     <div>
                         <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
                         <select v-model="form.type" class="w-full rounded-lg border-gray-300" required>

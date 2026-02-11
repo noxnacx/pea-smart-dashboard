@@ -3,6 +3,7 @@ import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
 import { ref, computed } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import GanttChart from '@/Components/GanttChart.vue';
+// ❌ ลบ SCurveChart import ออก
 import PmAutocomplete from '@/Components/PmAutocomplete.vue';
 
 // --- Props ---
@@ -21,7 +22,7 @@ const page = usePage();
 const userRole = computed(() => page.props.auth.user.role);
 const canEdit = computed(() => ['admin', 'pm', 'project_manager'].includes(userRole.value));
 
-// ✅ Computed: เช็คว่าเป็น Parent Node หรือไม่ (ถ้ามีลูก = เป็น Parent)
+// ✅ Computed: เช็คว่าเป็น Parent Node หรือไม่
 const isParent = computed(() => props.item.children && props.item.children.length > 0);
 
 // --- Helpers ---
@@ -33,12 +34,6 @@ const formatDate = (dateString) => {
 const formatDateForInput = (dateString) => {
     if (!dateString) return '';
     return String(dateString).split('T')[0].split(' ')[0];
-};
-
-const getDuration = (start, end) => {
-    if (!start || !end) return '-';
-    const diffTime = Math.abs(new Date(end) - new Date(start));
-    return Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1 + ' วัน';
 };
 
 const formatFileSize = (bytes) => {
@@ -97,7 +92,6 @@ const dateValidationWarnings = computed(() => {
     const warnings = [];
     const parent = props.item.parent;
 
-    // ถ้าไม่มีพ่อ ไม่ต้องเช็ค
     if (!parent) return warnings;
 
     const myStart = props.item.planned_start_date ? new Date(props.item.planned_start_date) : null;
@@ -145,6 +139,7 @@ const form = useForm({
     id: null, parent_id: null, name: '', description: '', type: 'task', budget: 0, progress: 0,
     status: 'pending', planned_start_date: '', planned_end_date: '',
     division_id: '', department_id: '', pm_name: '',
+    project_manager_id: null, // ✅ เพิ่ม field รับ ID ของ PM
     weight: 1
 });
 
@@ -172,7 +167,8 @@ const openCreateModal = () => {
     isEditing.value=false; modalTitle.value=`สร้างรายการย่อย`;
     form.reset(); form.parent_id=props.item.id;
     form.type = 'task';
-    form.division_id = ''; form.department_id = ''; form.pm_name = '';
+    form.division_id = ''; form.department_id = '';
+    form.pm_name = ''; form.project_manager_id = null; // ✅ Reset PM
     form.weight = 1;
     form.description = '';
     parentNameDisplay.value = props.item.name;
@@ -196,7 +192,11 @@ const openEditModal = (t) => {
 
     form.division_id = t.division_id || '';
     form.department_id = t.department_id || '';
+
+    // ✅ Load PM info correctly (Name & ID)
     form.pm_name = t.project_manager ? t.project_manager.name : '';
+    form.project_manager_id = t.project_manager_id || null;
+
     form.weight = t.weight !== undefined ? t.weight : 1;
     showModal.value=true;
 };
@@ -593,7 +593,11 @@ const submitComment = () => {
 
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแลโปรเจค (PM)</label>
-                            <PmAutocomplete v-model="form.pm_name" placeholder="พิมพ์ชื่อ หรือเลือกจากรายการ..." />
+                            <PmAutocomplete
+                                v-model="form.pm_name"
+                                @update:id="(id) => form.project_manager_id = id"
+                                placeholder="ค้นหาจากชื่อ User..."
+                            />
                         </div>
 
                         <div class="grid grid-cols-2 gap-4">

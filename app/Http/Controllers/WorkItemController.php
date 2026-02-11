@@ -6,7 +6,7 @@ use App\Models\WorkItem;
 use App\Models\AuditLog;
 use App\Models\Comment;
 use App\Models\WorkItemLink;
-use App\Models\ProjectManager;
+use App\Models\User; // ✅ เปลี่ยนมาใช้ User แทน ProjectManager
 use App\Models\Division;
 use App\Models\Department;
 use App\Models\Attachment;
@@ -101,15 +101,12 @@ class WorkItemController extends Controller
             'planned_end_date' => 'nullable|date',
             'division_id' => 'required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
-            'pm_name' => 'nullable|string|max:255',
+            // ✅ เปลี่ยนการตรวจสอบ PM ให้เช็คจากตาราง Users แทน
+            'project_manager_id' => 'nullable|exists:users,id',
             'weight' => 'nullable|numeric|min:0',
         ]);
 
-        if ($request->filled('pm_name')) {
-            $pm = ProjectManager::firstOrCreate(['name' => trim($request->pm_name)]);
-            $validated['project_manager_id'] = $pm->id;
-        }
-        unset($validated['pm_name']);
+        // ไม่มีการสร้าง PM ใหม่ด้วยชื่อแล้ว (ใช้ ID จาก Dropdown เท่านั้น)
 
         $validated['progress'] = (int) ($validated['progress'] ?? 0);
         $validated['budget'] = $validated['budget'] ?? 0;
@@ -157,19 +154,10 @@ class WorkItemController extends Controller
             'parent_id' => 'nullable|exists:work_items,id',
             'division_id' => 'required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
-            'pm_name' => 'nullable|string|max:255',
+            // ✅ เปลี่ยนการตรวจสอบ PM ให้เช็คจากตาราง Users แทน
+            'project_manager_id' => 'nullable|exists:users,id',
             'weight' => 'nullable|numeric|min:0',
         ]);
-
-        if ($request->has('pm_name')) {
-            if ($request->filled('pm_name')) {
-                $pm = ProjectManager::firstOrCreate(['name' => trim($request->pm_name)]);
-                $validated['project_manager_id'] = $pm->id;
-            } else {
-                $validated['project_manager_id'] = null;
-            }
-            unset($validated['pm_name']);
-        }
 
         if (isset($validated['progress'])) {
             if ($workItem->children()->count() > 0) {
@@ -348,8 +336,9 @@ class WorkItemController extends Controller
 
     private function logActivity($action, $model, $oldData = [], $changes = [])
     {
+        // ✅ เปลี่ยน Mapping ให้ดึงข้อมูลจาก User Model แทน
         $relationMap = [
-            'project_manager_id' => ['model' => ProjectManager::class, 'label' => 'ผู้ดูแล (PM)'],
+            'project_manager_id' => ['model' => User::class, 'label' => 'ผู้ดูแล (PM)'],
             'parent_id' => ['model' => WorkItem::class, 'label' => 'งานภายใต้'],
             'division_id' => ['model' => Division::class, 'label' => 'กอง'],
             'department_id' => ['model' => Department::class, 'label' => 'แผนก'],
@@ -455,8 +444,6 @@ class WorkItemController extends Controller
             'department',
             'projectManager'
         ]);
-
-        // ❌ เอา S-Curve ออกแล้ว
 
         // Timeline Logic
         $relatedIds = collect([$workItem->id])->merge(collect($workItem->children)->pluck('id'))->unique()->toArray();
@@ -576,9 +563,18 @@ class WorkItemController extends Controller
         return response()->json(['message' => 'Logged successfully']);
     }
 
+    // ✅ ฟังก์ชันค้นหา PM (เปลี่ยนไปค้นใน Users แทน)
     public function searchProjectManagers(Request $request) {
         $search = $request->input('query');
         if (!$search) return response()->json([]);
-        return ProjectManager::where('name', 'ilike', "%{$search}%")->limit(10)->get(['id', 'name']);
+
+        return User::where('name', 'ilike', "%{$search}%")
+            ->where(function($q) {
+                // ค้นหาคนที่เป็น PM (เช็คทั้ง is_pm flag และ role string)
+                $q->where('is_pm', true)
+                  ->orWhereIn('role', ['pm', 'project_manager']);
+            })
+            ->limit(10)
+            ->get(['id', 'name']);
     }
 }

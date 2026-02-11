@@ -32,16 +32,17 @@ const formatBudget = (val) => Number(val).toLocaleString();
 
                 <div class="flex-1 text-center md:text-left z-10">
                     <h1 class="text-3xl font-bold text-gray-800">{{ pm.name }}</h1>
-                    <p class="text-gray-500">Project Manager</p>
+                    <p class="text-gray-500 uppercase">{{ pm.role }}</p>
+                    <p v-if="pm.position" class="text-sm text-gray-400 mt-1">{{ pm.position }}</p>
 
                     <div class="flex flex-wrap gap-4 mt-4 justify-center md:justify-start">
                         <div class="bg-purple-50 px-4 py-2 rounded-xl border border-purple-100">
                             <div class="text-xs text-gray-500 uppercase font-bold">ดูแลทั้งหมด</div>
-                            <div class="text-xl font-black text-[#4A148C]">{{ pm.work_items_count }} <span class="text-xs font-normal text-gray-500">โครงการ</span></div>
+                            <div class="text-xl font-black text-[#4A148C]">{{ pm.projects_count || 0 }} <span class="text-xs font-normal text-gray-500">โครงการ</span></div>
                         </div>
                         <div class="bg-green-50 px-4 py-2 rounded-xl border border-green-100">
                             <div class="text-xs text-gray-500 uppercase font-bold">งบประมาณรวม</div>
-                            <div class="text-xl font-black text-green-700">{{ formatBudget(pm.work_items_sum_budget) }} <span class="text-xs font-normal text-gray-500">บาท</span></div>
+                            <div class="text-xl font-black text-green-700">{{ formatBudget(pm.projects_sum_budget || 0) }} <span class="text-xs font-normal text-gray-500">บาท</span></div>
                         </div>
                     </div>
                 </div>

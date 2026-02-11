@@ -1,6 +1,6 @@
 <script setup>
-import { Head, Link, router, usePage } from '@inertiajs/vue3'; // เพิ่ม usePage
-import { ref, watch, computed } from 'vue'; // เพิ่ม computed
+import { Head, Link, router, usePage } from '@inertiajs/vue3';
+import { ref, watch, computed } from 'vue';
 import { debounce } from 'lodash';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 
@@ -11,7 +11,6 @@ const props = defineProps({
 
 const search = ref(props.filters.search || '');
 
-// ✅ เช็คสิทธิ์ Admin
 const page = usePage();
 const isAdmin = computed(() => page.props.auth.user.role === 'admin');
 
@@ -19,11 +18,13 @@ watch(search, debounce((val) => {
     router.get(route('pm.index'), { search: val }, { preserveState: true, replace: true });
 }, 500));
 
-const formatBudget = (val) => Number(val).toLocaleString();
+const formatBudget = (val) => {
+    if (!val) return '0';
+    return Number(val).toLocaleString(undefined, { maximumFractionDigits: 1 });
+};
 
-// ✅ ฟังก์ชันลบ PM
 const deletePm = (id) => {
-    if (confirm('ยืนยันลบ Project Manager ท่านนี้?\n(งานที่ดูแลอยู่จะถูกปลดชื่อออก แต่ไม่ถูกลบ)')) {
+    if (confirm('⚠️ คำเตือน: การลบนี้คือการ "ลบ User" ออกจากระบบถาวร\n(งานที่ดูแลอยู่จะกลายเป็นไม่มีผู้รับผิดชอบ แต่ตัวงานจะไม่ถูกลบ)\n\nยืนยันหรือไม่?')) {
         router.delete(route('pm.destroy', id));
     }
 };
@@ -52,7 +53,7 @@ const deletePm = (id) => {
                     <button v-if="isAdmin"
                             @click.prevent="deletePm(pm.id)"
                             class="absolute top-2 right-2 text-gray-300 hover:text-red-500 transition z-10 p-1"
-                            title="ลบ PM">
+                            title="ลบผู้ใช้งาน">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                     </button>
 
@@ -61,17 +62,17 @@ const deletePm = (id) => {
                             {{ pm.name.charAt(0) }}
                         </div>
 
-                        <h3 class="font-bold text-gray-800 text-lg text-center mb-1 group-hover:text-[#7A2F8F]">{{ pm.name }}</h3>
-                        <p class="text-xs text-gray-500 mb-4 bg-gray-100 px-2 py-1 rounded-full">Project Manager</p>
+                        <h3 class="font-bold text-gray-800 text-lg text-center mb-1 group-hover:text-[#7A2F8F] truncate w-full px-2">{{ pm.name }}</h3>
+                        <p class="text-xs text-gray-500 mb-4 bg-gray-100 px-2 py-1 rounded-full uppercase">{{ pm.role }}</p>
 
                         <div class="w-full grid grid-cols-2 gap-2 text-center mt-auto border-t border-gray-100 pt-4">
                             <div>
                                 <div class="text-xs text-gray-400 uppercase font-bold">โครงการ</div>
-                                <div class="text-lg font-black text-gray-700">{{ pm.work_items_count }}</div>
+                                <div class="text-lg font-black text-gray-700">{{ pm.projects_count || 0 }}</div>
                             </div>
                             <div>
                                 <div class="text-xs text-gray-400 uppercase font-bold">งบรวม (ลบ.)</div>
-                                <div class="text-lg font-black text-green-600">{{ formatBudget(pm.work_items_sum_budget / 1000000) }}M</div>
+                                <div class="text-lg font-black text-green-600">{{ formatBudget(pm.projects_sum_budget / 1000000) }}M</div>
                             </div>
                         </div>
                     </Link>

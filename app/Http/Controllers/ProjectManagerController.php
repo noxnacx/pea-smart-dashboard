@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\ProjectManager;
-use App\Models\AuditLog; // ✅ เพิ่ม AuditLog
+use App\Models\User; // ✅ เปลี่ยนมาใช้ User
+use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
+use Illuminate\Support\Facades\Cache;
 
 class ProjectManagerController extends Controller
 {
@@ -22,17 +22,23 @@ class ProjectManagerController extends Controller
         // สร้าง Cache Key
         $cacheKey = "pm_list_{$search}_page_{$page}";
 
-        // 🚀 CACHE LOGIC: เก็บ 5 นาที (300 วินาที) ใช้ Tags เพื่อให้สั่งล้างง่าย
+        // 🚀 CACHE LOGIC: เก็บ 5 นาที
         $pms = Cache::tags(['project_managers'])->remember($cacheKey, 300, function () use ($search) {
-            $query = ProjectManager::withCount('workItems') // นับจำนวนโครงการ
-                ->withSum('workItems', 'budget'); // รวมงบประมาณ
+
+            // ✅ ค้นหาเฉพาะ User ที่เป็น PM
+            $query = User::where(function($q) {
+                $q->where('is_pm', true)
+                  ->orWhereIn('role', ['pm', 'project_manager']);
+            })
+            ->withCount('projects') // ✅ เปลี่ยนจาก workItems เป็น projects
+            ->withSum('projects', 'budget'); // ✅ รวมงบประมาณจาก projects
 
             if ($search) {
                 $query->where('name', 'ilike', '%' . $search . '%');
             }
 
             // เรียงตามจำนวนโครงการ (ใครงานเยอะขึ้นก่อน)
-            return $query->orderByDesc('work_items_count')
+            return $query->orderByDesc('projects_count')
                          ->paginate(12)
                          ->withQueryString();
         });
@@ -49,16 +55,16 @@ class ProjectManagerController extends Controller
     public function show($id)
     {
         // 🚀 CACHE LOGIC: เก็บข้อมูลหน้า Profile 5 นาที
-        // (เพราะมีการคำนวณ Stats และวนลูป Issues ซึ่งกินทรัพยากร)
         $data = Cache::remember("pm_profile_{$id}", 300, function () use ($id) {
-            $pm = ProjectManager::withCount('workItems')
-                ->withSum('workItems', 'budget')
+
+            $pm = User::withCount('projects')
+                ->withSum('projects', 'budget')
                 ->findOrFail($id);
 
-            // ดึงรายการงานที่ดูแล (เอาเฉพาะ Project และ Plan)
-            $projects = $pm->workItems()
+            // ✅ ดึงรายการงานที่ดูแล (ใช้ relation projects)
+            $projects = $pm->projects()
                 ->whereIn('type', ['project', 'plan'])
-                ->with(['division', 'department', 'issues']) // โหลดข้อมูลสังกัดและปัญหา
+                ->with(['division', 'department', 'issues'])
                 ->orderByDesc('created_at')
                 ->get()
                 ->map(function ($item) {
@@ -68,7 +74,7 @@ class ProjectManagerController extends Controller
                     return $item;
                 });
 
-            // สรุปสถานะงาน (Pie Chart Data)
+            // สรุปสถานะงาน
             $stats = [
                 'completed' => $projects->where('status', 'completed')->count(),
                 'in_progress' => $projects->where('status', 'in_progress')->count(),
@@ -87,40 +93,42 @@ class ProjectManagerController extends Controller
     }
 
     // =========================================================================
-    // 3. ลบ Project Manager
+    // 3. ลบ Project Manager (ลบ User ออกจากระบบ)
     // =========================================================================
     public function destroy($id)
     {
-        $pm = ProjectManager::findOrFail($id);
-        $pmName = $pm->name;
+        $user = User::findOrFail($id);
+        $userName = $user->name;
 
-        DB::transaction(function () use ($pm) {
+        // 🛡️ ป้องกันการลบตัวเอง
+        if (auth()->id() == $id) {
+            return back()->withErrors(['error' => 'ไม่สามารถลบบัญชีตัวเองได้']);
+        }
+
+        DB::transaction(function () use ($user) {
             // 1. ปลดชื่อออกจากงานทั้งหมดที่ดูแล (Set Null)
-            $pm->workItems()->update(['project_manager_id' => null]);
+            // ✅ ใช้ relation projects
+            $user->projects()->update(['project_manager_id' => null]);
 
-            // 2. ลบ PM
-            $pm->delete();
+            // 2. ลบ User
+            $user->delete();
         });
 
         // 🧹 Clear Cache
-        // 1. ล้างรายการ PM ทั้งหมด
         Cache::tags(['project_managers'])->flush();
-        // 2. ล้าง Cache หน้า Profile ของคนนี้ (เผื่อใครเปิดค้างไว้)
         Cache::forget("pm_profile_{$id}");
-        // 3. ล้าง Cache Global Search เพราะชื่อ PM หายไป
-        // (ส่วน Global Search เราใช้ Key random อาจจะล้างยาก ปล่อยให้ Expire เองตามเวลา 2 นาทีได้ครับ)
 
         // 📝 บันทึก Log
         AuditLog::create([
             'user_id' => auth()->id(),
             'action' => 'DELETE',
-            'model_type' => 'ProjectManager',
+            'model_type' => 'User (PM)', // ระบุว่าเป็น User
             'model_id' => $id,
-            'target_name' => $pmName,
-            'changes' => ['note' => 'Deleted PM and unlinked from projects'],
+            'target_name' => $userName,
+            'changes' => ['note' => 'Deleted PM User and unlinked from projects'],
             'ip_address' => request()->ip(),
         ]);
 
-        return redirect()->route('pm.index')->with('success', 'ลบผู้ดูแลโครงการเรียบร้อยแล้ว');
+        return redirect()->route('pm.index')->with('success', 'ลบผู้ใช้งานเรียบร้อยแล้ว');
     }
 }
