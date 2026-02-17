@@ -232,4 +232,17 @@ class ReportController extends Controller
 
         return $pdf->stream($fileName);
     }
+    public function exportTreeExcel()
+    {
+        $fileName = 'strategy-tree-report-' . now()->format('Ymd-His') . '.xlsx';
+        $this->logExport('รายงานโครงสร้างยุทธศาสตร์ (Excel)', $fileName);
+        return Excel::download(new \App\Exports\StrategyTreeExport, $fileName);
+    }
+
+    public function exportTreeCsv()
+    {
+        $fileName = 'strategy-tree-report-' . now()->format('Ymd-His') . '.csv';
+        $this->logExport('รายงานโครงสร้างยุทธศาสตร์ (CSV)', $fileName);
+        return Excel::download(new \App\Exports\StrategyTreeExport, $fileName, ExcelFormat::CSV);
+    }
 }

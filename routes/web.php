@@ -96,6 +96,8 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         // ✅ Tree View (โครงสร้างยุทธศาสตร์)
         Route::get('/tree/pdf', [ReportController::class, 'exportTreePdf'])->name('tree.pdf');
+        Route::get('/tree/excel', [ReportController::class, 'exportTreeExcel'])->name('tree.excel');
+        Route::get('/tree/csv', [ReportController::class, 'exportTreeCsv'])->name('tree.csv');
     });
 
     // --- Single Item Exports ---
