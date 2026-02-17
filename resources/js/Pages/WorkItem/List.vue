@@ -34,7 +34,7 @@ const pageTitle = computed(() => {
     if (props.type === 'plan') return 'แผนงานทั้งหมด';
     if (props.type === 'project') return 'โครงการทั้งหมด';
     if (props.type === 'task') return 'งานย่อยทั้งหมด';
-    if (props.type === 'my-work') return 'งานของฉัน (My Works)'; // ✅ เพิ่ม Title
+    if (props.type === 'my-work') return 'งานของฉัน (My Works)';
     return 'รายการงานทั้งหมด';
 });
 
@@ -42,7 +42,7 @@ const routeName = computed(() => {
     if (props.type === 'plan') return 'plans.index';
     if (props.type === 'project') return 'projects.index';
     if (props.type === 'task') return 'tasks.index';
-    if (props.type === 'my-work') return 'my-works.index'; // ✅ เพิ่ม Route
+    if (props.type === 'my-work') return 'my-works.index';
     return 'work-items.index';
 });
 
@@ -77,6 +77,22 @@ const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', del
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
 const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
 
+// ✅ ฟังก์ชันเช็ควันที่ของตัวเอง เทียบกับวันที่ของ Parent (งานหลัก)
+const hasParentDateWarning = (item) => {
+    if (!item.parent) return false; // ถ้าไม่มี Parent ก็ไม่ต้องเช็ค
+
+    const pStart = item.parent.planned_start_date ? new Date(item.parent.planned_start_date).getTime() : null;
+    const pEnd = item.parent.planned_end_date ? new Date(item.parent.planned_end_date).getTime() : null;
+    const myStart = item.planned_start_date ? new Date(item.planned_start_date).getTime() : null;
+    const myEnd = item.planned_end_date ? new Date(item.planned_end_date).getTime() : null;
+
+    // ถ้าเริ่มก่อนงานหลัก หรือ จบหลังงานหลัก ถือว่าผิดปกติ
+    if (myStart && pStart && myStart < pStart) return true;
+    if (myEnd && pEnd && myEnd > pEnd) return true;
+
+    return false;
+};
+
 // --- Parent Search Logic ---
 const showParentDropdown = ref(false);
 const parentSearch = ref('');
@@ -94,6 +110,13 @@ const selectParent = (parent) => {
     showParentDropdown.value = false;
 };
 
+// ฟังก์ชันล้างค่า Parent (เมื่อกดปุ่ม X)
+const clearParent = () => {
+    parentSearch.value = '';
+    form.parent_id = null;
+    showParentDropdown.value = false;
+};
+
 const handleClickOutside = (e) => { if (parentDropdownRef.value && !parentDropdownRef.value.contains(e.target)) showParentDropdown.value = false; };
 onMounted(() => document.addEventListener('click', handleClickOutside));
 onUnmounted(() => document.removeEventListener('click', handleClickOutside));
@@ -102,9 +125,9 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 const showModal = ref(false);
 const modalTitle = ref('');
 const form = useForm({
-    id: null, name: '', type: props.type === 'my-work' ? 'project' : props.type, // Default type
+    id: null, name: '', type: props.type === 'my-work' ? 'project' : props.type,
     budget: 0, progress: 0,
-    status: 'pending', planned_start_date: '', planned_end_date: '', parent_id: '',
+    status: 'pending', planned_start_date: '', planned_end_date: '', parent_id: null,
     division_id: '', department_id: '',
     pm_name: '', project_manager_id: null,
     weight: 1
@@ -119,10 +142,9 @@ const modalDepartments = computed(() => {
 const openCreateModal = () => {
     form.reset(); form.clearErrors();
     form.id = null; form.type = props.type === 'my-work' ? 'project' : props.type;
-    form.parent_id = ''; parentSearch.value = '';
+    form.parent_id = null; parentSearch.value = '';
     form.division_id = ''; form.department_id = '';
 
-    // ถ้าเป็น PM สร้างเอง ให้ Default เป็นตัวเองเลย
     if (['pm', 'project_manager'].includes(userRole.value)) {
         form.pm_name = page.props.auth.user.name;
         form.project_manager_id = userId.value;
@@ -154,7 +176,9 @@ const openEditModal = (item) => {
     if (item.parent) {
         const typeMap = { strategy: 'ยุทธศาสตร์', plan: 'แผนงาน', project: 'โครงการ', task: 'งานย่อย' };
         parentSearch.value = `[${typeMap[item.parent.type] || item.parent.type}] ${item.parent.name}`;
-    } else { parentSearch.value = ''; }
+    } else {
+        parentSearch.value = '';
+    }
     showModal.value = true;
 };
 
@@ -280,7 +304,12 @@ const openQuickView = (item, type) => {
                             <td class="px-6 py-4 text-center"><span class="px-2 py-1 rounded text-xs font-bold uppercase" :class="statusColor(item.status)">{{ item.status }}</span></td>
                             <td class="px-6 py-4"><div class="flex items-center gap-2"><div class="w-full bg-gray-200 rounded-full h-1.5"><div class="h-1.5 rounded-full" :class="item.status === 'cancelled' ? 'bg-gray-400' : 'bg-[#7A2F8F]'" :style="`width: ${item.progress}%`"></div></div><span class="text-xs font-medium">{{ item.progress }}%</span></div></td>
                             <td class="px-6 py-4 text-right font-mono font-bold text-gray-700">{{ Number(item.budget).toLocaleString() }}</td>
-                            <td class="px-6 py-4 text-center text-xs text-gray-500">{{ formatDate(item.planned_start_date) }} - {{ formatDate(item.planned_end_date) }}</td>
+
+                            <td class="px-6 py-4 text-center text-xs text-gray-500 whitespace-nowrap flex items-center justify-center gap-1">
+                                {{ formatDate(item.planned_start_date) }} - {{ formatDate(item.planned_end_date) }}
+                                <span v-if="hasParentDateWarning(item)" class="text-sm cursor-help animate-pulse" title="⚠️ ระยะเวลาไม่อยู่ในช่วงของงานหลัก (Parent)">⚠️</span>
+                            </td>
+
                             <td v-if="canEdit" class="px-6 py-4 text-center">
                                 <div class="flex justify-center gap-2">
                                     <Link :href="route('work-items.show', item.id)" class="p-1.5 rounded-lg hover:bg-blue-50 text-lg transition">🔍</Link>
@@ -319,7 +348,28 @@ const openQuickView = (item, type) => {
 
                     <div ref="parentDropdownRef" class="relative">
                         <label class="block text-sm font-bold text-gray-700 mb-1">งานภายใต้ (สังกัด)</label>
-                        <input type="text" v-model="parentSearch" @focus="showParentDropdown = true" placeholder="พิมพ์ชื่อเพื่อค้นหา..." class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
+                        <div class="relative flex items-center">
+                            <input
+                                type="text"
+                                v-model="parentSearch"
+                                @input="form.parent_id = null"
+                                @focus="showParentDropdown = true"
+                                placeholder="พิมพ์ชื่อเพื่อค้นหา..."
+                                class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F] pr-10"
+                                :class="{'bg-purple-50 text-purple-900 font-semibold border-purple-200': form.parent_id}"
+                            >
+
+                            <button
+                                v-if="parentSearch"
+                                @click.prevent="clearParent"
+                                type="button"
+                                class="absolute right-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full p-1 transition-colors z-10 flex items-center justify-center"
+                                title="ลบสังกัด"
+                            >
+                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                            </button>
+                        </div>
+
                         <div v-if="showParentDropdown" class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
                             <ul class="py-1 text-sm text-gray-700">
                                 <li v-if="filteredParents.length === 0" class="px-4 py-2 text-gray-400 italic">ไม่พบข้อมูล</li>

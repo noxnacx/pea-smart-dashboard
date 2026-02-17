@@ -15,7 +15,6 @@ use App\Http\Controllers\ProjectManagerController;
 use App\Http\Controllers\CommentController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
-use Illuminate\Http\Request;
 
 /*
 |--------------------------------------------------------------------------
@@ -42,10 +41,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // --- Work Items Read-Only (รายการงาน) ---
     Route::get('/work-items', [WorkItemController::class, 'index'])->name('work-items.index');
-
-    // ✅ เพิ่ม Route: งานของฉัน (My Works)
-    Route::get('/my-works', [WorkItemController::class, 'myWorks'])->name('my-works.index');
-
+    Route::get('/my-works', [WorkItemController::class, 'myWorks'])->name('my-works.index'); // งานของฉัน
     Route::get('/plans', [WorkItemController::class, 'list'])->defaults('type', 'plan')->name('plans.index');
     Route::get('/projects', [WorkItemController::class, 'list'])->defaults('type', 'project')->name('projects.index');
     Route::get('/strategies', [WorkItemController::class, 'strategies'])->name('strategies.index');
@@ -81,31 +77,40 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // 📤 2. Exports & Data API
     // =========================================================================
 
+    // --- Reports Export ---
     Route::prefix('reports')->name('reports.')->group(function () {
+        // Progress
         Route::get('/progress/pdf', [ReportController::class, 'exportProgressPdf'])->name('progress.pdf');
         Route::get('/progress/excel', [ReportController::class, 'exportProgressExcel'])->name('progress.excel');
         Route::get('/progress/csv', [ReportController::class, 'exportProgressCsv'])->name('progress.csv');
 
+        // Issues
         Route::get('/issues/pdf', [ReportController::class, 'exportIssuesPdf'])->name('issues.pdf');
         Route::get('/issues/excel', [ReportController::class, 'exportIssuesExcel'])->name('issues.excel');
         Route::get('/issues/csv', [ReportController::class, 'exportIssuesCsv'])->name('issues.csv');
 
+        // Executive
         Route::get('/executive/pdf', [ReportController::class, 'exportExecutivePdf'])->name('executive.pdf');
         Route::get('/executive/excel', [ReportController::class, 'exportExecutiveExcel'])->name('executive.excel');
         Route::get('/executive/csv', [ReportController::class, 'exportExecutiveCsv'])->name('executive.csv');
+
+        // ✅ Tree View (โครงสร้างยุทธศาสตร์)
+        Route::get('/tree/pdf', [ReportController::class, 'exportTreePdf'])->name('tree.pdf');
     });
 
+    // --- Single Item Exports ---
     Route::get('/work-items/{workItem}/export-pdf', [ReportController::class, 'exportWorkItemPdf'])->name('work-items.export-pdf');
     Route::get('/calendar/export-agenda', [CalendarController::class, 'exportAgendaPdf'])->name('calendar.export-agenda');
     Route::post('/work-items/{workItem}/log-export', [WorkItemController::class, 'logExport'])->name('work-items.log-export');
     Route::get('/attachments/{attachment}/download', [AttachmentController::class, 'download'])->name('attachments.download');
 
+    // --- APIs ---
     Route::get('/work-items/{workItem}/gantt-data', [WorkItemController::class, 'ganttData'])->name('work-items.gantt-data');
     Route::get('/api/project-managers/search', [WorkItemController::class, 'searchProjectManagers'])->name('api.pm.search');
 
 
     // =========================================================================
-    // 🛠️ 3. Editor Access (Admin & PM Only)
+    // 🛠️ 3. Editor Access (Admin & PM Only) - สิทธิ์จัดการงาน
     // =========================================================================
     Route::middleware(['can:manage-work'])->group(function () {
 
@@ -118,9 +123,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         Route::put('/work-items/{workItem}/move', [WorkItemController::class, 'move'])->name('work-items.move');
 
+        // --- Attachments ---
         Route::post('/work-items/{workItem}/attachments', [AttachmentController::class, 'store'])->name('attachments.store');
         Route::delete('/attachments/{attachment}', [AttachmentController::class, 'destroy'])->name('attachments.destroy');
 
+        // --- Issues ---
         Route::post('/work-items/{workItem}/issues', [IssueController::class, 'store'])->name('issues.store');
         Route::put('/issues/{issue}', [IssueController::class, 'update'])->name('issues.update');
         Route::delete('/issues/{issue}', [IssueController::class, 'destroy'])->name('issues.destroy');
@@ -129,22 +136,30 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
 
     // =========================================================================
-    // 🛡️ 4. Admin Only Access (เฉพาะ Admin เท่านั้น)
+    // 🛡️ 4. Admin Only Access (เฉพาะ Admin เท่านั้น) - สิทธิ์จัดการระบบ
     // =========================================================================
     Route::middleware(['can:manage-system'])->group(function () {
 
+        // --- System Logs ---
         Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
+
+        // --- Users ---
         Route::resource('users', UserController::class)->except(['create', 'edit', 'show']);
+
+        // --- Organization Structure ---
         Route::get('/organization', [OrganizationController::class, 'index'])->name('organization.index');
 
+        // Divisions
         Route::post('/divisions', [OrganizationController::class, 'storeDivision'])->name('divisions.store');
         Route::put('/divisions/{division}', [OrganizationController::class, 'updateDivision'])->name('divisions.update');
         Route::delete('/divisions/{division}', [OrganizationController::class, 'destroyDivision'])->name('divisions.destroy');
 
+        // Departments
         Route::post('/departments', [OrganizationController::class, 'storeDepartment'])->name('departments.store');
         Route::put('/departments/{department}', [OrganizationController::class, 'updateDepartment'])->name('departments.update');
         Route::delete('/departments/{department}', [OrganizationController::class, 'destroyDepartment'])->name('departments.destroy');
 
+        // PM Directory
         Route::delete('/pm/{id}', [ProjectManagerController::class, 'destroy'])->name('pm.destroy');
 
     });

@@ -194,4 +194,42 @@ class ReportController extends Controller
             'changes' => ['ชื่อไฟล์' => $fileName],
         ]);
     }
+
+    public function exportTreePdf()
+    {
+        // 🚀 CACHE: เก็บข้อมูล 10 นาที เพื่อไม่ให้ดึงข้อมูลหนักเกินไป
+        $strategies = Cache::remember('report_tree_pdf_data', 600, function () {
+
+            // ดึงลูกหลานลงไป 6 ระดับ
+            $recursiveLoad = function ($q) {
+                $q->orderBy('name', 'asc')->with('projectManager');
+            };
+
+            $relations = [];
+            $depth = 'children';
+            for ($i = 0; $i < 6; $i++) {
+                $relations[$depth] = $recursiveLoad;
+                $depth .= '.children';
+            }
+
+            return WorkItem::where('type', 'strategy')
+                ->with($relations)
+                ->orderBy('name', 'asc')
+                ->get()
+                ->sortBy('name', SORT_NATURAL)
+                ->values();
+        });
+
+        $fileName = 'strategy-tree-report-' . now()->format('Ymd-His') . '.pdf';
+
+        // โหลด Blade (ที่ให้สร้างไว้)
+        $pdf = Pdf::loadView('reports.tree-view', [
+            'strategies' => $strategies,
+            'date' => now()->format('d/m/Y')
+        ])->setPaper('a4', 'landscape'); // ✅ บังคับเป็นแนวนอน
+
+        $this->logExport('รายงานโครงสร้างยุทธศาสตร์ (PDF)', $fileName);
+
+        return $pdf->stream($fileName);
+    }
 }
