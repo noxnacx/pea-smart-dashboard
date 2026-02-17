@@ -73,7 +73,6 @@ watch(filterForm, throttle(() => {
 // --- Helpers ---
 const hasActiveIssues = (issues) => issues?.some(i => i.type === 'issue' && i.status !== 'resolved');
 const hasActiveRisks = (issues) => issues?.some(i => i.type === 'risk' && i.status !== 'resolved');
-// ✅ แก้ไขสี Badge ให้รองรับ in_active
 const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', in_active: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
 const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
@@ -110,7 +109,6 @@ const selectParent = (parent) => {
     showParentDropdown.value = false;
 };
 
-// ฟังก์ชันล้างค่า Parent (เมื่อกดปุ่ม X)
 const clearParent = () => {
     parentSearch.value = '';
     form.parent_id = null;
@@ -123,11 +121,12 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 
 // --- Modal Logic ---
 const showModal = ref(false);
+const isEditing = ref(false);
 const modalTitle = ref('');
 const form = useForm({
     id: null, name: '', type: props.type === 'my-work' ? 'project' : props.type,
     budget: 0, progress: 0,
-    status: 'in_active', // ✅ ตั้ง Default เป็น in_active
+    status: 'in_active',
     planned_start_date: '', planned_end_date: '', parent_id: null,
     division_id: '', department_id: '',
     pm_name: '', project_manager_id: null,
@@ -140,7 +139,6 @@ const modalDepartments = computed(() => {
     return div ? div.departments : [];
 });
 
-// ✅ ฟังก์ชันปิด Modal อย่างปลอดภัย (Unsaved Changes Warning)
 const closeModalSafely = () => {
     if (form.isDirty) {
         if (confirm('ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?')) {
@@ -156,6 +154,7 @@ const closeModalSafely = () => {
 };
 
 const openCreateModal = () => {
+    isEditing.value = false;
     form.reset(); form.clearErrors();
     form.id = null; form.type = props.type === 'my-work' ? 'project' : props.type;
     form.parent_id = null; parentSearch.value = '';
@@ -168,13 +167,14 @@ const openCreateModal = () => {
         form.pm_name = ''; form.project_manager_id = null;
     }
 
-    form.status = 'in_active'; // ✅
+    form.status = 'in_active';
     form.weight = 1;
     modalTitle.value = `✨ เพิ่มข้อมูลใหม่`;
     showModal.value = true;
 };
 
 const openEditModal = (item) => {
+    isEditing.value = true;
     form.clearErrors();
     modalTitle.value = `✏️ แก้ไข: ${item.name}`;
     form.id = item.id; form.name = item.name; form.type = item.type;
@@ -262,7 +262,8 @@ const openQuickView = (item, type) => {
                 <div class="flex gap-2 w-full md:w-auto overflow-x-auto">
                     <select v-model="filterForm.status" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F]">
                         <option value="">ทุกสถานะ</option>
-                        <option value="in_active">รอเริ่ม (In Active)</option> <option value="in_progress">กำลังดำเนินการ</option>
+                        <option value="in_active">รอเริ่ม (In Active)</option>
+                        <option value="in_progress">กำลังดำเนินการ</option>
                         <option value="completed">เสร็จสิ้น</option>
                         <option value="delayed">ล่าช้า</option>
                         <option value="cancelled">ยกเลิก</option>
@@ -410,7 +411,7 @@ const openQuickView = (item, type) => {
                             <div class="col-span-2 text-xs font-bold text-[#4A148C] uppercase">สังกัดหน่วยงาน</div>
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">กอง <span class="text-red-500">*</span></label>
-                                <select v-model="form.division_id" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.division_id}">
+                                <select v-model="form.division_id" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.division_id}" required>
                                     <option value="">-- เลือกกอง --</option>
                                     <option v-for="div in divisions" :key="div.id" :value="div.id">{{ div.name }}</option>
                                 </select>
@@ -439,7 +440,7 @@ const openQuickView = (item, type) => {
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
-                                <select v-model="form.type" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.type}">
+                                <select v-model="form.type" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.type}" required>
                                     <option value="plan">แผนงาน</option><option value="project">โครงการ</option><option value="task">งานย่อย</option>
                                 </select>
                                 <div v-if="form.errors.type" class="text-red-500 text-xs mt-1">{{ form.errors.type }}</div>
@@ -453,27 +454,31 @@ const openQuickView = (item, type) => {
 
                         <div class="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
                             <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน</label>
-                                <input v-model="form.weight" type="number" step="0.01" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.weight}">
+                                <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน (Weight)</label>
+                                <input v-model="form.weight" type="number" step="0.01" min="0" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.weight}">
+                                <span class="text-[10px] text-gray-500 block mt-1">ใช้คำนวณความสำคัญของงาน</span>
                                 <div v-if="form.errors.weight" class="text-red-500 text-xs mt-1">{{ form.errors.weight }}</div>
                             </div>
                             <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label>
-                                <select v-model="form.status" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.status}">
-                                    <option value="in_active">รอเริ่ม (In Active)</option> <option value="in_progress">กำลังดำเนินการ</option>
-                                    <option value="completed">เสร็จสิ้น</option>
-                                    <option value="delayed">ล่าช้า</option>
-                                    <option value="cancelled">ยกเลิก</option>
-                                </select>
-                                <div v-if="form.errors.status" class="text-red-500 text-xs mt-1">{{ form.errors.status }}</div>
-                            </div>
-                        </div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ (Status)</label>
 
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">ความคืบหน้า (%)</label>
-                                <input v-model="form.progress" type="number" min="0" max="100" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.progress}">
-                                <div v-if="form.errors.progress" class="text-red-500 text-xs mt-1">{{ form.errors.progress }}</div>
+                                <div class="w-full rounded-lg border border-gray-200 bg-white p-2 h-[42px] flex justify-between items-center cursor-not-allowed opacity-80" title="ระบบคำนวณสถานะให้อัตโนมัติ">
+                                    <span class="text-xs font-bold px-2 py-1 rounded uppercase" :class="statusColor(form.status)">
+                                        {{ form.status === 'in_active' ? 'IN ACTIVE' : form.status }}
+                                    </span>
+                                    <span class="text-[9px] text-[#7A2F8F] font-bold bg-purple-100 border border-purple-200 px-1.5 py-0.5 rounded">AUTO</span>
+                                </div>
+
+                                <div v-if="isEditing" class="mt-2 pl-1">
+                                    <label class="inline-flex items-center cursor-pointer group">
+                                        <input type="checkbox"
+                                               class="rounded border-gray-300 text-red-600 shadow-sm focus:ring-red-500 cursor-pointer"
+                                               :checked="form.status === 'cancelled'"
+                                               @change="form.status = $event.target.checked ? 'cancelled' : 'in_active'">
+                                        <span class="ml-2 text-xs font-bold text-gray-500 group-hover:text-red-600 transition-colors">ระงับ / ยกเลิกรายการนี้</span>
+                                    </label>
+                                </div>
+                                <div v-if="form.errors.status" class="text-red-500 text-xs mt-1">{{ form.errors.status }}</div>
                             </div>
                         </div>
 
