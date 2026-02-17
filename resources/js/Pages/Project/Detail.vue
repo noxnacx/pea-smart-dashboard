@@ -29,6 +29,7 @@ const canEdit = computed(() => {
     return false;
 });
 
+// Computed: เช็คว่าเป็น Parent Node หรือไม่
 const isParent = computed(() => props.item.children && props.item.children.length > 0);
 
 // --- Helpers ---
@@ -148,7 +149,8 @@ const parentNameDisplay = ref('');
 
 const form = useForm({
     id: null, parent_id: null, name: '', description: '', type: 'task', budget: 0, progress: 0,
-    status: 'pending', planned_start_date: '', planned_end_date: '',
+    status: 'in_active', // ✅ เปลี่ยนเป็น in_active
+    planned_start_date: '', planned_end_date: '',
     division_id: '', department_id: '', pm_name: '',
     project_manager_id: null,
     weight: 1
@@ -243,6 +245,7 @@ const openCreateModal = () => {
         form.pm_name = ''; form.project_manager_id = null;
     }
 
+    form.status = 'in_active'; // ✅ เปลี่ยนเป็น in_active
     form.weight = 1;
     form.description = '';
     showModal.value = true;
@@ -646,8 +649,8 @@ const submitComment = () => {
         </div>
 
         <Teleport to="body">
-            <div v-if="showModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-                <div class="absolute inset-0" @click="closeMainModalSafely"></div>
+            <div v-if="showModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="closeMainModalSafely"></div>
 
                 <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl h-[90vh] flex flex-col relative z-10">
                     <div class="bg-[#4A148C] px-6 py-4 flex justify-between items-center border-b-4 border-[#FDB913] shrink-0">
@@ -733,8 +736,7 @@ const submitComment = () => {
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label>
                                 <select v-model="form.status" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.status}">
-                                    <option value="pending">รอเริ่ม (Pending)</option>
-                                    <option value="in_progress">กำลังดำเนินการ (In Progress)</option>
+                                    <option value="in_active">รอเริ่ม (In Active)</option> <option value="in_progress">กำลังดำเนินการ (In Progress)</option>
                                     <option value="completed">เสร็จสิ้น (Completed)</option>
                                     <option value="delayed">ล่าช้า (Delayed)</option>
                                     <option value="cancelled">ยกเลิก (Cancelled)</option>
@@ -756,8 +758,8 @@ const submitComment = () => {
                             </div>
                         </div>
                     </form>
-                    <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0">
-                        <button type="button" @click="closeMainModalSafely" class="px-5 py-2.5 bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 rounded-lg font-bold">ยกเลิก</button>
+                    <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0 bg-gray-50">
+                        <button type="button" @click="closeMainModalSafely" class="px-5 py-2.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-lg font-bold">ยกเลิก</button>
                         <button type="submit" @click="submit" class="px-5 py-2.5 bg-[#7A2F8F] hover:bg-[#5e2270] text-white rounded-lg font-bold shadow-md" :disabled="form.processing">
                             <span v-if="form.processing">กำลังบันทึก...</span>
                             <span v-else>บันทึก</span>
@@ -766,8 +768,8 @@ const submitComment = () => {
                 </div>
             </div>
 
-            <div v-if="showUpdateProgressModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-                <div class="absolute inset-0" @click="closeProgressModalSafely"></div>
+            <div v-if="showUpdateProgressModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="closeProgressModalSafely"></div>
 
                 <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl relative z-10">
                     <div class="bg-gradient-to-r from-[#FDB913] to-[#ffcc4d] px-6 py-4 flex justify-between items-center">
@@ -806,8 +808,8 @@ const submitComment = () => {
                 </div>
             </div>
 
-            <div v-if="showIssueModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-                 <div class="absolute inset-0" @click="closeIssueModalSafely"></div>
+            <div v-if="showIssueModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                 <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="closeIssueModalSafely"></div>
 
                  <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative z-10">
                     <div class="bg-red-500 px-6 py-4 flex justify-between items-center">

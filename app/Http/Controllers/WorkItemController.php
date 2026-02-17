@@ -149,7 +149,9 @@ class WorkItemController extends Controller
 
         $validated['progress'] = (int) ($validated['progress'] ?? 0);
         $validated['budget'] = $validated['budget'] ?? 0;
-        $validated['status'] = $validated['status'] ?? 'pending';
+
+        $validated['status'] = $validated['status'] ?? 'in_active';
+
         $validated['is_active'] = $validated['status'] !== 'cancelled';
         $validated['weight'] = $validated['weight'] ?? 1;
 
@@ -278,6 +280,9 @@ class WorkItemController extends Controller
                 ]);
             }
         }
+
+        // ✅ เรียกฟังก์ชัน recalculateProgress (เพื่อให้ autoUpdateStatus ทำงานด้วยถ้ามีการตั้งค่าไว้ใน Model)
+        $workItem->recalculateProgress();
 
         if ($workItem->parent) {
             $workItem->parent->recalculateProgress();

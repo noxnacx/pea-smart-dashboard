@@ -24,9 +24,9 @@ const statusBadge = (status) => {
     const map = {
         completed: 'bg-green-100 text-green-700 border-green-200',
         delayed: 'bg-red-100 text-red-700 border-red-200',
-        pending: 'bg-gray-100 text-gray-600 border-gray-200'
+        in_active: 'bg-gray-100 text-gray-600 border-gray-200' // ✅ เปลี่ยนเป็น in_active
     };
-    return map[status] || map.pending;
+    return map[status] || map.in_active; // ✅ เปลี่ยนเป็น map.in_active
 };
 </script>
 

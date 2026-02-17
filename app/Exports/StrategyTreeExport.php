@@ -77,7 +77,7 @@ class StrategyTreeExport implements FromCollection, WithHeadings, WithMapping
         ];
 
         $statusMap = [
-            'pending' => 'รอเริ่ม',
+            'in_active' => 'รอเริ่ม (In Active)', // ✅ เปลี่ยนจาก pending เป็น in_active
             'in_progress' => 'กำลังดำเนินการ',
             'completed' => 'เสร็จสิ้น',
             'delayed' => 'ล่าช้า',

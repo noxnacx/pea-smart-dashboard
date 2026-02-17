@@ -66,7 +66,7 @@ const onKeydown = (e) => {
 onMounted(() => window.addEventListener('keydown', onKeydown));
 onUnmounted(() => window.removeEventListener('keydown', onKeydown));
 
-const statusColor = (s) => ({ completed: 'text-green-600 bg-green-50', delayed: 'text-red-600 bg-red-50', pending: 'text-gray-600 bg-gray-50', in_progress: 'text-blue-600 bg-blue-50' }[s] || 'text-gray-600');
+const statusColor = (s) => ({ completed: 'text-green-600 bg-green-50', delayed: 'text-red-600 bg-red-50', in_active: 'text-gray-600 bg-gray-50', in_progress: 'text-blue-600 bg-blue-50' }[s] || 'text-gray-600');
 </script>
 
 <template>

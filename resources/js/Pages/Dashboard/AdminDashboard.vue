@@ -25,12 +25,12 @@ const getStatusColor = (s) => ({
     completed: 'bg-green-100 text-green-700',
     in_progress: 'bg-blue-100 text-blue-700',
     delayed: 'bg-red-100 text-red-700',
-    pending: 'bg-gray-100 text-gray-600',
+    in_active: 'bg-gray-100 text-gray-600',
     cancelled: 'bg-gray-200 text-gray-500'
 }[s] || 'bg-gray-100');
 
 const getStatusText = (s) => ({
-    completed: 'เสร็จสิ้น', in_progress: 'กำลังทำ', delayed: 'ล่าช้า', pending: 'รอเริ่ม', cancelled: 'ยกเลิก'
+    completed: 'เสร็จสิ้น', in_progress: 'กำลังทำ', delayed: 'ล่าช้า', in_active: 'รอเริ่ม', cancelled: 'ยกเลิก' // ✅ เปลี่ยนเป็น in_active
 }[s] || s);
 
 // --- ApexCharts Options ---
@@ -41,10 +41,10 @@ const chartOptions = computed(() => ({
         events: {
             dataPointSelection: (event, chartContext, config) => {
                 const index = config.dataPointIndex;
-                const statusKeys = ['completed', 'in_progress', 'delayed', 'pending', 'cancelled'];
+                // ✅ เปลี่ยน pending เป็น in_active ใน Array นี้สำคัญมาก ไม่งั้นเวลากดกราฟมันจะพาไปหาผิดสถานะ
+                const statusKeys = ['completed', 'in_progress', 'delayed', 'in_active', 'cancelled'];
                 const selectedStatus = statusKeys[index];
                 if (selectedStatus) {
-                    // ✅ กดกราฟแล้วไปหน้า Projects พร้อมกรองสถานะ
                     router.get(route('projects.index'), { status: selectedStatus });
                 }
             }

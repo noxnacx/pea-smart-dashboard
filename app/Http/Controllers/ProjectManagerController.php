@@ -82,7 +82,7 @@ class ProjectManagerController extends Controller
                 'completed' => $projects->where('status', 'completed')->count(),
                 'in_progress' => $projects->where('status', 'in_progress')->count(),
                 'delayed' => $projects->where('status', 'delayed')->count(),
-                'pending' => $projects->where('status', 'pending')->count(),
+                'pending' => $projects->where('status', 'in_active')->count(),
             ];
 
             // 4. ✅ เพิ่ม Audit Logs (กิจกรรมล่าสุดของ PM คนนี้)

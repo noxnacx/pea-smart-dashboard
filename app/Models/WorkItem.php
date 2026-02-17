@@ -145,32 +145,80 @@ class WorkItem extends Model
         return 'On Track';
     }
 
+    // ==========================================================
+    // สูตรคำนวณความคืบหน้า (Progress) สะท้อนจากลูกสู่แม่
+    // ==========================================================
     public function recalculateProgress()
     {
-        $children = $this->children()->where('is_active', true)->get();
+        // 1. ดึงงานลูกทั้งหมดที่ไม่ได้ถูกยกเลิก
+        $children = $this->children()->where('status', '!=', 'cancelled')->get();
 
-        if ($children->isEmpty()) {
+        if ($children->count() > 0) {
+            $totalWeight = $children->sum('weight');
+
+            // 2. คำนวณแบบถ่วงน้ำหนัก (Weight)
+            if ($totalWeight > 0) {
+                $weightedProgress = $children->sum(function ($child) {
+                    return $child->progress * $child->weight;
+                });
+                $newProgress = round($weightedProgress / $totalWeight);
+            } else {
+                // ถ้าไม่มีการใส่น้ำหนักเลย ให้หาค่าเฉลี่ยปกติ
+                $newProgress = round($children->avg('progress'));
+            }
+
+            $this->progress = $newProgress;
+        }
+
+        // 3. 🚀 เรียกใช้ Logic ปรับสถานะอัตโนมัติ
+        $this->autoUpdateStatus();
+
+        // 4. บันทึกข้อมูล
+        $this->save();
+
+        // 5. สะท้อนขึ้นไปหาตัวแม่ (ปู่ย่าตายาย) ต่อเป็นลูกโซ่
+        if ($this->parent) {
+            $this->parent->recalculateProgress();
+        }
+    }
+
+    // ==========================================================
+    // กฏการปรับสถานะอัตโนมัติ (Auto Update Status Logic)
+    // ==========================================================
+    public function autoUpdateStatus()
+    {
+        // กฏข้อที่ 1: ถ้ายกเลิกไปแล้ว ห้ามระบบ Auto เข้าไปยุ่งเด็ดขาด
+        if ($this->status === 'cancelled') {
             return;
         }
 
-        $totalWeight = $children->sum('weight');
-        $aggregateProgress = 0;
-
-        if ($totalWeight > 0) {
-            foreach ($children as $child) {
-                $weightRatio = $child->weight / $totalWeight;
-                $aggregateProgress += $child->progress * $weightRatio;
-            }
-        } else {
-            $aggregateProgress = $children->avg('progress');
+        // กฏข้อที่ 2: ถ้าครบ 100% = เสร็จแล้ว (Completed)
+        if ($this->progress >= 100) {
+            $this->progress = 100; // ล็อคไว้ไม่ให้เกิน 100
+            $this->status = 'completed';
+            return;
         }
 
-        $this->update([
-            'progress' => (int) round($aggregateProgress)
-        ]);
+        // กฏข้อที่ 3: ล่าช้า (Delayed)
+        // -> ถ้ามีวันสิ้นสุด และ วันนี้ผ่านวันสิ้นสุดมาแล้ว (End of Day) แต่ยังไม่ 100%
+        if ($this->planned_end_date && $this->progress < 100) {
+            $endDate = \Carbon\Carbon::parse($this->planned_end_date)->endOfDay();
+            if (now()->greaterThan($endDate)) {
+                $this->status = 'delayed';
+                return;
+            }
+        }
 
-        if ($this->parent) {
-            $this->parent->recalculateProgress();
+        // กฏข้อที่ 4: อัปเดตงานครั้งแรก (Progress > 0) = กำลังดำเนินการ (In Progress)
+        if ($this->progress > 0 && $this->progress < 100) {
+            $this->status = 'in_progress';
+            return;
+        }
+
+        // กฏข้อที่ 5: เพิ่งสร้างงาน หรือ Progress กลับมาเป็น 0 = รอเริ่ม (In Active)
+        if ($this->progress == 0) {
+            $this->status = 'in_active';
+            return;
         }
     }
 }

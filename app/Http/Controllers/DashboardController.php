@@ -80,7 +80,7 @@ class DashboardController extends Controller
                 $statusCounts['completed'] ?? 0,
                 $statusCounts['in_progress'] ?? 0,
                 $statusCounts['delayed'] ?? 0,
-                $statusCounts['pending'] ?? 0,
+                $statusCounts['in_active'] ?? 0,
                 $statusCounts['cancelled'] ?? 0,
             ],
             'labels' => ['เสร็จสิ้น', 'กำลังทำ', 'ล่าช้า', 'รอเริ่ม', 'ยกเลิก'],

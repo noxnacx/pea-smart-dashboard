@@ -73,20 +73,20 @@ watch(filterForm, throttle(() => {
 // --- Helpers ---
 const hasActiveIssues = (issues) => issues?.some(i => i.type === 'issue' && i.status !== 'resolved');
 const hasActiveRisks = (issues) => issues?.some(i => i.type === 'risk' && i.status !== 'resolved');
-const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', pending: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
+// ✅ แก้ไขสี Badge ให้รองรับ in_active
+const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', in_active: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
 const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
 
-// ✅ ฟังก์ชันเช็ควันที่ของตัวเอง เทียบกับวันที่ของ Parent (งานหลัก)
+// ฟังก์ชันเช็ควันที่ของตัวเอง เทียบกับวันที่ของ Parent (งานหลัก)
 const hasParentDateWarning = (item) => {
-    if (!item.parent) return false; // ถ้าไม่มี Parent ก็ไม่ต้องเช็ค
+    if (!item.parent) return false;
 
     const pStart = item.parent.planned_start_date ? new Date(item.parent.planned_start_date).getTime() : null;
     const pEnd = item.parent.planned_end_date ? new Date(item.parent.planned_end_date).getTime() : null;
     const myStart = item.planned_start_date ? new Date(item.planned_start_date).getTime() : null;
     const myEnd = item.planned_end_date ? new Date(item.planned_end_date).getTime() : null;
 
-    // ถ้าเริ่มก่อนงานหลัก หรือ จบหลังงานหลัก ถือว่าผิดปกติ
     if (myStart && pStart && myStart < pStart) return true;
     if (myEnd && pEnd && myEnd > pEnd) return true;
 
@@ -127,7 +127,8 @@ const modalTitle = ref('');
 const form = useForm({
     id: null, name: '', type: props.type === 'my-work' ? 'project' : props.type,
     budget: 0, progress: 0,
-    status: 'pending', planned_start_date: '', planned_end_date: '', parent_id: null,
+    status: 'in_active', // ✅ ตั้ง Default เป็น in_active
+    planned_start_date: '', planned_end_date: '', parent_id: null,
     division_id: '', department_id: '',
     pm_name: '', project_manager_id: null,
     weight: 1
@@ -138,6 +139,21 @@ const modalDepartments = computed(() => {
     const div = props.divisions.find(d => d.id == form.division_id);
     return div ? div.departments : [];
 });
+
+// ✅ ฟังก์ชันปิด Modal อย่างปลอดภัย (Unsaved Changes Warning)
+const closeModalSafely = () => {
+    if (form.isDirty) {
+        if (confirm('ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?')) {
+            showModal.value = false;
+            form.reset();
+            form.clearErrors();
+        }
+    } else {
+        showModal.value = false;
+        form.reset();
+        form.clearErrors();
+    }
+};
 
 const openCreateModal = () => {
     form.reset(); form.clearErrors();
@@ -152,6 +168,7 @@ const openCreateModal = () => {
         form.pm_name = ''; form.project_manager_id = null;
     }
 
+    form.status = 'in_active'; // ✅
     form.weight = 1;
     modalTitle.value = `✨ เพิ่มข้อมูลใหม่`;
     showModal.value = true;
@@ -245,8 +262,7 @@ const openQuickView = (item, type) => {
                 <div class="flex gap-2 w-full md:w-auto overflow-x-auto">
                     <select v-model="filterForm.status" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F]">
                         <option value="">ทุกสถานะ</option>
-                        <option value="pending">รอเริ่ม</option>
-                        <option value="in_progress">กำลังดำเนินการ</option>
+                        <option value="in_active">รอเริ่ม (In Active)</option> <option value="in_progress">กำลังดำเนินการ</option>
                         <option value="completed">เสร็จสิ้น</option>
                         <option value="delayed">ล่าช้า</option>
                         <option value="cancelled">ยกเลิก</option>
@@ -301,15 +317,13 @@ const openQuickView = (item, type) => {
                                 <span v-if="item.project_manager" class="bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">👤 {{ item.project_manager.name }}</span>
                                 <span v-else class="text-gray-300">-</span>
                             </td>
-                            <td class="px-6 py-4 text-center"><span class="px-2 py-1 rounded text-xs font-bold uppercase" :class="statusColor(item.status)">{{ item.status }}</span></td>
+                            <td class="px-6 py-4 text-center"><span class="px-2 py-1 rounded text-xs font-bold uppercase" :class="statusColor(item.status)">{{ item.status === 'in_active' ? 'IN ACTIVE' : item.status }}</span></td>
                             <td class="px-6 py-4"><div class="flex items-center gap-2"><div class="w-full bg-gray-200 rounded-full h-1.5"><div class="h-1.5 rounded-full" :class="item.status === 'cancelled' ? 'bg-gray-400' : 'bg-[#7A2F8F]'" :style="`width: ${item.progress}%`"></div></div><span class="text-xs font-medium">{{ item.progress }}%</span></div></td>
                             <td class="px-6 py-4 text-right font-mono font-bold text-gray-700">{{ Number(item.budget).toLocaleString() }}</td>
-
                             <td class="px-6 py-4 text-center text-xs text-gray-500 whitespace-nowrap flex items-center justify-center gap-1">
                                 {{ formatDate(item.planned_start_date) }} - {{ formatDate(item.planned_end_date) }}
                                 <span v-if="hasParentDateWarning(item)" class="text-sm cursor-help animate-pulse" title="⚠️ ระยะเวลาไม่อยู่ในช่วงของงานหลัก (Parent)">⚠️</span>
                             </td>
-
                             <td v-if="canEdit" class="px-6 py-4 text-center">
                                 <div class="flex justify-center gap-2">
                                     <Link :href="route('work-items.show', item.id)" class="p-1.5 rounded-lg hover:bg-blue-50 text-lg transition">🔍</Link>
@@ -338,120 +352,154 @@ const openQuickView = (item, type) => {
             </div>
         </div>
 
-        <div v-if="showModal" class="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4 backdrop-blur-sm">
-            <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl h-[90vh] flex flex-col">
-                <div class="bg-[#4A148C] px-6 py-4 flex justify-between items-center border-b-4 border-[#FDB913]">
-                    <h3 class="text-lg font-bold text-white">{{ modalTitle }}</h3>
-                    <button @click="showModal = false" class="text-white hover:text-yellow-400 font-bold text-xl">&times;</button>
-                </div>
-                <form @submit.prevent="submit" class="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
+        <Teleport to="body">
+            <div v-if="showModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="closeModalSafely"></div>
 
-                    <div ref="parentDropdownRef" class="relative">
-                        <label class="block text-sm font-bold text-gray-700 mb-1">งานภายใต้ (สังกัด)</label>
-                        <div class="relative flex items-center">
-                            <input
-                                type="text"
-                                v-model="parentSearch"
-                                @input="form.parent_id = null"
-                                @focus="showParentDropdown = true"
-                                placeholder="พิมพ์ชื่อเพื่อค้นหา..."
-                                class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F] pr-10"
-                                :class="{'bg-purple-50 text-purple-900 font-semibold border-purple-200': form.parent_id}"
-                            >
-
-                            <button
-                                v-if="parentSearch"
-                                @click.prevent="clearParent"
-                                type="button"
-                                class="absolute right-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full p-1 transition-colors z-10 flex items-center justify-center"
-                                title="ลบสังกัด"
-                            >
-                                <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
-                            </button>
-                        </div>
-
-                        <div v-if="showParentDropdown" class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
-                            <ul class="py-1 text-sm text-gray-700">
-                                <li v-if="filteredParents.length === 0" class="px-4 py-2 text-gray-400 italic">ไม่พบข้อมูล</li>
-                                <li v-for="parent in filteredParents" :key="parent.id" @click="selectParent(parent)" class="px-4 py-2 hover:bg-purple-50 cursor-pointer flex justify-between items-center group transition">
-                                    <span>{{ parent.name }}</span>
-                                    <span class="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded group-hover:bg-purple-100 group-hover:text-purple-700">{{ parent.type_label }}</span>
-                                </li>
-                            </ul>
-                        </div>
-                        <input type="hidden" v-model="form.parent_id">
+                <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl h-[90vh] flex flex-col relative z-10">
+                    <div class="bg-[#4A148C] px-6 py-4 flex justify-between items-center border-b-4 border-[#FDB913] shrink-0">
+                        <h3 class="text-lg font-bold text-white">{{ modalTitle }}</h3>
+                        <button @click="closeModalSafely" class="text-white hover:text-yellow-400 font-bold text-xl">&times;</button>
                     </div>
+                    <form @submit.prevent="submit" class="p-6 space-y-4 overflow-y-auto flex-1 custom-scrollbar">
 
-                    <div class="grid grid-cols-2 gap-4 bg-purple-50 p-3 rounded-lg border border-purple-100">
-                        <div class="col-span-2 text-xs font-bold text-[#4A148C] uppercase">สังกัดหน่วยงาน</div>
+                        <div ref="parentDropdownRef" class="relative">
+                            <label class="block text-sm font-bold text-gray-700 mb-1">งานภายใต้ (สังกัด)</label>
+                            <div class="relative flex items-center">
+                                <input
+                                    type="text"
+                                    v-model="parentSearch"
+                                    @input="form.parent_id = null"
+                                    @focus="showParentDropdown = true"
+                                    placeholder="พิมพ์ชื่อเพื่อค้นหา..."
+                                    class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F] pr-10"
+                                    :class="{'bg-purple-50 text-purple-900 font-semibold border-purple-200': form.parent_id, 'border-red-500': form.errors.parent_id}"
+                                >
+
+                                <button
+                                    v-if="parentSearch"
+                                    @click.prevent="clearParent"
+                                    type="button"
+                                    class="absolute right-3 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-full p-1 transition-colors z-10 flex items-center justify-center"
+                                    title="ลบสังกัด"
+                                >
+                                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M6 18L18 6M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                            <div v-if="form.errors.parent_id" class="text-red-500 text-xs mt-1">{{ form.errors.parent_id }}</div>
+
+                            <div v-if="showParentDropdown" class="absolute z-10 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-lg max-h-60 overflow-y-auto">
+                                <ul class="py-1 text-sm text-gray-700">
+                                    <li v-if="filteredParents.length === 0" class="px-4 py-2 text-gray-400 italic">ไม่พบข้อมูล</li>
+                                    <li v-for="parent in filteredParents" :key="parent.id" @click="selectParent(parent)" class="px-4 py-2 hover:bg-purple-50 cursor-pointer flex justify-between items-center group transition">
+                                        <span>{{ parent.name }}</span>
+                                        <span class="text-[10px] bg-gray-100 text-gray-500 px-2 py-0.5 rounded group-hover:bg-purple-100 group-hover:text-purple-700">{{ parent.type_label }}</span>
+                                    </li>
+                                </ul>
+                            </div>
+                            <input type="hidden" v-model="form.parent_id">
+                        </div>
+
                         <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">กอง <span class="text-red-500">*</span></label>
-                            <select v-model="form.division_id" class="w-full rounded-lg border-gray-300 text-sm" required>
-                                <option value="">-- เลือกกอง --</option>
-                                <option v-for="div in divisions" :key="div.id" :value="div.id">{{ div.name }}</option>
-                            </select>
+                            <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อรายการ <span class="text-red-500">*</span></label>
+                            <input v-model="form.name" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500 focus:ring-red-500': form.errors.name}">
+                            <div v-if="form.errors.name" class="text-red-500 text-xs mt-1">{{ form.errors.name }}</div>
                         </div>
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">แผนก</label>
-                            <select v-model="form.department_id" class="w-full rounded-lg border-gray-300 text-sm" :disabled="!form.division_id">
-                                <option value="">-- ไม่ระบุ --</option>
-                                <option v-for="dept in modalDepartments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
-                            </select>
-                        </div>
-                    </div>
 
-                    <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแล (PM)</label>
-                        <PmAutocomplete
-                            v-model="form.pm_name"
-                            @update:id="(id) => form.project_manager_id = id"
-                            placeholder="ค้นหาจากชื่อ User..."
-                        />
-                    </div>
-
-                    <div>
-                        <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
-                        <select v-model="form.type" class="w-full rounded-lg border-gray-300" required>
-                            <option value="plan">แผนงาน</option><option value="project">โครงการ</option><option value="task">งานย่อย</option>
-                        </select>
-                    </div>
-                    <div><label class="block text-sm font-bold text-gray-700 mb-1">ชื่อรายการ <span class="text-red-500">*</span></label><input v-model="form.name" class="w-full rounded-lg border-gray-300" required></div>
-                    <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label><input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300"></div>
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label>
-                            <select v-model="form.status" class="w-full rounded-lg border-gray-300">
-                                <option value="pending">รอเริ่ม</option><option value="in_progress">กำลังทำ</option>
-                                <option value="completed">เสร็จสิ้น</option><option value="delayed">ล่าช้า</option>
-                                <option value="cancelled">ยกเลิก</option>
-                            </select>
+                        <div class="grid grid-cols-2 gap-4 bg-purple-50 p-3 rounded-lg border border-purple-100">
+                            <div class="col-span-2 text-xs font-bold text-[#4A148C] uppercase">สังกัดหน่วยงาน</div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">กอง <span class="text-red-500">*</span></label>
+                                <select v-model="form.division_id" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.division_id}">
+                                    <option value="">-- เลือกกอง --</option>
+                                    <option v-for="div in divisions" :key="div.id" :value="div.id">{{ div.name }}</option>
+                                </select>
+                                <div v-if="form.errors.division_id" class="text-red-500 text-xs mt-1">{{ form.errors.division_id }}</div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">แผนก</label>
+                                <select v-model="form.department_id" class="w-full rounded-lg border-gray-300 text-sm focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.department_id}" :disabled="!form.division_id">
+                                    <option value="">-- ไม่ระบุ --</option>
+                                    <option v-for="dept in modalDepartments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
+                                </select>
+                                <div v-if="form.errors.department_id" class="text-red-500 text-xs mt-1">{{ form.errors.department_id }}</div>
+                            </div>
                         </div>
-                    </div>
 
-                    <div class="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border">
                         <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน</label>
-                            <input v-model="form.weight" type="number" step="0.1" class="w-full rounded-lg border-gray-300">
+                            <label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแล (PM)</label>
+                            <PmAutocomplete
+                                v-model="form.pm_name"
+                                @update:id="(id) => form.project_manager_id = id"
+                                placeholder="ค้นหาจากชื่อ User..."
+                            />
+                            <div v-if="form.errors.project_manager_id" class="text-red-500 text-xs mt-1">{{ form.errors.project_manager_id }}</div>
                         </div>
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">ความคืบหน้า (%)</label>
-                            <input v-model="form.progress" type="number" min="0" max="100" class="w-full rounded-lg border-gray-300">
-                        </div>
-                    </div>
 
-                    <div class="grid grid-cols-2 gap-4">
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">เริ่ม</label><input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300"></div>
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">สิ้นสุด</label><input v-model="form.planned_end_date" type="date" class="w-full rounded-lg border-gray-300"></div>
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
+                                <select v-model="form.type" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.type}">
+                                    <option value="plan">แผนงาน</option><option value="project">โครงการ</option><option value="task">งานย่อย</option>
+                                </select>
+                                <div v-if="form.errors.type" class="text-red-500 text-xs mt-1">{{ form.errors.type }}</div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label>
+                                <input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.budget}">
+                                <div v-if="form.errors.budget" class="text-red-500 text-xs mt-1">{{ form.errors.budget }}</div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน</label>
+                                <input v-model="form.weight" type="number" step="0.01" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.weight}">
+                                <div v-if="form.errors.weight" class="text-red-500 text-xs mt-1">{{ form.errors.weight }}</div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label>
+                                <select v-model="form.status" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.status}">
+                                    <option value="in_active">รอเริ่ม (In Active)</option> <option value="in_progress">กำลังดำเนินการ</option>
+                                    <option value="completed">เสร็จสิ้น</option>
+                                    <option value="delayed">ล่าช้า</option>
+                                    <option value="cancelled">ยกเลิก</option>
+                                </select>
+                                <div v-if="form.errors.status" class="text-red-500 text-xs mt-1">{{ form.errors.status }}</div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">ความคืบหน้า (%)</label>
+                                <input v-model="form.progress" type="number" min="0" max="100" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.progress}">
+                                <div v-if="form.errors.progress" class="text-red-500 text-xs mt-1">{{ form.errors.progress }}</div>
+                            </div>
+                        </div>
+
+                        <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">เริ่ม</label>
+                                <input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.planned_start_date}">
+                                <div v-if="form.errors.planned_start_date" class="text-red-500 text-xs mt-1">{{ form.errors.planned_start_date }}</div>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">สิ้นสุด</label>
+                                <input v-model="form.planned_end_date" type="date" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.planned_end_date}">
+                                <div v-if="form.errors.planned_end_date" class="text-red-500 text-xs mt-1">{{ form.errors.planned_end_date }}</div>
+                            </div>
+                        </div>
+                    </form>
+                    <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0 bg-gray-50">
+                        <button type="button" @click="closeModalSafely" class="px-5 py-2.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-lg font-bold">ยกเลิก</button>
+                        <button type="submit" @click="submit" class="px-5 py-2.5 bg-[#7A2F8F] hover:bg-[#5e2270] text-white rounded-lg font-bold shadow-md" :disabled="form.processing">
+                            <span v-if="form.processing">กำลังบันทึก...</span>
+                            <span v-else>บันทึก</span>
+                        </button>
                     </div>
-                </form>
-                <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0">
-                    <button @click="showModal = false" class="px-5 py-2.5 bg-white border rounded-lg font-bold">ยกเลิก</button>
-                    <button @click="submit" class="px-5 py-2.5 bg-[#7A2F8F] text-white rounded-lg font-bold shadow-md" :disabled="form.processing">บันทึก</button>
                 </div>
             </div>
-        </div>
 
-        <Teleport to="body">
             <div v-if="showSuccessModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm">
                 <div class="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center animate-fade-in">
                     <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
@@ -462,9 +510,9 @@ const openQuickView = (item, type) => {
                 </div>
             </div>
 
-            <div v-if="showQuickView" class="fixed inset-0 z-[100] flex items-center justify-center" @click.self="showQuickView = false">
-                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm"></div>
-                <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-fade-in mx-4">
+            <div v-if="showQuickView" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="showQuickView = false"></div>
+                <div class="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden relative z-10 animate-fade-in">
                     <div class="px-6 py-4 border-b border-gray-100 flex justify-between items-center bg-gray-50">
                         <h3 class="font-bold text-lg" :class="quickViewType === 'issue' ? 'text-red-700' : 'text-yellow-700'">{{ quickViewTitle }}</h3>
                         <button @click="showQuickView = false" class="text-gray-400 hover:text-gray-700 font-bold text-xl">&times;</button>

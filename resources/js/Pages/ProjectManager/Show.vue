@@ -9,7 +9,7 @@ const props = defineProps({
     stats: Object
 });
 
-const statusColor = (s) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', pending: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700' }[s] || 'bg-gray-100');
+const statusColor = (s) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', in_active: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700' }[s] || 'bg-gray-100');
 const formatBudget = (val) => Number(val).toLocaleString();
 
 // --- ⚡ Quick View Logic ---
