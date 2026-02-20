@@ -5,16 +5,16 @@ namespace App\Models;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-// use Illuminate\Database\Eloquent\SoftDeletes;
+use Illuminate\Database\Eloquent\SoftDeletes; // ✅ เอาคอมเมนต์ออก
 
 class WorkItem extends Model
 {
-    use HasFactory;
-    // use SoftDeletes;
+    use HasFactory, SoftDeletes; // ✅ นำ SoftDeletes กลับมาใช้
 
     protected $fillable = [
         'name',
         'type',
+        'work_item_type_id', // ✅ เพิ่มคอลัมน์ใหม่สำหรับเก็บประเภทแบบ Dynamic
         'status',
         'progress',
         'budget',
@@ -45,6 +45,19 @@ class WorkItem extends Model
 
     // --- Relationship ---
 
+    // ✅ 1. ความสัมพันธ์กับตารางประเภทงาน (Dynamic Hierarchy)
+    public function workType()
+    {
+        return $this->belongsTo(WorkItemType::class, 'work_item_type_id');
+    }
+
+    // ✅ 2. ความสัมพันธ์กับตาราง Milestones (Auto-Milestone)
+    public function milestones()
+    {
+        return $this->hasMany(Milestone::class);
+    }
+
+    // (ส่วนดั้งเดิมทั้งหมดคงไว้เหมือนเดิมเป๊ะ)
     public function parent()
     {
         return $this->belongsTo(WorkItem::class, 'parent_id');
@@ -65,7 +78,6 @@ class WorkItem extends Model
         return $this->hasMany(WorkItemLog::class)->orderBy('log_date', 'desc');
     }
 
-    // ✅ เปลี่ยนให้ชี้ไปที่ User Model
     public function projectManager()
     {
         return $this->belongsTo(User::class, 'project_manager_id');

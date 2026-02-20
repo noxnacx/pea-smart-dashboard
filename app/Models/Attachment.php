@@ -4,10 +4,11 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes; // ✅ เพิ่มเข้ามา
 
 class Attachment extends Model
 {
-    use HasFactory;
+    use HasFactory, SoftDeletes; // ✅ เพิ่ม SoftDeletes
 
     protected $fillable = [
         'work_item_id',

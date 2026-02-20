@@ -3,6 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\WorkItem;
+use App\Models\WorkItemType; // ✅ เพิ่ม
+use App\Models\Milestone; // ✅ เพิ่ม
 use App\Models\AuditLog;
 use App\Models\Comment;
 use App\Models\WorkItemLink;
@@ -32,14 +34,12 @@ class WorkItemController extends Controller
         return $this->renderList($request, 'project');
     }
 
-    // --- 3. ✅ หน้างานของฉัน (My Works) ---
+    // --- 3. หน้างานของฉัน (My Works) ---
     public function myWorks(Request $request)
     {
-        // Reuse หน้า List แต่กรองเฉพาะงานของตัวเอง
         $query = WorkItem::with(['issues', 'parent', 'division', 'department', 'projectManager'])
-            ->where('project_manager_id', auth()->id()); // ✅ กรองด้วย ID คน Login
+            ->where('project_manager_id', auth()->id());
 
-        // Apply Filters (Search, Status, etc.)
         if ($request->filled('search')) {
             $search = $request->search;
             $query->where('name', 'ilike', '%' . $search . '%');
@@ -53,7 +53,6 @@ class WorkItemController extends Controller
 
         $items = $query->paginate(10)->withQueryString();
 
-        // ตัวเลือก Parent สำหรับ Modal (โหลดเหมือนเดิม)
         $parentOptions = WorkItem::select('id', 'name', 'type')
             ->orderByRaw("CASE WHEN type = 'strategy' THEN 1 WHEN type = 'plan' THEN 2 WHEN type = 'project' THEN 3 ELSE 4 END")
             ->orderBy('name')->get()
@@ -64,13 +63,16 @@ class WorkItemController extends Controller
             });
 
         $divisions = Division::with('departments')->orderBy('name')->get();
+        // ✅ ดึงประเภทงานไปเตรียมไว้ให้หน้าบ้าน
+        $workItemTypes = WorkItemType::orderBy('level_order')->get();
 
         return Inertia::render('WorkItem/List', [
-            'type' => 'my-work', // ✅ ส่ง type พิเศษไปบอก Frontend
+            'type' => 'my-work',
             'items' => $items,
             'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir']),
             'parentOptions' => $parentOptions,
             'divisions' => $divisions,
+            'workItemTypes' => $workItemTypes // ✅ ส่งไปเตรียมไว้
         ]);
     }
 
@@ -113,6 +115,7 @@ class WorkItemController extends Controller
             });
 
         $divisions = Division::with('departments')->orderBy('name')->get();
+        $workItemTypes = WorkItemType::orderBy('level_order')->get(); // ✅ เตรียมไว้
 
         return Inertia::render('WorkItem/List', [
             'type' => $type,
@@ -120,6 +123,7 @@ class WorkItemController extends Controller
             'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir', 'division_id', 'department_id']),
             'parentOptions' => $parentOptions,
             'divisions' => $divisions,
+            'workItemTypes' => $workItemTypes
         ]);
     }
 
@@ -149,9 +153,7 @@ class WorkItemController extends Controller
 
         $validated['progress'] = (int) ($validated['progress'] ?? 0);
         $validated['budget'] = $validated['budget'] ?? 0;
-
         $validated['status'] = $validated['status'] ?? 'in_active';
-
         $validated['is_active'] = $validated['status'] !== 'cancelled';
         $validated['weight'] = $validated['weight'] ?? 1;
 
@@ -199,7 +201,6 @@ class WorkItemController extends Controller
             'weight' => 'nullable|numeric|min:0',
         ]);
 
-        // Logic เดิม: ถ้าเป็น Parent ห้ามแก้ Progress เอง
         if (isset($validated['progress'])) {
             if ($workItem->children()->count() > 0) {
                 unset($validated['progress']);
@@ -246,10 +247,13 @@ class WorkItemController extends Controller
 
     public function updateProgress(Request $request, WorkItem $workItem)
     {
+        // ✅ เพิ่มการจำกัดนามสกุลไฟล์
         $request->validate([
             'progress' => 'required|integer|min:0|max:100',
             'comment' => 'required|string',
-            'attachments.*' => 'nullable|file|max:20480',
+            'attachments.*' => 'nullable|file|mimes:pdf,doc,docx,ppt,pptx,jpg,jpeg,png|max:20480',
+        ], [
+            'attachments.*.mimes' => 'ไฟล์แนบต้องเป็น PDF, Word, Excel, PowerPoint หรือรูปภาพเท่านั้น'
         ]);
 
         if ($workItem->children()->count() > 0) {
@@ -281,7 +285,6 @@ class WorkItemController extends Controller
             }
         }
 
-        // ✅ เรียกฟังก์ชัน recalculateProgress (เพื่อให้ autoUpdateStatus ทำงานด้วยถ้ามีการตั้งค่าไว้ใน Model)
         $workItem->recalculateProgress();
 
         if ($workItem->parent) {
@@ -358,13 +361,13 @@ class WorkItemController extends Controller
         $this->logActivity('DELETE', $workItem, $workItem->toArray(), []);
         $this->clearRelatedCache($workItem);
 
-        $workItem->delete();
+        $workItem->delete(); // Soft Delete
 
         if ($parent) {
             $parent->recalculateProgress();
         }
 
-        return back()->with('success', 'ลบงานสำเร็จ');
+        return back()->with('success', 'ลบงานสำเร็จ (ย้ายไปถังขยะ)');
     }
 
     private function clearRelatedCache($workItem)
@@ -380,6 +383,7 @@ class WorkItemController extends Controller
 
     private function logActivity($action, $model, $oldData = [], $changes = [])
     {
+        // โค้ด logActivity เดิม...
         $relationMap = [
             'project_manager_id' => ['model' => User::class, 'label' => 'ผู้ดูแล (PM)'],
             'parent_id' => ['model' => WorkItem::class, 'label' => 'งานภายใต้'],
@@ -474,10 +478,13 @@ class WorkItemController extends Controller
 
     public function show(WorkItem $workItem)
     {
+        // ✅ โหลด Relations ตัวใหม่ที่เพิ่งสร้าง (milestones, workType)
         $workItem->load([
             'parent.parent.parent',
             'attachments.uploader',
             'issues.user',
+            'milestones', // 👈 เพิ่มตรงนี้
+            'workType',   // 👈 เพิ่มตรงนี้
             'children' => function($q) {
                 $q->orderBy('order_index')->with(['attachments', 'projectManager']);
             },
@@ -512,17 +519,20 @@ class WorkItemController extends Controller
         $paginatedTimeline->withQueryString();
 
         $divisions = Division::with('departments')->orderBy('name')->get();
+        $workItemTypes = WorkItemType::orderBy('level_order')->get();
 
         return Inertia::render('Project/Detail', [
             'item' => $workItem,
             'historyLogs' => $paginatedTimeline,
             'divisions' => $divisions,
+            'workItemTypes' => $workItemTypes // ✅ ส่งให้ Vue เผื่อไว้ใช้
         ]);
     }
 
     public function list(Request $request, $type) { return $this->renderList($request, $type); }
     public function index(Request $request) { return $this->projects($request); }
 
+    // ... (ฟังก์ชันอื่นๆ ด้านล่าง strategies, ganttData, logExport, searchProjectManagers คงเดิม ไม่ต้องแก้)
     public function strategies() {
         $strategies = Cache::remember('strategies_index', 3600, function () {
             $recursiveLoad = function ($q) {

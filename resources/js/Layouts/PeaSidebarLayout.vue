@@ -10,11 +10,11 @@ const toggleSearch = () => {
     isSearchOpen.value = !isSearchOpen.value;
 };
 
-// ✅ แก้ไข: เช็คสิทธิ์เฉพาะ PM เท่านั้น (Admin ไม่ต้องเห็น)
+// เช็คสิทธิ์เฉพาะ PM เท่านั้น (Admin ไม่ต้องเห็น)
 const page = usePage();
 const isPmOnly = computed(() => ['pm', 'project_manager'].includes(page.props.auth.user.role));
 
-// ✅ ปุ่มลัด Shift + S สำหรับเปิด Search
+// ปุ่มลัด Shift + S สำหรับเปิด Search
 const handleKeydown = (e) => {
     if (e.shiftKey && (e.key === 'S' || e.key === 's')) {
         if (['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) return;
@@ -146,14 +146,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     รายงาน (Reports)
                 </Link>
 
-                <Link v-if="$page.props.auth.user.role === 'admin'"
-                      :href="route('organization.index')"
-                      class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
-                      :class="route().current('organization.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
-                    จัดการโครงสร้างองค์กร
-                </Link>
-
                 <Link :href="route('pm.index')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                       :class="route().current('pm.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
@@ -161,21 +153,46 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     ทำเนียบ PM
                 </Link>
 
-                <Link v-if="$page.props.auth.user.role === 'admin'"
-                      :href="route('users.index')"
-                      class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
-                      :class="route().current('users.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
-                    จัดการผู้ใช้ (Users)
-                </Link>
+                <template v-if="$page.props.auth.user.role === 'admin'">
+                    <div class="px-4 mt-6 mb-2 text-[10px] font-bold text-yellow-500/80 uppercase tracking-widest">
+                        Administrator
+                    </div>
 
-                <Link v-if="$page.props.auth.user.role === 'admin'"
-                      :href="route('audit-logs.index')"
-                    class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
-                    :class="route().current('audit-logs.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
-                    Audit Logs
-                </Link>
+                    <Link :href="route('organization.index')"
+                          class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                          :class="route().current('organization.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
+                        จัดการโครงสร้างองค์กร
+                    </Link>
+
+                    <Link :href="route('work-item-types.index')"
+                          class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                          :class="route().current('work-item-types.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" /></svg>
+                        จัดการประเภทงาน
+                    </Link>
+
+                    <Link :href="route('users.index')"
+                          class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                          :class="route().current('users.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197M13 7a4 4 0 11-8 0 4 4 0 018 0z"/></svg>
+                        จัดการผู้ใช้ (Users)
+                    </Link>
+
+                    <Link :href="route('audit-logs.index')"
+                        class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                        :class="route().current('audit-logs.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"/><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z"/></svg>
+                        Audit Logs
+                    </Link>
+
+                    <Link :href="route('trash.index')"
+                          class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group mt-4 border border-red-500/30"
+                          :class="route().current('trash.*') ? 'bg-red-500 text-white shadow-lg translate-x-1' : 'text-red-300 hover:bg-red-500 hover:text-white hover:translate-x-1'">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                        ถังขยะ (กู้คืนข้อมูล)
+                    </Link>
+                </template>
             </nav>
 
             <div class="p-4 border-t border-purple-800/50 bg-[#380d6b] hover:bg-[#2d0a56] transition-colors cursor-pointer">
@@ -212,7 +229,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                 </div>
             </div>
 
-            <div v-if="showingNavigationDropdown" class="md:hidden bg-[#380d6b] text-white border-b border-purple-800 shadow-xl absolute w-full z-40 top-[60px]">
+            <div v-if="showingNavigationDropdown" class="md:hidden bg-[#380d6b] text-white border-b border-purple-800 shadow-xl absolute w-full z-40 top-[60px] max-h-[80vh] overflow-y-auto">
                  <nav class="px-4 py-4 space-y-2">
                     <Link :href="route('dashboard')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">Dashboard</Link>
                     <Link :href="route('calendar.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ปฏิทินรวมงาน</Link>
@@ -233,12 +250,17 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     </button>
 
                     <Link :href="route('reports.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">รายงาน</Link>
-
-                    <Link v-if="$page.props.auth.user.role === 'admin'" :href="route('organization.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">จัดการโครงสร้างองค์กร</Link>
-
                     <Link :href="route('pm.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ทำเนียบ PM</Link>
 
-                    <Link v-if="$page.props.auth.user.role === 'admin'" :href="route('users.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ผู้ใช้งาน</Link>
+                    <template v-if="$page.props.auth.user.role === 'admin'">
+                        <div class="px-4 text-[10px] text-yellow-500 font-bold uppercase mt-4">Administrator</div>
+                        <Link :href="route('organization.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">จัดการโครงสร้างองค์กร</Link>
+
+                        <Link :href="route('work-item-types.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">จัดการประเภทงาน</Link>
+                        <Link :href="route('users.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ผู้ใช้งาน</Link>
+                        <Link :href="route('audit-logs.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">Audit Logs</Link>
+                        <Link :href="route('trash.index')" class="block px-4 py-3 mt-2 bg-red-900/30 text-red-300 hover:bg-red-600 hover:text-white rounded-lg">ถังขยะ (Recycle Bin)</Link>
+                    </template>
 
                     <div class="border-t border-purple-800 mt-2 pt-2">
                          <Link :href="route('logout')" method="post" as="button" class="block w-full text-left px-4 py-3 text-red-300 hover:text-red-100">ออกจากระบบ</Link>

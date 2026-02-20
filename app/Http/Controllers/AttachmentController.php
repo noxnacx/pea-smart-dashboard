@@ -16,9 +16,12 @@ class AttachmentController extends Controller
     // =========================================================================
     public function store(Request $request, WorkItem $workItem)
     {
+        // ✅ เพิ่มการจำกัดนามสกุลไฟล์ (mimes)
         $request->validate([
-            'file' => 'required|file|max:10240', // 10MB
+            'file' => 'required|file|mimes:pdf,doc,docx,ppt,pptx,jpg,jpeg,png|max:10240', // 10MB
             'category' => 'required|string',
+        ], [
+            'file.mimes' => 'รองรับเฉพาะไฟล์ PDF, Word, Excel, PowerPoint และรูปภาพ (PNG, JPG) เท่านั้น'
         ]);
 
         $file = $request->file('file');

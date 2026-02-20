@@ -13,6 +13,9 @@ use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\OrganizationController;
 use App\Http\Controllers\ProjectManagerController;
 use App\Http\Controllers\CommentController;
+use App\Http\Controllers\TrashController;          // ✅ เพิ่มใหม่
+use App\Http\Controllers\WorkItemTypeController;   // ✅ เพิ่มใหม่
+use App\Http\Controllers\MilestoneController;      // ✅ เพิ่มใหม่
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -48,10 +51,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/tasks', [WorkItemController::class, 'list'])->defaults('type', 'task')->name('tasks.index');
     Route::get('/issues', [IssueController::class, 'index'])->name('issues.index');
 
-    // ✅ Route สำหรับดึง Tree
+    // API สำหรับดึง Tree
     Route::get('/api/strategies/tree', [WorkItemController::class, 'getTree'])->name('api.strategies.tree');
 
-    // ✅ Detail Page
+    // Detail Page
     Route::get('/work-items/{workItem}', [WorkItemController::class, 'show'])
         ->name('work-items.show')
         ->whereNumber('workItem');
@@ -94,7 +97,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/executive/excel', [ReportController::class, 'exportExecutiveExcel'])->name('executive.excel');
         Route::get('/executive/csv', [ReportController::class, 'exportExecutiveCsv'])->name('executive.csv');
 
-        // ✅ Tree View (โครงสร้างยุทธศาสตร์)
+        // Tree View (โครงสร้างยุทธศาสตร์)
         Route::get('/tree/pdf', [ReportController::class, 'exportTreePdf'])->name('tree.pdf');
         Route::get('/tree/excel', [ReportController::class, 'exportTreeExcel'])->name('tree.excel');
         Route::get('/tree/csv', [ReportController::class, 'exportTreeCsv'])->name('tree.csv');
@@ -105,6 +108,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/calendar/export-agenda', [CalendarController::class, 'exportAgendaPdf'])->name('calendar.export-agenda');
     Route::post('/work-items/{workItem}/log-export', [WorkItemController::class, 'logExport'])->name('work-items.log-export');
     Route::get('/attachments/{attachment}/download', [AttachmentController::class, 'download'])->name('attachments.download');
+    Route::get('/work-items/{workItem}/export-milestone', [ReportController::class, 'exportMilestonePdf'])->name('work-items.export-milestone');
 
     // --- APIs ---
     Route::get('/work-items/{workItem}/gantt-data', [WorkItemController::class, 'ganttData'])->name('work-items.gantt-data');
@@ -133,6 +137,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/work-items/{workItem}/issues', [IssueController::class, 'store'])->name('issues.store');
         Route::put('/issues/{issue}', [IssueController::class, 'update'])->name('issues.update');
         Route::delete('/issues/{issue}', [IssueController::class, 'destroy'])->name('issues.destroy');
+
+        // ✅ --- Milestones ---
+        Route::post('/work-items/{workItem}/milestones', [MilestoneController::class, 'store'])->name('milestones.store');
+        Route::put('/milestones/{milestone}', [MilestoneController::class, 'update'])->name('milestones.update');
+        Route::delete('/milestones/{milestone}', [MilestoneController::class, 'destroy'])->name('milestones.destroy');
+        Route::post('/work-items/{workItem}/milestones/generate', [MilestoneController::class, 'generateAuto'])->name('milestones.generate');
 
     });
 
@@ -163,6 +173,14 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         // PM Directory
         Route::delete('/pm/{id}', [ProjectManagerController::class, 'destroy'])->name('pm.destroy');
+
+        // ✅ --- ตั้งค่าประเภทงาน (Dynamic Hierarchy) ---
+        Route::resource('work-item-types', WorkItemTypeController::class)->except(['create', 'show', 'edit']);
+
+        // ✅ --- ระบบถังขยะ (Soft Deletes / Recycle Bin) ---
+        Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
+        Route::post('/trash/work-items/{id}/restore', [TrashController::class, 'restoreWorkItem'])->name('trash.restore.work-item');
+        Route::delete('/trash/work-items/{id}/force-delete', [TrashController::class, 'forceDeleteWorkItem'])->name('trash.force-delete.work-item');
 
     });
 

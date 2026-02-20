@@ -12,6 +12,7 @@ use Maatwebsite\Excel\Facades\Excel;
 use App\Exports\ProjectProgressExport;
 use App\Exports\IssueRiskExport;
 use App\Exports\ExecutiveSummaryExport;
+use Carbon\Carbon;
 use Maatwebsite\Excel\Excel as ExcelFormat;
 use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
 
@@ -244,5 +245,65 @@ class ReportController extends Controller
         $fileName = 'strategy-tree-report-' . now()->format('Ymd-His') . '.csv';
         $this->logExport('รายงานโครงสร้างยุทธศาสตร์ (CSV)', $fileName);
         return Excel::download(new \App\Exports\StrategyTreeExport, $fileName, ExcelFormat::CSV);
+    }
+
+    // =========================================================================
+    // 5. รายงานไทม์ไลน์เป้าหมาย (Milestone Timeline)
+    // =========================================================================
+    public function exportMilestonePdf($id)
+    {
+        $workItem = WorkItem::with(['children.children.children'])->findOrFail($id);
+
+        $tasks = collect();
+
+        // เจาะทะลุหางานย่อยทั้งหมด
+        $extractTasks = function ($items) use (&$extractTasks, &$tasks) {
+            foreach ($items as $item) {
+                // ✅ กรองงานที่ถูก "ยกเลิก (cancelled)" ออกไปเลย ไม่เอามาโชว์ในเอกสาร
+                if ($item->planned_end_date && $item->status !== 'cancelled') {
+                    $tasks->push($item);
+                }
+                if ($item->children->count() > 0) {
+                    $extractTasks($item->children);
+                }
+            }
+        };
+
+        $extractTasks($workItem->children);
+
+        // จัดกลุ่มตามเดือน-ปี (เหมือนในหน้า Vue)
+        $groupedMilestones = $tasks->sortBy('planned_end_date')->groupBy(function ($task) {
+            return Carbon::parse($task->planned_end_date)->format('Y-m');
+        })->map(function ($group) {
+            $date = Carbon::parse($group->first()->planned_end_date);
+            return [
+                'label' => $date->locale('th')->translatedFormat('F Y'), // เช่น มีนาคม 2569
+                'timestamp' => $date->timestamp,
+                'tasks' => $group->map(function($t) {
+                    return [
+                        'name' => $t->name,
+                        'description' => $t->description, // ส่ง Description มาด้วย
+                        'status' => $t->status,
+                        'progress' => $t->progress
+                    ];
+                })->toArray()
+            ];
+        })->sortBy('timestamp')->values();
+
+        // 💡 แบ่งเป็นก้อน (Chunk) ก้อนละ 4 เดือน เพื่อไม่ให้ล้นหน้ากระดาษ A4 แนวนอน
+        $chunkedMilestones = $groupedMilestones->chunk(4);
+
+        $fileName = 'milestone-timeline-' . $workItem->id . '-' . now()->format('Ymd') . '.pdf';
+
+        // โหลด Blade View
+        $pdf = Pdf::loadView('reports.milestone_pdf', [
+            'item' => $workItem,
+            'chunkedMilestones' => $chunkedMilestones,
+            'date' => now()->format('d/m/Y')
+        ])->setPaper('a4', 'landscape'); // ปรับเป็นแนวนอนให้สวยงาม
+
+        $this->logExport('รายงานไทม์ไลน์เป้าหมาย (PDF)', $fileName, $workItem->id, $workItem->name);
+
+        return $pdf->stream($fileName);
     }
 }

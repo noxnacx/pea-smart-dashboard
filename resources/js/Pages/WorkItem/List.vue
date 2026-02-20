@@ -10,7 +10,8 @@ const props = defineProps({
     items: Object,
     filters: Object,
     parentOptions: Array,
-    divisions: Array
+    divisions: Array,
+    workItemTypes: { type: Array, default: () => [] } // ✅ รับประเภทงานจาก Controller
 });
 
 // --- Check Role & Permissions ---
@@ -119,7 +120,7 @@ const handleClickOutside = (e) => { if (parentDropdownRef.value && !parentDropdo
 onMounted(() => document.addEventListener('click', handleClickOutside));
 onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 
-// --- Modal Logic ---
+// --- Modals Logic & Forms ---
 const showModal = ref(false);
 const isEditing = ref(false);
 const modalTitle = ref('');
@@ -211,7 +212,7 @@ const submit = () => {
     else form.post(route('work-items.store'), options);
 };
 
-const deleteItem = (id) => { if (confirm('ยืนยันลบข้อมูลนี้?')) useForm({}).delete(route('work-items.destroy', id)); };
+const deleteItem = (id) => { if (confirm('ยืนยันลบข้อมูลนี้? (ย้ายไปถังขยะ)')) useForm({}).delete(route('work-items.destroy', id)); };
 
 // --- Quick View ---
 const showQuickView = ref(false);
@@ -441,7 +442,8 @@ const openQuickView = (item, type) => {
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
                                 <select v-model="form.type" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.type}" required>
-                                    <option value="plan">แผนงาน</option><option value="project">โครงการ</option><option value="task">งานย่อย</option>
+                                    <option v-if="!workItemTypes || workItemTypes.length === 0" value="project">โครงการ (Default)</option>
+                                    <option v-for="type in workItemTypes" :key="type.id" :value="type.key">{{ type.name }}</option>
                                 </select>
                                 <div v-if="form.errors.type" class="text-red-500 text-xs mt-1">{{ form.errors.type }}</div>
                             </div>
