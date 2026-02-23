@@ -534,22 +534,26 @@ class WorkItemController extends Controller
 
     // ... (ฟังก์ชันอื่นๆ ด้านล่าง strategies, ganttData, logExport, searchProjectManagers คงเดิม ไม่ต้องแก้)
     public function strategies() {
-        $strategies = Cache::remember('strategies_index', 3600, function () {
+        // 🚀 เปลี่ยน Key Cache เล็กน้อยเพื่อให้มันอัปเดตข้อมูลใหม่
+        $strategies = Cache::remember('strategies_index_v2', 3600, function () {
+
             $recursiveLoad = function ($q) {
                 $q->orderBy('name', 'asc')
+                  ->with('workType') // ✅ โหลดความสัมพันธ์ของประเภทงานมาด้วย
                   ->withCount(['issues as issue_count' => function($i) {
                       $i->where('status', '!=', 'resolved');
                   }]);
             };
 
-            $relations = [];
+            $relations = ['workType']; // ✅ โหลด WorkType ให้ตัวแม่สุดด้วย
             $depth = 'children';
             for ($i = 0; $i < 10; $i++) {
                 $relations[$depth] = $recursiveLoad;
                 $depth .= '.children';
             }
 
-            $rawStrategies = WorkItem::where('type', 'strategy')
+            // ✅ เปลี่ยนเป็นดึงเฉพาะงานที่ไม่มี Parent (Level 1) แทนการฟิกซ์คำว่า strategy
+            $rawStrategies = WorkItem::whereNull('parent_id')
                 ->with($relations)
                 ->withCount(['issues as strategy_issue_count' => function($i) {
                      $i->where('status', '!=', 'resolved');
@@ -561,8 +565,12 @@ class WorkItemController extends Controller
             }, SORT_NATURAL)->values();
         });
 
+        // ✅ ดึง Master Data ประเภทงาน ส่งไปให้หน้า Vue ด้วย
+        $workItemTypes = \App\Models\WorkItemType::orderBy('level_order')->get();
+
         return Inertia::render('Strategy/Index', [
-            'strategies' => $strategies
+            'strategies' => $strategies,
+            'workItemTypes' => $workItemTypes // ส่งไปใช้ใน Modal
         ]);
     }
 

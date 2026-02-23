@@ -15,6 +15,7 @@ const form = useForm({
     id: null,
     name: '',
     key: '',
+    icon: '📄', // ✅ เพิ่ม Default Icon
     level_order: 1,
     color_code: '#7A2F8F'
 });
@@ -24,7 +25,6 @@ const openCreateModal = () => {
     modalTitle.value = '➕ เพิ่มประเภทงานใหม่';
     form.reset();
     form.clearErrors();
-    // หาค่า level สูงสุดปัจจุบันแล้วบวก 1
     const maxLevel = props.types.reduce((max, t) => t.level_order > max ? t.level_order : max, 0);
     form.level_order = maxLevel + 1;
     showModal.value = true;
@@ -37,6 +37,7 @@ const openEditModal = (item) => {
     form.id = item.id;
     form.name = item.name;
     form.key = item.key;
+    form.icon = item.icon || '📄'; // ✅ ดึง icon มาโชว์
     form.level_order = item.level_order;
     form.color_code = item.color_code || '#7A2F8F';
     showModal.value = true;
@@ -68,7 +69,7 @@ const deleteItem = (id) => {
             <div class="flex justify-between items-center border-b border-gray-200 pb-6">
                 <div>
                     <h2 class="text-3xl font-extrabold text-[#4A148C]">⚙️ โครงสร้างประเภทงาน (Work Item Types)</h2>
-                    <p class="text-gray-500 mt-1">จัดการลำดับชั้นและสีสันของประเภทงานในระบบ</p>
+                    <p class="text-gray-500 mt-1">จัดการลำดับชั้น สีสัน และไอคอนของประเภทงานในระบบ</p>
                 </div>
                 <button @click="openCreateModal" class="bg-[#FDB913] hover:bg-yellow-400 text-[#4A148C] px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center gap-2">
                     + เพิ่มประเภทงาน
@@ -84,6 +85,7 @@ const deleteItem = (id) => {
                     <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-200">
                         <tr>
                             <th class="px-6 py-4 text-center w-24">ลำดับชั้น<br>(Level)</th>
+                            <th class="px-6 py-4 text-center w-24">ไอคอน</th>
                             <th class="px-6 py-4">ชื่อประเภทงาน</th>
                             <th class="px-6 py-4">รหัส (Key)</th>
                             <th class="px-6 py-4 text-center">สีป้าย (Color)</th>
@@ -92,10 +94,11 @@ const deleteItem = (id) => {
                     </thead>
                     <tbody class="divide-y divide-gray-100 text-sm">
                         <tr v-if="types.length === 0">
-                            <td colspan="5" class="px-6 py-8 text-center text-gray-400">ยังไม่มีข้อมูลประเภทงาน</td>
+                            <td colspan="6" class="px-6 py-8 text-center text-gray-400">ยังไม่มีข้อมูลประเภทงาน</td>
                         </tr>
                         <tr v-for="item in types" :key="item.id" class="hover:bg-purple-50 transition">
                             <td class="px-6 py-4 text-center font-black text-[#4A148C] text-lg">{{ item.level_order }}</td>
+                            <td class="px-6 py-4 text-center text-2xl">{{ item.icon || '📄' }}</td>
                             <td class="px-6 py-4 font-bold text-gray-800">{{ item.name }}</td>
                             <td class="px-6 py-4 font-mono text-gray-500">{{ item.key }}</td>
                             <td class="px-6 py-4 text-center">
@@ -113,9 +116,6 @@ const deleteItem = (id) => {
                         </tr>
                     </tbody>
                 </table>
-                <div class="bg-gray-50 p-4 border-t border-gray-200 text-xs text-gray-500">
-                    💡 <b>คำแนะนำ:</b> ลำดับชั้น (Level) ที่ตัวเลขน้อยที่สุด (เช่น 1) จะถือเป็นงานระดับบนสุด (Parent สูงสุด) ในโครงสร้าง Tree
-                </div>
             </div>
         </div>
 
@@ -128,16 +128,23 @@ const deleteItem = (id) => {
                         <button @click="showModal = false" class="text-white hover:text-yellow-400 font-bold text-xl">&times;</button>
                     </div>
                     <form @submit.prevent="submit" class="p-6 space-y-4">
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อประเภทงาน <span class="text-red-500">*</span></label>
-                            <input v-model="form.name" type="text" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F]" required placeholder="เช่น ยุทธศาสตร์, แผนงาน">
-                            <div v-if="form.errors.name" class="text-red-500 text-xs mt-1">{{ form.errors.name }}</div>
+
+                        <div class="flex gap-4">
+                            <div class="w-24">
+                                <label class="block text-sm font-bold text-gray-700 mb-1">ไอคอน <span class="text-red-500">*</span></label>
+                                <input v-model="form.icon" type="text" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-center text-xl" required placeholder="เช่น 🚀">
+                            </div>
+                            <div class="flex-1">
+                                <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อประเภทงาน <span class="text-red-500">*</span></label>
+                                <input v-model="form.name" type="text" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F]" required placeholder="เช่น ยุทธศาสตร์">
+                                <div v-if="form.errors.name" class="text-red-500 text-xs mt-1">{{ form.errors.name }}</div>
+                            </div>
                         </div>
+                        <p class="text-[10px] text-gray-400 -mt-3">💡 กด <kbd class="bg-gray-100 border px-1 rounded">Win</kbd> + <kbd class="bg-gray-100 border px-1 rounded">.</kbd> บน Windows เพื่อเปิดแป้นพิมพ์ Emoji</p>
 
                         <div>
                             <label class="block text-sm font-bold text-gray-700 mb-1">รหัสอ้างอิง (Key) <span class="text-red-500">*</span></label>
-                            <input v-model="form.key" type="text" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] font-mono text-sm" :disabled="isEditing" required placeholder="เช่น strategy, plan">
-                            <span v-if="!isEditing" class="text-[10px] text-gray-400">ห้ามซ้ำกับรายการอื่น (ภาษาอังกฤษ/ตัวเลข/ไม่มีเว้นวรรค)</span>
+                            <input v-model="form.key" type="text" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] font-mono text-sm" :disabled="isEditing" required placeholder="เช่น strategy">
                             <div v-if="form.errors.key" class="text-red-500 text-xs mt-1">{{ form.errors.key }}</div>
                         </div>
 
@@ -145,7 +152,6 @@ const deleteItem = (id) => {
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">ลำดับชั้น (Level) <span class="text-red-500">*</span></label>
                                 <input v-model="form.level_order" type="number" min="1" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F]" required>
-                                <span class="text-[10px] text-gray-400">1 = ใหญ่สุด</span>
                             </div>
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">สีป้าย</label>

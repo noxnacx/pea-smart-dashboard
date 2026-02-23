@@ -13,6 +13,7 @@ class WorkItemType extends Model
     protected $fillable = [
         'name',
         'key',
+        'icon',
         'level_order',
         'color_code',
         'is_active'
