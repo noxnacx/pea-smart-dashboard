@@ -299,38 +299,32 @@ class WorkItemController extends Controller
 
     public function move(Request $request, WorkItem $workItem)
     {
-        $validated = $request->validate([
-            'parent_id' => 'nullable|exists:work_items,id',
-        ]);
-
+        $validated = $request->validate(['parent_id' => 'nullable|exists:work_items,id']);
         $newParentId = $validated['parent_id'];
 
-        if ($newParentId == $workItem->id) {
-             return back()->withErrors(['parent_id' => 'ไม่สามารถย้ายงานไปหาตัวเองได้']);
-        }
-
-        if ($newParentId) {
-             $descendantIds = $this->getDescendantIds($workItem);
-             if (in_array($newParentId, $descendantIds)) {
-                 return back()->withErrors(['parent_id' => 'ไม่สามารถย้ายงานไปอยู่ภายใต้ลูกหลานของตัวเองได้']);
-             }
-        }
+        if ($newParentId == $workItem->id) return back()->withErrors(['parent_id' => 'ไม่สามารถย้ายงานไปหาตัวเองได้']);
+        if ($newParentId && in_array($newParentId, $this->getDescendantIds($workItem))) return back()->withErrors(['parent_id' => 'ไม่สามารถย้ายไปอยู่ใต้ลูกหลานตัวเองได้']);
 
         $oldParent = $workItem->parent;
         $oldData = $workItem->getOriginal();
 
+        // อัปเดตและเซฟ
         $workItem->update(['parent_id' => $newParentId]);
+        $workItem->refresh(); // ✅ ดึงข้อมูลล่าสุดจาก DB ทันที
 
         $this->logActivity('MOVE', $workItem, $oldData, $workItem->getChanges());
 
         $this->clearRelatedCache($workItem);
-        if ($oldParent) $this->clearRelatedCache($oldParent);
-        if ($workItem->parent) $this->clearRelatedCache($workItem->parent);
+        if ($oldParent) {
+            $this->clearRelatedCache($oldParent);
+            $oldParent->recalculateProgress(); // ✅ กระตุ้นแม่เดิม
+        }
+        if ($workItem->parent) {
+            $this->clearRelatedCache($workItem->parent);
+            $workItem->parent->recalculateProgress(); // ✅ กระตุ้นแม่ใหม่
+        }
 
-        if ($oldParent) $oldParent->recalculateProgress();
-        if ($workItem->parent) $workItem->parent->recalculateProgress();
-
-        return back()->with('success', 'ย้ายงานเรียบร้อยแล้ว');
+        return back()->with('success', 'ย้ายงานเรียบร้อยแล้ว (อัปเดต % ทันที)');
     }
 
     public function getTree()
@@ -361,13 +355,22 @@ class WorkItemController extends Controller
         $this->logActivity('DELETE', $workItem, $workItem->toArray(), []);
         $this->clearRelatedCache($workItem);
 
-        $workItem->delete(); // Soft Delete
+        // ✅ ลบงานย่อยที่อยู่ภายใต้ทั้งหมด (Recursive)
+        $this->cascadeDelete($workItem);
 
         if ($parent) {
             $parent->recalculateProgress();
         }
 
-        return back()->with('success', 'ลบงานสำเร็จ (ย้ายไปถังขยะ)');
+        return back()->with('success', 'ลบรายการและงานย่อยทั้งหมดสำเร็จ');
+    }
+
+    private function cascadeDelete($item)
+    {
+        foreach ($item->children as $child) {
+            $this->cascadeDelete($child);
+        }
+        $item->delete(); // Soft Delete
     }
 
     private function clearRelatedCache($workItem)
@@ -634,5 +637,90 @@ class WorkItemController extends Controller
             })
             ->limit(10)
             ->get(['id', 'name']);
+    }
+
+    // -------------------------------------------------------------------------
+    // ✨ ฟังก์ชันสำหรับรับค่าจาก Checkbox (Bulk Action)
+    // -------------------------------------------------------------------------
+    public function bulkAction(Request $request)
+    {
+        $request->validate([
+            'ids' => 'required|array',
+            'ids.*' => 'exists:work_items,id',
+            'action' => 'required|string|in:delete,update_progress,update_general', // ✅ เพิ่ม update_general
+
+            // Validation สำหรับการแก้ไขข้อมูล (Nullable เพื่อรองรับการแก้บางค่า)
+            'description' => 'nullable|string',
+            'division_id' => 'nullable|exists:divisions,id',
+            'department_id' => 'nullable|exists:departments,id',
+            'project_manager_id' => 'nullable|exists:users,id',
+            'type' => 'nullable|string',
+            'weight' => 'nullable|numeric|min:0',
+            'bulk_status_mode' => 'nullable|in:no_change,active,cancelled', // โหมดเปลี่ยนสถานะ
+
+            // Validation สำหรับ Progress
+            'progress' => 'nullable|integer|min:0|max:100',
+            'comment' => 'nullable|string'
+        ]);
+
+        $items = WorkItem::whereIn('id', $request->ids)->get();
+        $parentsToUpdate = collect();
+
+        foreach ($items as $item) {
+            if ($item->parent_id) $parentsToUpdate->push($item->parent_id);
+
+            // 1. ลบรายการ
+            if ($request->action === 'delete') {
+                $this->cascadeDelete($item);
+            }
+            // 2. อัปเดตข้อมูลทั่วไป (Bulk Edit)
+            elseif ($request->action === 'update_general') {
+                $data = [];
+                // เช็คว่ามีการส่งค่ามาไหม ถ้าส่งมาให้อัปเดต
+                if ($request->filled('description')) $data['description'] = $request->description;
+                if ($request->filled('division_id')) $data['division_id'] = $request->division_id;
+                if ($request->filled('department_id')) $data['department_id'] = $request->department_id;
+                if ($request->filled('project_manager_id')) $data['project_manager_id'] = $request->project_manager_id;
+                if ($request->filled('type')) $data['type'] = $request->type;
+                if ($request->filled('weight')) $data['weight'] = $request->weight;
+
+                // จัดการสถานะ (Active / Cancelled)
+                if ($request->bulk_status_mode === 'cancelled') {
+                    $data['status'] = 'cancelled';
+                    $data['is_active'] = false;
+                    $this->cascadeStatus($item, 'cancelled');
+                } elseif ($request->bulk_status_mode === 'active') {
+                    $data['status'] = 'in_active'; // รีเซ็ตเป็นรอก่อน เดี๋ยว Auto Calc จะปรับให้เอง
+                    $data['is_active'] = true;
+                    $this->cascadeStatus($item, 'in_active');
+                }
+
+                if (!empty($data)) {
+                    $item->update($data);
+                }
+            }
+            // 3. อัปเดตความคืบหน้า (เฉพาะรายการที่ไม่มีลูก)
+            elseif ($request->action === 'update_progress' && isset($request->progress)) {
+                if ($item->children()->count() == 0) {
+                    $oldProgress = $item->progress;
+                    $item->update(['progress' => $request->progress]);
+
+                    if ($request->comment) {
+                        $item->comments()->create([
+                            'user_id' => auth()->id(),
+                            'body' => $request->comment . "\n(ปรับความคืบหน้าแบบกลุ่ม: {$oldProgress}% ➝ {$request->progress}%)",
+                        ]);
+                    }
+                }
+            }
+        }
+
+        // กระตุ้นการคำนวณ % ให้แม่ของทุกรายการที่ถูกแก้
+        foreach ($parentsToUpdate->unique() as $parentId) {
+            $parent = WorkItem::find($parentId);
+            if ($parent) $parent->recalculateProgress();
+        }
+
+        return back()->with('success', 'จัดการข้อมูลที่เลือกเรียบร้อยแล้ว');
     }
 }

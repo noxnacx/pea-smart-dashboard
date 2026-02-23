@@ -162,35 +162,29 @@ class WorkItem extends Model
     // ==========================================================
     public function recalculateProgress()
     {
-        // 1. ดึงงานลูกทั้งหมดที่ไม่ได้ถูกยกเลิก
-        $children = $this->children()->where('status', '!=', 'cancelled')->get();
+        // ถ้ามีลูก ห้ามใช้ค่าที่กรอกมือเด็ดขาด ให้คำนวณจากลูกเท่านั้น
+        if ($this->children()->count() > 0) {
+            // ไม่เอาลูกที่ถูกยกเลิกมาคำนวณ
+            $activeChildren = $this->children()->where('status', '!=', 'cancelled')->get();
+            $totalWeight = $activeChildren->sum('weight');
 
-        if ($children->count() > 0) {
-            $totalWeight = $children->sum('weight');
-
-            // 2. คำนวณแบบถ่วงน้ำหนัก (Weight)
             if ($totalWeight > 0) {
-                $weightedProgress = $children->sum(function ($child) {
-                    return $child->progress * $child->weight;
-                });
-                $newProgress = round($weightedProgress / $totalWeight);
-            } else {
-                // ถ้าไม่มีการใส่น้ำหนักเลย ให้หาค่าเฉลี่ยปกติ
-                $newProgress = round($children->avg('progress'));
-            }
+                $calculatedProgress = $activeChildren->sum(function ($child) {
+                    return ($child->progress * $child->weight);
+                }) / $totalWeight;
 
-            $this->progress = $newProgress;
+                $this->update(['progress' => round($calculatedProgress)]);
+            } else {
+                $this->update(['progress' => 0]);
+            }
         }
 
-        // 3. 🚀 เรียกใช้ Logic ปรับสถานะอัตโนมัติ
-        $this->autoUpdateStatus();
-
-        // 4. บันทึกข้อมูล
-        $this->save();
-
-        // 5. สะท้อนขึ้นไปหาตัวแม่ (ปู่ย่าตายาย) ต่อเป็นลูกโซ่
-        if ($this->parent) {
-            $this->parent->recalculateProgress();
+        // ส่งต่อให้แม่คำนวณตัวเองใหม่ด้วย (Real-time Cascade)
+        if ($this->parent_id) {
+            $parent = Self::find($this->parent_id);
+            if ($parent) {
+                $parent->recalculateProgress();
+            }
         }
     }
 

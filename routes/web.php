@@ -126,6 +126,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/work-items/{workItem}/edit', [WorkItemController::class, 'edit'])->name('work-items.edit');
         Route::put('/work-items/{workItem}', [WorkItemController::class, 'update'])->name('work-items.update');
         Route::delete('/work-items/{workItem}', [WorkItemController::class, 'destroy'])->name('work-items.destroy');
+        Route::post('/work-items/bulk-action', [WorkItemController::class, 'bulkAction'])->name('work-items.bulk');
 
         Route::put('/work-items/{workItem}/move', [WorkItemController::class, 'move'])->name('work-items.move');
 
