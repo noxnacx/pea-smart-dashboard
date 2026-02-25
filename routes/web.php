@@ -122,7 +122,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         // --- Work Items (CRUD) ---
         Route::get('/work-items/create', [WorkItemController::class, 'create'])->name('work-items.create');
-        Route::post('/work-items', [WorkItemController::class, 'store'])->name('work-items.store');
+        Route::get('/work-items', [WorkItemController::class, 'index'])->name('work-items.index');
         Route::get('/work-items/{workItem}/edit', [WorkItemController::class, 'edit'])->name('work-items.edit');
         Route::put('/work-items/{workItem}', [WorkItemController::class, 'update'])->name('work-items.update');
         Route::delete('/work-items/{workItem}', [WorkItemController::class, 'destroy'])->name('work-items.destroy');

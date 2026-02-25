@@ -77,10 +77,22 @@ class WorkItemController extends Controller
     }
 
     // --- ฟังก์ชันกลางสำหรับดึงข้อมูลและ Render หน้า List ---
-    private function renderList(Request $request, $type)
+    private function renderList(Request $request, $type = null) // ✅ อนุญาตให้ $type เป็น null ได้ (default view)
     {
+        // ✅ ดึงประเภทงานทั้งหมดมาก่อน เพื่อหา Default Type (ถ้าไม่ส่ง $type มา)
+        $workItemTypes = WorkItemType::orderBy('level_order')->get();
+
+        // ถ้าไม่มีการระบุ type มา ให้ใช้ type ของ level 2 เป็นค่าเริ่มต้น (เพราะ Level 1 อยู่หน้า Tree View แล้ว)
+        // แต่ถ้าอยากให้เริ่มที่ Level 1 เลยก็แก้เป็น $workItemTypes->first()->key
+        if (!$type && $workItemTypes->count() > 1) {
+            $type = $workItemTypes[1]->key;
+        } elseif (!$type) {
+            $type = $workItemTypes->first()->key ?? 'plan';
+        }
+
+        // ✅ Query ข้อมูลตาม Type ที่เลือก (รองรับ Dynamic Key)
         $query = WorkItem::where('type', $type)
-            ->with(['issues', 'parent', 'division', 'department', 'projectManager']);
+            ->with(['issues', 'parent', 'division', 'department', 'projectManager', 'workType']); // เพิ่ม workType
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -105,17 +117,17 @@ class WorkItemController extends Controller
 
         $items = $query->paginate(10)->withQueryString();
 
-        $parentOptions = WorkItem::select('id', 'name', 'type')
-            ->orderByRaw("CASE WHEN type = 'strategy' THEN 1 WHEN type = 'plan' THEN 2 WHEN type = 'project' THEN 3 ELSE 4 END")
-            ->orderBy('name')->get()
-            ->map(function($item) {
-                $map = ['strategy'=>'ยุทธศาสตร์', 'plan'=>'แผนงาน', 'project'=>'โครงการ', 'task'=>'งานย่อย'];
-                $item->type_label = $map[$item->type] ?? $item->type;
-                return $item;
-            });
-
         $divisions = Division::with('departments')->orderBy('name')->get();
-        $workItemTypes = WorkItemType::orderBy('level_order')->get(); // ✅ เตรียมไว้
+
+        // ✅ ดึง parentOptions แบบ Dynamic ตามประเภทงาน
+        $parentOptions = WorkItem::with('workType')
+            ->select('id', 'name', 'type', 'work_item_type_id')
+            ->get()
+            ->map(function($item) {
+                $item->type_label = $item->workType ? $item->workType->name : $item->type;
+                return $item;
+            })
+            ->sortBy('type_label'); // หรือเรียงตาม level_order ถ้า join table
 
         return Inertia::render('WorkItem/List', [
             'type' => $type,
@@ -123,7 +135,7 @@ class WorkItemController extends Controller
             'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir', 'division_id', 'department_id']),
             'parentOptions' => $parentOptions,
             'divisions' => $divisions,
-            'workItemTypes' => $workItemTypes
+            'workItemTypes' => $workItemTypes // ✅ ส่งประเภทงานทั้งหมดไปสร้าง Tabs
         ]);
     }
 
@@ -537,29 +549,27 @@ class WorkItemController extends Controller
     }
 
     public function list(Request $request, $type) { return $this->renderList($request, $type); }
-    public function index(Request $request) { return $this->projects($request); }
-
-    // ... (ฟังก์ชันอื่นๆ ด้านล่าง strategies, ganttData, logExport, searchProjectManagers คงเดิม ไม่ต้องแก้)
-    public function strategies() {
-        // 🚀 เปลี่ยน Key Cache เล็กน้อยเพื่อให้มันอัปเดตข้อมูลใหม่
+    public function index(Request $request) {
+        return $this->renderList($request, $request->query('type'));
+    }
+        public function strategies() {
+        // 🚀 ดึงข้อมูล Tree View
         $strategies = Cache::remember('strategies_index_v2', 3600, function () {
-
             $recursiveLoad = function ($q) {
                 $q->orderBy('name', 'asc')
-                  ->with('workType') // ✅ โหลดความสัมพันธ์ของประเภทงานมาด้วย
+                  ->with('workType')
                   ->withCount(['issues as issue_count' => function($i) {
                       $i->where('status', '!=', 'resolved');
                   }]);
             };
 
-            $relations = ['workType']; // ✅ โหลด WorkType ให้ตัวแม่สุดด้วย
+            $relations = ['workType'];
             $depth = 'children';
             for ($i = 0; $i < 10; $i++) {
                 $relations[$depth] = $recursiveLoad;
                 $depth .= '.children';
             }
 
-            // ✅ เปลี่ยนเป็นดึงเฉพาะงานที่ไม่มี Parent (Level 1) แทนการฟิกซ์คำว่า strategy
             $rawStrategies = WorkItem::whereNull('parent_id')
                 ->with($relations)
                 ->withCount(['issues as strategy_issue_count' => function($i) {
@@ -572,12 +582,24 @@ class WorkItemController extends Controller
             }, SORT_NATURAL)->values();
         });
 
-        // ✅ ดึง Master Data ประเภทงาน ส่งไปให้หน้า Vue ด้วย
+        // ✅ ดึงข้อมูลประกอบสำหรับ Modal แบบเต็ม
         $workItemTypes = \App\Models\WorkItemType::orderBy('level_order')->get();
+        $divisions = Division::with('departments')->orderBy('name')->get();
+
+        $parentOptions = WorkItem::with('workType')
+            ->select('id', 'name', 'type', 'work_item_type_id')
+            ->get()
+            ->map(function($item) {
+                $item->type_label = $item->workType ? $item->workType->name : $item->type;
+                return $item;
+            })
+            ->sortBy('type_label')->values();
 
         return Inertia::render('Strategy/Index', [
             'strategies' => $strategies,
-            'workItemTypes' => $workItemTypes // ส่งไปใช้ใน Modal
+            'workItemTypes' => $workItemTypes,
+            'divisions' => $divisions,         // ส่งไปให้ Modal
+            'parentOptions' => $parentOptions  // ส่งไปให้ Modal
         ]);
     }
 

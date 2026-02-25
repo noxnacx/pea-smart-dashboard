@@ -19,27 +19,21 @@ const userRole = computed(() => page.props.auth.user.role);
 const userId = computed(() => page.props.auth.user.id);
 
 const canEdit = computed(() => ['admin', 'pm', 'project_manager'].includes(userRole.value));
-
 const canManageItem = (item) => {
     if (userRole.value === 'admin') return true;
-    if (['pm', 'project_manager'].includes(userRole.value)) {
-        return item.project_manager_id === userId.value;
-    }
+    if (['pm', 'project_manager'].includes(userRole.value)) return item.project_manager_id === userId.value;
     return false;
 };
 
-// 💡 ปรับชื่อ Title ให้เข้ากับการรวมหน้า
-const pageTitle = computed(() => {
-    if (props.type === 'my-work') return 'งานของฉัน (My Works)';
-    return 'รายการงานทั้งหมด';
+// 💡 ปรับชื่อ Title
+const currentTypeName = computed(() => {
+    const t = props.workItemTypes.find(wt => wt.key === props.type);
+    return t ? t.name : 'รายการงานทั้งหมด';
 });
 
-const routeName = computed(() => {
-    if (props.type === 'plan') return 'plans.index';
-    if (props.type === 'project') return 'projects.index';
-    if (props.type === 'task') return 'tasks.index';
-    if (props.type === 'my-work') return 'my-works.index';
-    return 'work-items.index';
+const pageTitle = computed(() => {
+    if (props.type === 'my-work') return 'งานของฉัน (My Works)';
+    return `รายการ${currentTypeName.value}`;
 });
 
 const showSuccessModal = ref(false);
@@ -54,6 +48,7 @@ const filterForm = ref({
     sort_dir: props.filters.sort_dir || 'desc',
 });
 
+// ดึงรายชื่อแผนกตามกองที่เลือก
 const filterDepartments = computed(() => {
     if (!filterForm.value.division_id) return [];
     const div = props.divisions.find(d => d.id == filterForm.value.division_id);
@@ -62,15 +57,17 @@ const filterDepartments = computed(() => {
 
 watch(filterForm, throttle(() => {
     if (!filterForm.value.division_id) filterForm.value.department_id = '';
-    router.get(route(routeName.value), filterForm.value, { preserveState: true, replace: true });
+    // ส่ง type ปัจจุบันกลับไปด้วย เพื่อไม่ให้หลุด Tab
+    router.get(route('work-items.index', { type: props.type }), filterForm.value, { preserveState: true, replace: true });
 }, 500), { deep: true });
 
-const hasActiveIssues = (issues) => issues?.some(i => i.type === 'issue' && i.status !== 'resolved');
-const hasActiveRisks = (issues) => issues?.some(i => i.type === 'risk' && i.status !== 'resolved');
 const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', in_active: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
 const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
+const formatFileSize = (bytes) => { if(bytes===0) return '0 B'; const k=1024, i=Math.floor(Math.log(bytes)/Math.log(k)); return parseFloat((bytes/Math.pow(k,i)).toFixed(2))+' '+['B','KB','MB','GB'][i]; };
 
+const hasActiveIssues = (issues) => issues?.some(i => i.type === 'issue' && i.status !== 'resolved');
+const hasActiveRisks = (issues) => issues?.some(i => i.type === 'risk' && i.status !== 'resolved');
 const hasParentDateWarning = (item) => {
     if (!item.parent) return false;
     const pStart = item.parent.planned_start_date ? new Date(item.parent.planned_start_date).getTime() : null;
@@ -83,13 +80,11 @@ const hasParentDateWarning = (item) => {
 const showParentDropdown = ref(false);
 const parentSearch = ref('');
 const parentDropdownRef = ref(null);
-
 const filteredParents = computed(() => {
     if (!parentSearch.value) return props.parentOptions;
     const lowerSearch = parentSearch.value.toLowerCase();
-    return props.parentOptions.filter(p => p.name.toLowerCase().includes(lowerSearch) || p.type_label.includes(parentSearch.value));
+    return props.parentOptions.filter(p => p.name.toLowerCase().includes(lowerSearch) || (p.type_label && p.type_label.toLowerCase().includes(lowerSearch)));
 });
-
 const selectParent = (parent) => { form.parent_id = parent.id; parentSearch.value = `[${parent.type_label}] ${parent.name}`; showParentDropdown.value = false; };
 const clearParent = () => { parentSearch.value = ''; form.parent_id = null; showParentDropdown.value = false; };
 const handleClickOutside = (e) => { if (parentDropdownRef.value && !parentDropdownRef.value.contains(e.target)) showParentDropdown.value = false; };
@@ -115,7 +110,11 @@ const openCreateModal = () => {
 const openEditModal = (item) => {
     isEditing.value = true; form.clearErrors(); modalTitle.value = `✏️ แก้ไข: ${item.name}`;
     form.id = item.id; form.name = item.name; form.type = item.type; form.budget = item.budget; form.progress = item.progress; form.status = item.status; form.planned_start_date = formatDateForInput(item.planned_start_date); form.planned_end_date = formatDateForInput(item.planned_end_date); form.parent_id = item.parent_id; form.division_id = item.division_id || ''; form.department_id = item.department_id || ''; form.pm_name = item.project_manager ? item.project_manager.name : ''; form.project_manager_id = item.project_manager_id || null; form.weight = item.weight || 1;
-    if (item.parent) { const typeMap = { strategy: 'ยุทธศาสตร์', plan: 'แผนงาน', project: 'โครงการ', task: 'งานย่อย' }; parentSearch.value = `[${typeMap[item.parent.type] || item.parent.type}] ${item.parent.name}`; } else { parentSearch.value = ''; }
+    if (item.parent) {
+        const parentType = props.workItemTypes.find(t => t.key === item.parent.type);
+        const parentTypeLabel = parentType ? parentType.name : item.parent.type;
+        parentSearch.value = `[${parentTypeLabel}] ${item.parent.name}`;
+    } else { parentSearch.value = ''; }
     showModal.value = true;
 };
 
@@ -142,20 +141,12 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
             </div>
 
             <div v-if="type !== 'my-work'" class="flex space-x-6 border-b border-gray-200 overflow-x-auto custom-scrollbar">
-                <Link :href="route('plans.index')"
+                <Link v-for="wt in workItemTypes.filter(t => t.level_order > 1)"
+                      :key="wt.id"
+                      :href="route('work-items.index', { type: wt.key })"
                       class="py-3 px-2 border-b-2 font-bold text-sm whitespace-nowrap transition-colors flex items-center gap-2"
-                      :class="type === 'plan' ? 'border-[#7A2F8F] text-[#7A2F8F]' : 'border-transparent text-gray-500 hover:text-gray-800'">
-                    <span class="text-lg">📁</span> แผนงาน
-                </Link>
-                <Link :href="route('projects.index')"
-                      class="py-3 px-2 border-b-2 font-bold text-sm whitespace-nowrap transition-colors flex items-center gap-2"
-                      :class="type === 'project' ? 'border-[#7A2F8F] text-[#7A2F8F]' : 'border-transparent text-gray-500 hover:text-gray-800'">
-                    <span class="text-lg">🚀</span> โครงการ
-                </Link>
-                <Link :href="route('tasks.index')"
-                      class="py-3 px-2 border-b-2 font-bold text-sm whitespace-nowrap transition-colors flex items-center gap-2"
-                      :class="type === 'task' ? 'border-[#7A2F8F] text-[#7A2F8F]' : 'border-transparent text-gray-500 hover:text-gray-800'">
-                    <span class="text-lg">📌</span> งานย่อย (Task)
+                      :class="type === wt.key ? 'border-[#7A2F8F] text-[#7A2F8F]' : 'border-transparent text-gray-500 hover:text-gray-800'">
+                    <span class="text-lg">{{ wt.icon || '📄' }}</span> {{ wt.name }}
                 </Link>
             </div>
 
@@ -169,6 +160,11 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                     <select v-model="filterForm.division_id" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F] w-full md:w-40">
                         <option value="">ทุกกอง</option>
                         <option v-for="div in divisions" :key="div.id" :value="div.id">{{ div.name }}</option>
+                    </select>
+
+                    <select v-model="filterForm.department_id" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F] w-full md:w-40" :disabled="!filterForm.division_id">
+                        <option value="">ทุกแผนก</option>
+                        <option v-for="dept in filterDepartments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
                     </select>
                 </div>
 
@@ -202,8 +198,10 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                         <tr v-for="item in items.data" :key="item.id" class="hover:bg-purple-50 transition group" :class="{'opacity-50 bg-gray-50 grayscale': item.status === 'cancelled'}">
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-3">
-                                    <div class="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-[#7A2F8F] font-bold text-lg shrink-0" :class="item.status === 'cancelled' ? 'bg-gray-200 text-gray-500' : ''">
-                                        {{ item.type === 'plan' ? '📁' : (item.type === 'project' ? '🚀' : '📌') }}
+                                    <div class="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-[#7A2F8F] font-bold text-lg shrink-0"
+                                         :class="item.status === 'cancelled' ? 'bg-gray-200 text-gray-500' : ''"
+                                         :style="item.workType ? `color: ${item.workType.color_code};` : ''">
+                                        {{ item.workType ? item.workType.icon : '📄' }}
                                     </div>
                                     <div class="min-w-0">
                                         <div class="flex items-center gap-2">
@@ -232,7 +230,17 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                                 <span v-else class="text-gray-300">-</span>
                             </td>
                             <td class="px-6 py-4 text-center"><span class="px-2 py-1 rounded text-xs font-bold uppercase" :class="statusColor(item.status)">{{ item.status === 'in_active' ? 'IN ACTIVE' : item.status }}</span></td>
-                            <td class="px-6 py-4"><div class="flex items-center gap-2"><div class="w-full bg-gray-200 rounded-full h-1.5"><div class="h-1.5 rounded-full" :class="item.status === 'cancelled' ? 'bg-gray-400' : 'bg-[#7A2F8F]'" :style="`width: ${item.progress}%`"></div></div><span class="text-xs font-medium">{{ item.progress }}%</span></div></td>
+                            <td class="px-6 py-4">
+                                <div class="flex items-center gap-2">
+                                    <div class="w-full bg-gray-200 rounded-full h-1.5">
+                                        <div class="h-1.5 rounded-full"
+                                             :class="item.status === 'cancelled' ? 'bg-gray-400' : ''"
+                                             :style="`width: ${item.progress}%; background-color: ${item.status !== 'cancelled' ? (item.workType?.color_code || '#7A2F8F') : ''}`">
+                                        </div>
+                                    </div>
+                                    <span class="text-xs font-medium">{{ item.progress }}%</span>
+                                </div>
+                            </td>
                             <td class="px-6 py-4 text-right font-mono font-bold text-gray-700">{{ Number(item.budget).toLocaleString() }}</td>
                             <td class="px-6 py-4 text-center text-xs text-gray-500 whitespace-nowrap flex items-center justify-center gap-1">
                                 {{ formatDate(item.planned_start_date) }} - {{ formatDate(item.planned_end_date) }}
