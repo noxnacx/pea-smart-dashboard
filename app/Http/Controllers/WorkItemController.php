@@ -673,16 +673,16 @@ class WorkItemController extends Controller
         $request->validate([
             'ids' => 'required|array',
             'ids.*' => 'exists:work_items,id',
-            'action' => 'required|string|in:delete,update_progress,update_general', // ✅ เพิ่ม update_general
+            'action' => 'required|string|in:delete,update_progress,update_general',
 
-            // Validation สำหรับการแก้ไขข้อมูล (Nullable เพื่อรองรับการแก้บางค่า)
+            // Validation สำหรับการแก้ไขข้อมูล
             'description' => 'nullable|string',
             'division_id' => 'nullable|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
             'project_manager_id' => 'nullable|exists:users,id',
             'type' => 'nullable|string',
             'weight' => 'nullable|numeric|min:0',
-            'bulk_status_mode' => 'nullable|in:no_change,active,cancelled', // โหมดเปลี่ยนสถานะ
+            'bulk_status_mode' => 'nullable|in:no_change,active,cancelled',
 
             // Validation สำหรับ Progress
             'progress' => 'nullable|integer|min:0|max:100',
@@ -702,7 +702,6 @@ class WorkItemController extends Controller
             // 2. อัปเดตข้อมูลทั่วไป (Bulk Edit)
             elseif ($request->action === 'update_general') {
                 $data = [];
-                // เช็คว่ามีการส่งค่ามาไหม ถ้าส่งมาให้อัปเดต
                 if ($request->filled('description')) $data['description'] = $request->description;
                 if ($request->filled('division_id')) $data['division_id'] = $request->division_id;
                 if ($request->filled('department_id')) $data['department_id'] = $request->department_id;
@@ -716,9 +715,16 @@ class WorkItemController extends Controller
                     $data['is_active'] = false;
                     $this->cascadeStatus($item, 'cancelled');
                 } elseif ($request->bulk_status_mode === 'active') {
-                    $data['status'] = 'in_active'; // รีเซ็ตเป็นรอก่อน เดี๋ยว Auto Calc จะปรับให้เอง
                     $data['is_active'] = true;
-                    $this->cascadeStatus($item, 'in_active');
+                    // ✅ ฉลาดขึ้น: ถ้าเปิดกลับมา ให้เช็ค % ว่าควรเป็นสถานะไหน
+                    if ($item->progress == 100) {
+                        $data['status'] = 'completed';
+                    } elseif ($item->progress > 0) {
+                        $data['status'] = 'in_progress';
+                    } else {
+                        $data['status'] = 'in_active';
+                    }
+                    $this->cascadeStatus($item, $data['status']);
                 }
 
                 if (!empty($data)) {
