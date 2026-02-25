@@ -11,30 +11,25 @@ const props = defineProps({
     filters: Object,
     parentOptions: Array,
     divisions: Array,
-    workItemTypes: { type: Array, default: () => [] } // ✅ รับประเภทงานจาก Controller
+    workItemTypes: { type: Array, default: () => [] }
 });
 
-// --- Check Role & Permissions ---
 const page = usePage();
 const userRole = computed(() => page.props.auth.user.role);
 const userId = computed(() => page.props.auth.user.id);
 
-// 1. สิทธิ์รวม: ใครเห็นคอลัมน์ "จัดการ" และปุ่ม "เพิ่มข้อมูล" บ้าง (Admin & PM)
 const canEdit = computed(() => ['admin', 'pm', 'project_manager'].includes(userRole.value));
 
-// 2. สิทธิ์รายตัว: เช็คว่าเป็นเจ้าของงานนั้นหรือไม่ (สำหรับปุ่ม แก้ไข/ลบ ในตาราง)
 const canManageItem = (item) => {
-    if (userRole.value === 'admin') return true; // Admin ทำได้ทุกอย่าง
+    if (userRole.value === 'admin') return true;
     if (['pm', 'project_manager'].includes(userRole.value)) {
-        return item.project_manager_id === userId.value; // PM ทำได้เฉพาะงานตัวเอง
+        return item.project_manager_id === userId.value;
     }
     return false;
 };
 
+// 💡 ปรับชื่อ Title ให้เข้ากับการรวมหน้า
 const pageTitle = computed(() => {
-    if (props.type === 'plan') return 'แผนงานทั้งหมด';
-    if (props.type === 'project') return 'โครงการทั้งหมด';
-    if (props.type === 'task') return 'งานย่อยทั้งหมด';
     if (props.type === 'my-work') return 'งานของฉัน (My Works)';
     return 'รายการงานทั้งหมด';
 });
@@ -49,7 +44,6 @@ const routeName = computed(() => {
 
 const showSuccessModal = ref(false);
 
-// --- Search & Filter ---
 const filterForm = ref({
     search: props.filters.search || '',
     status: props.filters.status || '',
@@ -71,29 +65,21 @@ watch(filterForm, throttle(() => {
     router.get(route(routeName.value), filterForm.value, { preserveState: true, replace: true });
 }, 500), { deep: true });
 
-// --- Helpers ---
 const hasActiveIssues = (issues) => issues?.some(i => i.type === 'issue' && i.status !== 'resolved');
 const hasActiveRisks = (issues) => issues?.some(i => i.type === 'risk' && i.status !== 'resolved');
 const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', in_active: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
 const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
 
-// ฟังก์ชันเช็ควันที่ของตัวเอง เทียบกับวันที่ของ Parent (งานหลัก)
 const hasParentDateWarning = (item) => {
     if (!item.parent) return false;
-
     const pStart = item.parent.planned_start_date ? new Date(item.parent.planned_start_date).getTime() : null;
     const pEnd = item.parent.planned_end_date ? new Date(item.parent.planned_end_date).getTime() : null;
     const myStart = item.planned_start_date ? new Date(item.planned_start_date).getTime() : null;
     const myEnd = item.planned_end_date ? new Date(item.planned_end_date).getTime() : null;
-
-    if (myStart && pStart && myStart < pStart) return true;
-    if (myEnd && pEnd && myEnd > pEnd) return true;
-
-    return false;
+    return (myStart && pStart && myStart < pStart) || (myEnd && pEnd && myEnd > pEnd);
 };
 
-// --- Parent Search Logic ---
 const showParentDropdown = ref(false);
 const parentSearch = ref('');
 const parentDropdownRef = ref(null);
@@ -104,132 +90,40 @@ const filteredParents = computed(() => {
     return props.parentOptions.filter(p => p.name.toLowerCase().includes(lowerSearch) || p.type_label.includes(parentSearch.value));
 });
 
-const selectParent = (parent) => {
-    form.parent_id = parent.id;
-    parentSearch.value = `[${parent.type_label}] ${parent.name}`;
-    showParentDropdown.value = false;
-};
-
-const clearParent = () => {
-    parentSearch.value = '';
-    form.parent_id = null;
-    showParentDropdown.value = false;
-};
-
+const selectParent = (parent) => { form.parent_id = parent.id; parentSearch.value = `[${parent.type_label}] ${parent.name}`; showParentDropdown.value = false; };
+const clearParent = () => { parentSearch.value = ''; form.parent_id = null; showParentDropdown.value = false; };
 const handleClickOutside = (e) => { if (parentDropdownRef.value && !parentDropdownRef.value.contains(e.target)) showParentDropdown.value = false; };
 onMounted(() => document.addEventListener('click', handleClickOutside));
 onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 
-// --- Modals Logic & Forms ---
 const showModal = ref(false);
 const isEditing = ref(false);
 const modalTitle = ref('');
-const form = useForm({
-    id: null, name: '', type: props.type === 'my-work' ? 'project' : props.type,
-    budget: 0, progress: 0,
-    status: 'in_active',
-    planned_start_date: '', planned_end_date: '', parent_id: null,
-    division_id: '', department_id: '',
-    pm_name: '', project_manager_id: null,
-    weight: 1
-});
+const form = useForm({ id: null, name: '', type: props.type === 'my-work' ? 'project' : props.type, budget: 0, progress: 0, status: 'in_active', planned_start_date: '', planned_end_date: '', parent_id: null, division_id: '', department_id: '', pm_name: '', project_manager_id: null, weight: 1 });
 
-const modalDepartments = computed(() => {
-    if (!form.division_id) return [];
-    const div = props.divisions.find(d => d.id == form.division_id);
-    return div ? div.departments : [];
-});
-
-const closeModalSafely = () => {
-    if (form.isDirty) {
-        if (confirm('ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?')) {
-            showModal.value = false;
-            form.reset();
-            form.clearErrors();
-        }
-    } else {
-        showModal.value = false;
-        form.reset();
-        form.clearErrors();
-    }
-};
+const modalDepartments = computed(() => { if (!form.division_id) return []; const div = props.divisions.find(d => d.id == form.division_id); return div ? div.departments : []; });
+const closeModalSafely = () => { if (form.isDirty) { if (confirm('ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?')) { showModal.value = false; form.reset(); form.clearErrors(); } } else { showModal.value = false; form.reset(); form.clearErrors(); } };
 
 const openCreateModal = () => {
-    isEditing.value = false;
-    form.reset(); form.clearErrors();
+    isEditing.value = false; form.reset(); form.clearErrors();
     form.id = null; form.type = props.type === 'my-work' ? 'project' : props.type;
-    form.parent_id = null; parentSearch.value = '';
-    form.division_id = ''; form.department_id = '';
-
-    if (['pm', 'project_manager'].includes(userRole.value)) {
-        form.pm_name = page.props.auth.user.name;
-        form.project_manager_id = userId.value;
-    } else {
-        form.pm_name = ''; form.project_manager_id = null;
-    }
-
-    form.status = 'in_active';
-    form.weight = 1;
-    modalTitle.value = `✨ เพิ่มข้อมูลใหม่`;
-    showModal.value = true;
+    form.parent_id = null; parentSearch.value = ''; form.division_id = ''; form.department_id = '';
+    if (['pm', 'project_manager'].includes(userRole.value)) { form.pm_name = page.props.auth.user.name; form.project_manager_id = userId.value; } else { form.pm_name = ''; form.project_manager_id = null; }
+    form.status = 'in_active'; form.weight = 1; modalTitle.value = `✨ เพิ่มข้อมูลใหม่`; showModal.value = true;
 };
 
 const openEditModal = (item) => {
-    isEditing.value = true;
-    form.clearErrors();
-    modalTitle.value = `✏️ แก้ไข: ${item.name}`;
-    form.id = item.id; form.name = item.name; form.type = item.type;
-    form.budget = item.budget; form.progress = item.progress; form.status = item.status;
-    form.planned_start_date = formatDateForInput(item.planned_start_date);
-    form.planned_end_date = formatDateForInput(item.planned_end_date);
-    form.parent_id = item.parent_id;
-    form.division_id = item.division_id || '';
-    form.department_id = item.department_id || '';
-
-    form.pm_name = item.project_manager ? item.project_manager.name : '';
-    form.project_manager_id = item.project_manager_id || null;
-
-    form.weight = item.weight || 1;
-
-    if (item.parent) {
-        const typeMap = { strategy: 'ยุทธศาสตร์', plan: 'แผนงาน', project: 'โครงการ', task: 'งานย่อย' };
-        parentSearch.value = `[${typeMap[item.parent.type] || item.parent.type}] ${item.parent.name}`;
-    } else {
-        parentSearch.value = '';
-    }
+    isEditing.value = true; form.clearErrors(); modalTitle.value = `✏️ แก้ไข: ${item.name}`;
+    form.id = item.id; form.name = item.name; form.type = item.type; form.budget = item.budget; form.progress = item.progress; form.status = item.status; form.planned_start_date = formatDateForInput(item.planned_start_date); form.planned_end_date = formatDateForInput(item.planned_end_date); form.parent_id = item.parent_id; form.division_id = item.division_id || ''; form.department_id = item.department_id || ''; form.pm_name = item.project_manager ? item.project_manager.name : ''; form.project_manager_id = item.project_manager_id || null; form.weight = item.weight || 1;
+    if (item.parent) { const typeMap = { strategy: 'ยุทธศาสตร์', plan: 'แผนงาน', project: 'โครงการ', task: 'งานย่อย' }; parentSearch.value = `[${typeMap[item.parent.type] || item.parent.type}] ${item.parent.name}`; } else { parentSearch.value = ''; }
     showModal.value = true;
 };
 
-const submit = () => {
-    const options = {
-        onSuccess: () => {
-            showModal.value = false;
-            showSuccessModal.value = true;
-            setTimeout(() => showSuccessModal.value = false, 2000);
-        }
-    };
-    if (form.id) form.put(route('work-items.update', form.id), options);
-    else form.post(route('work-items.store'), options);
-};
-
+const submit = () => { const options = { onSuccess: () => { showModal.value = false; showSuccessModal.value = true; setTimeout(() => showSuccessModal.value = false, 2000); } }; if (form.id) form.put(route('work-items.update', form.id), options); else form.post(route('work-items.store'), options); };
 const deleteItem = (id) => { if (confirm('ยืนยันลบข้อมูลนี้? (ย้ายไปถังขยะ)')) useForm({}).delete(route('work-items.destroy', id)); };
 
-// --- Quick View ---
-const showQuickView = ref(false);
-const quickViewTitle = ref('');
-const quickViewItems = ref([]);
-const quickViewType = ref('');
-const quickViewItemId = ref(null);
-
-const openQuickView = (item, type) => {
-    const activeItems = item.issues?.filter(i => i.type === type && i.status !== 'resolved') || [];
-    if (!activeItems.length) return;
-    quickViewType.value = type;
-    quickViewItemId.value = item.id;
-    quickViewTitle.value = type === 'issue' ? `🔥 ปัญหา (${activeItems.length})` : `⚠️ ความเสี่ยง (${activeItems.length})`;
-    quickViewItems.value = activeItems;
-    showQuickView.value = true;
-};
+const showQuickView = ref(false), quickViewTitle = ref(''), quickViewItems = ref([]), quickViewType = ref(''), quickViewItemId = ref(null);
+const openQuickView = (item, type) => { const activeItems = item.issues?.filter(i => i.type === type && i.status !== 'resolved') || []; if (!activeItems.length) return; quickViewType.value = type; quickViewItemId.value = item.id; quickViewTitle.value = type === 'issue' ? `🔥 ปัญหา (${activeItems.length})` : `⚠️ ความเสี่ยง (${activeItems.length})`; quickViewItems.value = activeItems; showQuickView.value = true; };
 </script>
 
 <template>
@@ -237,14 +131,32 @@ const openQuickView = (item, type) => {
     <PeaSidebarLayout>
         <div class="py-8 px-4 max-w-[1600px] mx-auto space-y-6">
 
-            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4 border-b border-gray-200 pb-6">
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-center gap-4">
                 <div>
                     <h2 class="text-3xl font-extrabold text-[#4A148C]">{{ pageTitle }}</h2>
-                    <p class="text-gray-500 mt-1">ค้นหาและติดตามสถานะในระบบ</p>
+                    <p class="text-gray-500 mt-1">ค้นหา จัดการ และติดตามสถานะงานในระบบ</p>
                 </div>
                 <button v-if="canEdit" @click="openCreateModal" class="bg-[#FDB913] hover:bg-yellow-400 text-[#4A148C] px-5 py-2.5 rounded-xl font-bold shadow-md transition-all flex items-center gap-2 transform hover:-translate-y-0.5">
                     <span class="text-xl leading-none">+</span> เพิ่มข้อมูล
                 </button>
+            </div>
+
+            <div v-if="type !== 'my-work'" class="flex space-x-6 border-b border-gray-200 overflow-x-auto custom-scrollbar">
+                <Link :href="route('plans.index')"
+                      class="py-3 px-2 border-b-2 font-bold text-sm whitespace-nowrap transition-colors flex items-center gap-2"
+                      :class="type === 'plan' ? 'border-[#7A2F8F] text-[#7A2F8F]' : 'border-transparent text-gray-500 hover:text-gray-800'">
+                    <span class="text-lg">📁</span> แผนงาน
+                </Link>
+                <Link :href="route('projects.index')"
+                      class="py-3 px-2 border-b-2 font-bold text-sm whitespace-nowrap transition-colors flex items-center gap-2"
+                      :class="type === 'project' ? 'border-[#7A2F8F] text-[#7A2F8F]' : 'border-transparent text-gray-500 hover:text-gray-800'">
+                    <span class="text-lg">🚀</span> โครงการ
+                </Link>
+                <Link :href="route('tasks.index')"
+                      class="py-3 px-2 border-b-2 font-bold text-sm whitespace-nowrap transition-colors flex items-center gap-2"
+                      :class="type === 'task' ? 'border-[#7A2F8F] text-[#7A2F8F]' : 'border-transparent text-gray-500 hover:text-gray-800'">
+                    <span class="text-lg">📌</span> งานย่อย (Task)
+                </Link>
             </div>
 
             <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex flex-col md:flex-row gap-4 items-center flex-wrap">
@@ -291,7 +203,7 @@ const openQuickView = (item, type) => {
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-3">
                                     <div class="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-[#7A2F8F] font-bold text-lg shrink-0" :class="item.status === 'cancelled' ? 'bg-gray-200 text-gray-500' : ''">
-                                        {{ item.type === 'plan' ? 'P' : (item.type === 'project' ? 'J' : 'T') }}
+                                        {{ item.type === 'plan' ? '📁' : (item.type === 'project' ? '🚀' : '📌') }}
                                     </div>
                                     <div class="min-w-0">
                                         <div class="flex items-center gap-2">

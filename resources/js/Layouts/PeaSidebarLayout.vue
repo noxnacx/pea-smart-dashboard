@@ -94,28 +94,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                       :class="route().current('strategies.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"/></svg>
-                    ยุทธศาสตร์ทั้งหมด
+                    โครงสร้างองค์กรแบบ Tree View
                 </Link>
 
                 <Link :href="route('plans.index')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
-                      :class="route().current('plans.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                      :class="['plans.index', 'projects.index', 'tasks.index'].includes(route().current()) ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 00-2-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
-                    แผนงานทั้งหมด
-                </Link>
-
-                <Link :href="route('projects.index')"
-                      class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
-                      :class="route().current('projects.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"/></svg>
-                    โครงการทั้งหมด
-                </Link>
-
-                <Link :href="route('tasks.index')"
-                      class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
-                      :class="route().current('tasks.index') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-3 7h3m-3 4h3m-6-4h.01M9 16h.01"/></svg>
-                    งานย่อยทั้งหมด
+                    รายการงานทั้งหมด
                 </Link>
 
                 <Link :href="route('issues.index')"
@@ -237,10 +223,10 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     <Link v-if="isPmOnly" :href="safeRoute('my-works.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">งานของฉัน (My Works)</Link>
 
                     <div class="px-4 text-[10px] text-purple-400 font-bold uppercase mt-2">Work Management</div>
-                    <Link :href="route('strategies.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ยุทธศาสตร์ทั้งหมด</Link>
-                    <Link :href="route('plans.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">แผนงานทั้งหมด</Link>
-                    <Link :href="route('projects.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">โครงการทั้งหมด</Link>
-                    <Link :href="route('tasks.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">งานย่อยทั้งหมด</Link>
+
+                    <Link :href="route('strategies.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">โครงสร้างองค์กรแบบ Tree View</Link>
+                    <Link :href="route('plans.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">รายการงานทั้งหมด</Link>
+
                     <Link :href="route('issues.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ปัญหาและความเสี่ยง</Link>
 
                     <div class="px-4 text-[10px] text-purple-400 font-bold uppercase mt-2">System</div>
