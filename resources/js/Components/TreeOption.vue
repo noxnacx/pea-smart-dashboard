@@ -6,9 +6,12 @@ defineOptions({
 const props = defineProps({
     nodes: Array,
     level: { type: Number, default: 0 },
-    currentItemId: [Number, String], // ID ของตัวที่จะย้าย (เพื่อ Disable ตัวเอง)
+    currentItemId: [Number, String], // ID ของตัวที่จะย้าย
     selectedId: [Number, String],    // ID ที่ถูกเลือกอยู่ (จาก Form)
-    search: String
+    search: String,
+
+    // ✅ เพิ่ม Prop นี้เพื่อรับค่าว่า "สายนี้/กิ่งนี้" ถูกแบนห้ามเลือกหรือไม่
+    disabledBranch: { type: Boolean, default: false }
 });
 
 const emit = defineEmits(['select']);
@@ -18,8 +21,8 @@ const getIcon = (type) => ({ strategy: '🏛️', plan: '📁', project: '🚀',
 
 // Check States
 const isDisabled = (nodeId) => {
-    // ห้ามเลือกตัวเอง
-    return nodeId === props.currentItemId;
+    // ✅ แบนถ้า: เป็นตัวมันเอง หรือ เป็นลูกหลานของตัวมันเอง (disabledBranch ส่งมาจากแม่)
+    return props.disabledBranch || nodeId === props.currentItemId;
 };
 
 const isSelected = (nodeId) => {
@@ -74,9 +77,10 @@ const selectNode = (node) => {
                     :currentItemId="currentItemId"
                     :selectedId="selectedId"
                     :search="search"
+                    :disabledBranch="isDisabled(node.id)"
                     @select="selectNode"
                 />
-            </div>
+                </div>
         </div>
     </div>
 </template>

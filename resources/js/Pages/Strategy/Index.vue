@@ -1,5 +1,5 @@
 <script setup>
-import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
+import { Head, Link, useForm, usePage, router } from '@inertiajs/vue3'; // ✅ เพิ่ม router
 import { ref, computed } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import WorkItemNode from '@/Components/WorkItemNode.vue';
@@ -50,6 +50,13 @@ const openMoveModal = (item) => {
     itemToMove.value = item;
     showMoveModal.value = true;
 };
+
+// 🚀 ✅ เพิ่มฟังก์ชันรับ Event เมื่อย้ายสำเร็จ เพื่อสั่งรีโหลดข้อมูล
+const handleMoveSuccess = () => {
+    showMoveModal.value = false;
+    // สั่งให้ Inertia ดึงข้อมูล strategies จาก Server ใหม่ โดยที่หน้าเว็บไม่กะพริบ
+    router.reload({ only: ['strategies'] });
+};
 </script>
 
 <template>
@@ -98,7 +105,7 @@ const openMoveModal = (item) => {
             :show="showMoveModal"
             :item="itemToMove"
             @close="showMoveModal = false"
-            @success="showMoveModal = false"
+            @success="handleMoveSuccess"
         />
 
         <Teleport to="body">

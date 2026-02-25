@@ -377,7 +377,11 @@ class WorkItemController extends Controller
     {
         Cache::forget('dashboard_hierarchy');
         Cache::forget('dashboard_s_curve');
+
+        // ✅ เพิ่ม 2 บรรทัดนี้เพื่อให้แน่ใจว่าล้าง Cache ต้นไม้ทั้งหมดทิ้งเวลาอัปเดต/ย้าย
         Cache::forget('strategies_index');
+        Cache::forget('strategies_index_v2');
+
         Cache::forget("work_item_{$workItem->id}_s_curve");
         if ($workItem->parent_id) {
             Cache::forget("work_item_{$workItem->parent_id}_s_curve");
