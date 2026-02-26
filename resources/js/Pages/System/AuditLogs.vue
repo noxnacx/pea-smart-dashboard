@@ -27,8 +27,6 @@ watch(form, throttle(() => {
     });
 }, 500), { deep: true });
 
-// --- Helper Functions ---
-
 const getDate = (date) => new Date(date).toLocaleDateString('th-TH', { day: '2-digit', month: '2-digit', year: '2-digit' });
 const getTime = (date) => new Date(date).toLocaleTimeString('th-TH', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
@@ -36,50 +34,23 @@ const formatLogValue = (val) => {
     if (val === null || val === undefined || val === '') return '-';
     if (val === true) return 'Yes (จริง)';
     if (val === false) return 'No (เท็จ)';
-
     if (typeof val === 'string' && /^\d{4}-\d{2}-\d{2}T/.test(val)) {
         const d = new Date(val);
-        return d.toLocaleString('th-TH', {
-            year: 'numeric', month: 'short', day: 'numeric',
-            hour: '2-digit', minute: '2-digit', second: '2-digit'
-        });
+        return d.toLocaleString('th-TH', { year: 'numeric', month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit', second: '2-digit' });
     }
     return val;
 };
 
-const ignoredFields = [
-    'ev', 'pv', 'sv', 'performance_status',
-    'id', 'created_at', 'deleted_at'
-];
-
-const shouldShowField = (key) => {
-    return !ignoredFields.includes(key);
-};
+const ignoredFields = ['ev', 'pv', 'sv', 'performance_status', 'id', 'created_at', 'deleted_at'];
+const shouldShowField = (key) => !ignoredFields.includes(key);
 
 const fieldLabels = {
-    name: 'ชื่อรายการ',
-    description: 'รายละเอียด',
-    status: 'สถานะ',
-    progress: 'ความคืบหน้า (%)',
-    budget: 'งบประมาณ',
-    planned_start_date: 'วันเริ่มแผน',
-    planned_end_date: 'วันจบแผน',
-    weight: 'น้ำหนักงาน',
-    is_active: 'สถานะ Active',
-    parent_id: 'ID งานแม่',
-    division_id: 'ID กอง',
-    department_id: 'ID แผนก',
-    project_manager_id: 'ID ผู้ดูแล',
-    updated_at: 'เวลาแก้ไขล่าสุด',
-    file_name: 'ชื่อไฟล์',
-    file_size: 'ขนาดไฟล์',
-    body: 'ข้อความ',
-    comment: 'หมายเหตุ',
-    message: 'ข้อความ',
-    file_type: 'ประเภทไฟล์',
-    note: 'บันทึก'
+    name: 'ชื่อรายการ', description: 'รายละเอียด', status: 'สถานะ', progress: 'ความคืบหน้า (%)', budget: 'งบประมาณ',
+    planned_start_date: 'วันเริ่มแผน', planned_end_date: 'วันจบแผน', weight: 'น้ำหนักงาน', is_active: 'สถานะ Active',
+    parent_id: 'ID งานแม่', division_id: 'ID กอง', department_id: 'ID แผนก', project_manager_id: 'ID ผู้ดูแล',
+    updated_at: 'เวลาแก้ไขล่าสุด', file_name: 'ชื่อไฟล์', file_size: 'ขนาดไฟล์', body: 'ข้อความ', comment: 'หมายเหตุ',
+    message: 'ข้อความ', file_type: 'ประเภทไฟล์', note: 'บันทึก'
 };
-
 const getFieldName = (key) => fieldLabels[key] || key;
 
 const actionColor = (action) => {
@@ -88,6 +59,7 @@ const actionColor = (action) => {
         case 'UPDATE':
         case 'UPDATE_PROGRESS': return 'bg-yellow-100 text-yellow-700 border-yellow-200';
         case 'DELETE': return 'bg-red-100 text-red-700 border-red-200';
+        case 'RESTORE': return 'bg-teal-100 text-teal-700 border-teal-200';
         case 'EXPORT':
         case 'DOWNLOAD': return 'bg-purple-100 text-purple-700 border-purple-200';
         case 'UPLOAD': return 'bg-indigo-100 text-indigo-700 border-indigo-200';
@@ -135,6 +107,7 @@ const getRoleBadge = (role) => {
                         <option value="UPDATE">แก้ไข (Update)</option>
                         <option value="UPDATE_PROGRESS">อัปเดตความคืบหน้า (Progress)</option>
                         <option value="DELETE">ลบ (Delete)</option>
+                        <option value="RESTORE">กู้คืนข้อมูล (Restore)</option>
                         <option value="EXPORT">ดาวน์โหลด/ส่งออก (Export)</option>
                     </select>
                 </div>
@@ -206,11 +179,27 @@ const getRoleBadge = (role) => {
 
                             <td class="p-4 border-l border-gray-100 text-xs text-gray-600 whitespace-normal min-w-[350px]">
 
-                                <div v-if="log.target_name" class="font-bold text-[#4A148C] mb-2 pb-1 border-b border-gray-100 flex items-center gap-2">
+                                <div v-if="log.target_name && log.action !== 'RESTORE'" class="font-bold text-[#4A148C] mb-2 pb-1 border-b border-gray-100 flex items-center gap-2">
                                     📂 {{ log.target_name }}
                                 </div>
 
-                                <div v-if="log.changes">
+                                <div v-if="log.action === 'RESTORE'" class="flex flex-col gap-1 items-start w-full">
+                                    <div class="text-teal-700 flex items-center gap-2 font-bold bg-teal-50 px-3 py-1.5 rounded-lg border border-teal-200">
+                                        <span class="text-lg">♻️</span>
+                                        <span>นำข้อมูลกลับมาใช้งาน (กู้คืนจากถังขยะ)</span>
+                                    </div>
+                                    <div class="text-sm mt-1 bg-white border border-gray-200 px-3 py-2 rounded-lg shadow-sm w-full">
+                                        <span class="text-gray-500">ชื่อรายการ:</span>
+                                        <span class="font-bold text-gray-800">
+                                            {{ log.target_name || (log.changes && log.changes.restored_name ? log.changes.restored_name : 'ไม่พบชื่อ (ID: ' + log.model_id + ')') }}
+                                        </span>
+                                    </div>
+                                    <div v-if="log.changes && log.changes.note" class="text-gray-500 text-[11px] ml-1 mt-1">
+                                        📝 {{ log.changes.note }}
+                                    </div>
+                                </div>
+
+                                <div v-else-if="log.changes">
                                     <div v-if="(log.action === 'UPDATE' || log.action === 'UPDATE_PROGRESS') && log.changes.after" class="space-y-1.5">
                                         <template v-for="(val, key) in log.changes.after" :key="key">
                                             <div v-if="shouldShowField(key)" class="flex items-start flex-wrap gap-1">
@@ -244,7 +233,7 @@ const getRoleBadge = (role) => {
                                     </div>
                                     <div v-else class="text-gray-400 italic">- ไม่มีรายละเอียด -</div>
                                 </div>
-                                <div v-else class="text-gray-400 italic">- ไม่มีรายละเอียดเพิ่มเติม -</div>
+                                <div v-else-if="log.action !== 'RESTORE'" class="text-gray-400 italic">- ไม่มีรายละเอียดเพิ่มเติม -</div>
                             </td>
                         </tr>
                     </tbody>
