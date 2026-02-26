@@ -18,22 +18,29 @@
         }
         body { font-family: "THSarabunNew"; font-size: 16pt; color: #333; }
 
-        .box-container { width: 100%; overflow: hidden; margin-bottom: 30px; }
+        /* ✅ ลดระยะห่างของส่วนบนลง */
+        .header-title { text-align: center; margin-bottom: 20px; }
+
+        /* ✅ ลด margin-bottom ของกล่องลงมาให้ชิดกับหัวข้อด้านล่างมากขึ้น */
+        .box-container { width: 100%; margin-bottom: 5px; }
         .box {
-            float: left; width: 30%; margin-right: 3%; padding: 20px 10px;
+            float: left; width: 30%; margin-right: 3%; padding: 15px 10px;
             background: #f8f9fa; border: 1px solid #ddd; text-align: center; border-radius: 8px;
         }
         .box h3 { margin: 0; font-size: 14pt; color: #666; font-weight: normal; }
-        .box h1 { margin: 10px 0; font-size: 32pt; color: #4A148C; font-weight: bold; line-height: 1; }
+        .box h1 { margin: 10px 0 0 0; font-size: 32pt; color: #4A148C; font-weight: bold; line-height: 1; }
 
-        h2 { color: #4A148C; border-bottom: 2px solid #FDB913; padding-bottom: 5px; margin-top: 30px; font-size: 18pt; }
+        /* ✅ ปรับระยะห่างหัวข้อโปรเจค */
+        h2 { color: #4A148C; border-bottom: 2px solid #FDB913; padding-bottom: 5px; margin-top: 15px; margin-bottom: 10px; font-size: 18pt; }
 
         .progress-bar { width: 100%; background-color: #e0e0e0; border-radius: 10px; height: 16px; margin-top: 5px; overflow: hidden; }
         .progress-fill { height: 100%; background-color: #4A148C; text-align: center; line-height: 16px; color: white; font-size: 10pt; }
+
+        .clear-both { clear: both; }
     </style>
 </head>
 <body>
-    <div style="text-align: center; margin-bottom: 40px;">
+    <div class="header-title">
         <h1 style="color: #4A148C; font-size: 24pt; margin: 0;">รายงานสรุปผู้บริหาร (Executive Summary)</h1>
         <p style="margin: 5px 0; color: #666;">PEA Smart Dashboard | ประจำวันที่ {{ $date }}</p>
     </div>
@@ -53,11 +60,14 @@
         </div>
     </div>
 
-    <h2>โครงการสำคัญ (Top Projects by Budget)</h2>
-    <table style="width: 100%; border-collapse: collapse; margin-top: 15px;">
+    <div class="clear-both"></div>
+
+    <h2>{{ count(request()->project_ids ?? []) > 0 ? 'โครงการที่น่าสนใจ (Selected Projects)' : 'โครงการสำคัญ (Top 5 Projects by Budget)' }}</h2>
+
+    <table style="width: 100%; border-collapse: collapse;">
         @foreach($topProjects as $project)
         <tr>
-            <td style="border-bottom: 1px solid #eee; padding: 12px 0;">
+            <td style="border-bottom: 1px solid #eee; padding: 10px 0;">
                 <div style="font-weight: bold; font-size: 14pt;">{{ $project->name }}</div>
                 <div style="color: #666; font-size: 12pt;">งบประมาณ: {{ number_format($project->budget) }} บาท</div>
                 <div class="progress-bar">

@@ -74,7 +74,7 @@
                 @foreach($strategy->children as $plan)
                     <tr style="background-color: #fff;">
                         <td style="padding-left: 20px;">
-                            <strong>&#9658; {{ $plan->name }}</strong>
+                            <strong>{{ $plan->name }}</strong>
                         </td>
                         <td class="text-center">{{ strtoupper($plan->status) }}</td>
                         <td class="text-center" style="font-size: 12pt;">

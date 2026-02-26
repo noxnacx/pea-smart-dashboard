@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\WorkItem;
 use App\Models\Issue;
 use App\Models\AuditLog;
+use App\Models\Division;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Barryvdh\DomPDF\Facade\Pdf;
@@ -14,75 +15,120 @@ use App\Exports\IssueRiskExport;
 use App\Exports\ExecutiveSummaryExport;
 use Carbon\Carbon;
 use Maatwebsite\Excel\Excel as ExcelFormat;
-use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
+use Illuminate\Support\Facades\Cache;
 
 class ReportController extends Controller
 {
     public function index()
     {
-        return Inertia::render('Report/Index');
+        $divisions = Division::orderBy('name')->get();
+        $strategies = WorkItem::whereNull('parent_id')->orderBy('name')->get();
+        // ✅ ดึงรายชื่อโครงการทั้งหมดไปให้หน้าผู้บริหารเลือก
+        $projects = WorkItem::where('type', 'project')->orderBy('name')->get(['id', 'name']);
+
+        return Inertia::render('Report/Index', [
+            'divisions' => $divisions,
+            'strategies' => $strategies,
+            'projects' => $projects
+        ]);
+    }
+
+    // ฟังก์ชันช่วยหา ID ลูกหลานทั้งหมด
+    public function getDescendantIds($item)
+    {
+        $ids = [];
+        $children = WorkItem::where('parent_id', $item->id)->get();
+        foreach ($children as $child) {
+            $ids[] = $child->id;
+            $ids = array_merge($ids, $this->getDescendantIds($child));
+        }
+        return $ids;
     }
 
     // =========================================================================
     // 1. รายงานความก้าวหน้า (Progress Report)
     // =========================================================================
-
-    public function exportProgressPdf()
+    public function exportProgressPdf(Request $request)
     {
-        // 🚀 CACHE: เก็บข้อมูล 10 นาที (ป้องกันการกดรัวๆ)
-        $data = Cache::remember('report_progress_pdf_data', 600, function () {
-            $strategies = WorkItem::whereNull('parent_id')
-                ->with(['children.children' => function($q) {
-                    $q->orderBy('order_index');
-                }])
-                ->orderBy('order_index')
-                ->get();
+        $cacheKey = 'report_progress_' . md5(json_encode($request->all()));
+
+        $data = Cache::remember($cacheKey, 300, function () use ($request) {
+            $query = WorkItem::whereNull('parent_id')
+                ->with(['children' => function($q) use ($request) {
+                    if ($request->division_id) $q->where('division_id', $request->division_id);
+                    $q->with(['children' => function($sq) use ($request) {
+                        if ($request->division_id) $sq->where('division_id', $request->division_id);
+                    }]);
+                }]);
+
+            // ✅ กรองยุทธศาสตร์ที่เลือก
+            if ($request->strategy_id) {
+                $query->where('id', $request->strategy_id);
+            }
+
+            $strategies = $query->get()->sortBy('name', SORT_NATURAL)->values();
+
+            $statsQuery = WorkItem::where('type', 'project');
+            if ($request->division_id) $statsQuery->where('division_id', $request->division_id);
+            if ($request->strategy_id) {
+                $strategy = WorkItem::find($request->strategy_id);
+                $descendants = $strategy ? $this->getDescendantIds($strategy) : [];
+                $statsQuery->whereIn('id', $descendants);
+            }
 
             $stats = [
-                'total' => WorkItem::where('type', 'project')->count(),
-                'budget' => WorkItem::where('type', 'project')->sum('budget'),
-                'completed' => WorkItem::where('type', 'project')->where('progress', 100)->count(),
+                'total' => $statsQuery->count(),
+                'budget' => $statsQuery->sum('budget'),
+                'completed' => (clone $statsQuery)->where('progress', 100)->count(),
             ];
 
             return compact('strategies', 'stats');
         });
 
         $fileName = 'progress-report-' . now()->format('Ymd-His') . '.pdf';
-
         $pdf = Pdf::loadView('reports.progress_pdf', [
             'strategies' => $data['strategies'],
             'stats' => $data['stats'],
             'date' => now()->format('d/m/Y')
         ])->setPaper('a4', 'landscape');
 
-        // ✅ บันทึก Log
         $this->logExport('รายงานความก้าวหน้า (PDF)', $fileName);
-
         return $pdf->stream($fileName);
     }
 
-    public function exportProgressExcel()
-    {
+    public function exportProgressExcel(Request $request) {
+        if ($request->strategy_id) {
+            $strategy = WorkItem::find($request->strategy_id);
+            $request->merge(['filtered_item_ids' => $this->getDescendantIds($strategy)]);
+        }
         $fileName = 'progress-report-' . now()->format('Ymd-His') . '.xlsx';
         $this->logExport('รายงานความก้าวหน้า (Excel)', $fileName);
-        return Excel::download(new ProjectProgressExport, $fileName);
+        return Excel::download(new ProjectProgressExport($request), $fileName);
     }
 
-    public function exportProgressCsv()
-    {
+    public function exportProgressCsv(Request $request) {
+        if ($request->strategy_id) {
+            $strategy = WorkItem::find($request->strategy_id);
+            $request->merge(['filtered_item_ids' => $this->getDescendantIds($strategy)]);
+        }
         $fileName = 'progress-report-' . now()->format('Ymd-His') . '.csv';
         $this->logExport('รายงานความก้าวหน้า (CSV)', $fileName);
-        return Excel::download(new ProjectProgressExport, $fileName, ExcelFormat::CSV);
+        return Excel::download(new ProjectProgressExport($request), $fileName, ExcelFormat::CSV);
     }
 
     // =========================================================================
     // 2. รายงานปัญหา (Issues Report)
     // =========================================================================
-
-    public function exportIssuesPdf()
+    public function exportIssuesPdf(Request $request)
     {
-        // ไม่ Cache เพราะต้องการข้อมูล Real-time ล่าสุดเสมอสำหรับปัญหา
-        $issues = Issue::with('workItem')->orderBy('severity')->get();
+        $query = Issue::with('workItem')->orderBy('severity');
+
+        if ($request->type) $query->where('type', $request->type);
+        if ($request->status) $query->where('status', $request->status);
+        if ($request->start_date) $query->whereDate('created_at', '>=', $request->start_date);
+        if ($request->end_date) $query->whereDate('created_at', '<=', $request->end_date);
+
+        $issues = $query->get();
         $fileName = 'issues-report-' . now()->format('Ymd-His') . '.pdf';
 
         $pdf = Pdf::loadView('reports.issues_pdf', [
@@ -91,42 +137,46 @@ class ReportController extends Controller
         ])->setPaper('a4', 'portrait');
 
         $this->logExport('รายงานปัญหา (PDF)', $fileName);
-
         return $pdf->stream($fileName);
     }
 
-    public function exportIssuesExcel()
-    {
+    public function exportIssuesExcel(Request $request) {
         $fileName = 'issues-report-' . now()->format('Ymd-His') . '.xlsx';
         $this->logExport('รายงานปัญหา (Excel)', $fileName);
-        return Excel::download(new IssueRiskExport, $fileName);
+        return Excel::download(new IssueRiskExport($request), $fileName);
     }
 
-    public function exportIssuesCsv()
-    {
+    public function exportIssuesCsv(Request $request) {
         $fileName = 'issues-report-' . now()->format('Ymd-His') . '.csv';
         $this->logExport('รายงานปัญหา (CSV)', $fileName);
-        return Excel::download(new IssueRiskExport, $fileName, ExcelFormat::CSV);
+        return Excel::download(new IssueRiskExport($request), $fileName, ExcelFormat::CSV);
     }
 
     // =========================================================================
     // 3. รายงานผู้บริหาร (Executive Report)
     // =========================================================================
-
-    public function exportExecutivePdf()
+    public function exportExecutivePdf(Request $request)
     {
-        // 🚀 CACHE: เก็บข้อมูล 15 นาที
-        $data = Cache::remember('report_executive_pdf_data', 900, function () {
+        $projectIds = $request->project_ids ?? [];
+        $cacheKey = 'report_executive_' . md5(json_encode($request->all()));
+
+        $data = Cache::remember($cacheKey, 300, function () use ($projectIds) {
             $stats = [
                 'total' => WorkItem::where('type', 'project')->count(),
                 'budget' => WorkItem::where('type', 'project')->sum('budget'),
-                'critical_issues' => Issue::where('severity', 'critical')->count(),
+                'critical_issues' => Issue::where('severity', 'critical')->where('status', '!=', 'resolved')->count(),
             ];
 
-            $topProjects = WorkItem::where('type', 'project')
-                ->orderByDesc('budget')
-                ->take(5)
-                ->get();
+            $topProjectsQuery = WorkItem::where('type', 'project');
+
+            // ✅ ดึงเฉพาะโปรเจคที่เลือก หรือถ้าไม่เลือกเลยให้ดึง Top 5
+            if (!empty($projectIds)) {
+                $topProjectsQuery->whereIn('id', $projectIds);
+            } else {
+                $topProjectsQuery->orderByDesc('budget')->take(5);
+            }
+
+            $topProjects = $topProjectsQuery->get();
 
             return compact('stats', 'topProjects');
         });
@@ -140,72 +190,30 @@ class ReportController extends Controller
         ])->setPaper('a4', 'portrait');
 
         $this->logExport('รายงานผู้บริหาร (PDF)', $fileName);
-
         return $pdf->stream($fileName);
     }
 
-    public function exportExecutiveExcel()
-    {
+    public function exportExecutiveExcel(Request $request) {
         $fileName = 'executive-report-' . now()->format('Ymd-His') . '.xlsx';
         $this->logExport('รายงานผู้บริหาร (Excel)', $fileName);
-        return Excel::download(new ExecutiveSummaryExport, $fileName);
+        return Excel::download(new ExecutiveSummaryExport($request), $fileName);
     }
 
-    public function exportExecutiveCsv()
-    {
+    public function exportExecutiveCsv(Request $request) {
         $fileName = 'executive-report-' . now()->format('Ymd-His') . '.csv';
         $this->logExport('รายงานผู้บริหาร (CSV)', $fileName);
-        return Excel::download(new ExecutiveSummaryExport, $fileName, ExcelFormat::CSV);
+        return Excel::download(new ExecutiveSummaryExport($request), $fileName, ExcelFormat::CSV);
     }
 
     // =========================================================================
-    // 4. รายงานรายโครงการ (Project Detail)
+    // 4. รายงานโครงสร้างยุทธศาสตร์ (Tree View)
     // =========================================================================
-
-    public function exportWorkItemPdf($id)
+    public function exportTreePdf(Request $request)
     {
-        // 🚀 CACHE: เก็บข้อมูล 1 นาที (เผื่อกดซ้ำๆ)
-        $workItem = Cache::remember("report_project_{$id}", 60, function () use ($id) {
-            return WorkItem::with(['children', 'issues', 'attachments', 'parent'])
-                ->findOrFail($id);
-        });
+        $cacheKey = 'report_tree_' . md5(json_encode($request->all()));
 
-        $fileName = 'project-' . $workItem->id . '-' . now()->format('Ymd') . '.pdf';
-
-        $pdf = Pdf::loadView('reports.work_item_detail', [
-            'item' => $workItem,
-            'date' => now()->format('d/m/Y')
-        ])->setPaper('a4', 'portrait');
-
-        $this->logExport('WorkItem Detail (PDF)', $fileName, $workItem->id, $workItem->name);
-
-        return $pdf->stream($fileName);
-    }
-
-    // --- Helper for Logging ---
-    private function logExport($type, $fileName, $modelId = 0, $targetName = null)
-    {
-        AuditLog::create([
-            'user_id' => auth()->id(),
-            'action' => 'EXPORT',
-            'model_type' => $type,
-            'model_id' => $modelId,
-            'ip_address' => request()->ip(), // ✅ เก็บ IP
-            'target_name' => $targetName ?? $type,
-            'changes' => ['ชื่อไฟล์' => $fileName],
-        ]);
-    }
-
-    public function exportTreePdf()
-    {
-        // 🚀 CACHE: เก็บข้อมูล 10 นาที เพื่อไม่ให้ดึงข้อมูลหนักเกินไป
-        $strategies = Cache::remember('report_tree_pdf_data', 600, function () {
-
-            // ดึงลูกหลานลงไป 6 ระดับ
-            $recursiveLoad = function ($q) {
-                $q->orderBy('name', 'asc')->with('projectManager');
-            };
-
+        $strategies = Cache::remember($cacheKey, 300, function () use ($request) {
+            $recursiveLoad = function ($q) { $q->orderBy('name', 'asc')->with('projectManager'); };
             $relations = [];
             $depth = 'children';
             for ($i = 0; $i < 6; $i++) {
@@ -213,97 +221,91 @@ class ReportController extends Controller
                 $depth .= '.children';
             }
 
-            return WorkItem::where('type', 'strategy')
-                ->with($relations)
-                ->orderBy('name', 'asc')
-                ->get()
-                ->sortBy('name', SORT_NATURAL)
-                ->values();
+            $query = WorkItem::whereNull('parent_id')->with($relations);
+
+            if ($request->strategy_id) {
+                $query->where('id', $request->strategy_id);
+            }
+
+            return $query->get()->sortBy('name', SORT_NATURAL)->values();
         });
 
         $fileName = 'strategy-tree-report-' . now()->format('Ymd-His') . '.pdf';
 
-        // โหลด Blade (ที่ให้สร้างไว้)
         $pdf = Pdf::loadView('reports.tree-view', [
             'strategies' => $strategies,
             'date' => now()->format('d/m/Y')
-        ])->setPaper('a4', 'landscape'); // ✅ บังคับเป็นแนวนอน
+        ])->setPaper('a4', 'landscape');
 
         $this->logExport('รายงานโครงสร้างยุทธศาสตร์ (PDF)', $fileName);
-
         return $pdf->stream($fileName);
     }
-    public function exportTreeExcel()
-    {
+
+    public function exportTreeExcel(Request $request) {
         $fileName = 'strategy-tree-report-' . now()->format('Ymd-His') . '.xlsx';
         $this->logExport('รายงานโครงสร้างยุทธศาสตร์ (Excel)', $fileName);
-        return Excel::download(new \App\Exports\StrategyTreeExport, $fileName);
+        return Excel::download(new \App\Exports\StrategyTreeExport($request), $fileName);
     }
 
-    public function exportTreeCsv()
-    {
+    public function exportTreeCsv(Request $request) {
         $fileName = 'strategy-tree-report-' . now()->format('Ymd-His') . '.csv';
         $this->logExport('รายงานโครงสร้างยุทธศาสตร์ (CSV)', $fileName);
-        return Excel::download(new \App\Exports\StrategyTreeExport, $fileName, ExcelFormat::CSV);
+        return Excel::download(new \App\Exports\StrategyTreeExport($request), $fileName, ExcelFormat::CSV);
     }
 
-    // =========================================================================
-    // 5. รายงานไทม์ไลน์เป้าหมาย (Milestone Timeline)
-    // =========================================================================
+    // --- Single Item & Timeline ---
+    public function exportWorkItemPdf($id)
+    {
+        $workItem = Cache::remember("report_project_{$id}", 60, function () use ($id) {
+            return WorkItem::with(['children', 'issues', 'attachments', 'parent'])->findOrFail($id);
+        });
+        $fileName = 'project-' . $workItem->id . '-' . now()->format('Ymd') . '.pdf';
+        $pdf = Pdf::loadView('reports.work_item_detail', ['item' => $workItem, 'date' => now()->format('d/m/Y')])->setPaper('a4', 'portrait');
+        $this->logExport('WorkItem Detail (PDF)', $fileName, $workItem->id, $workItem->name);
+        return $pdf->stream($fileName);
+    }
+
     public function exportMilestonePdf($id)
     {
         $workItem = WorkItem::with(['children.children.children'])->findOrFail($id);
-
         $tasks = collect();
-
-        // เจาะทะลุหางานย่อยทั้งหมด
         $extractTasks = function ($items) use (&$extractTasks, &$tasks) {
             foreach ($items as $item) {
-                // ✅ กรองงานที่ถูก "ยกเลิก (cancelled)" ออกไปเลย ไม่เอามาโชว์ในเอกสาร
-                if ($item->planned_end_date && $item->status !== 'cancelled') {
-                    $tasks->push($item);
-                }
-                if ($item->children->count() > 0) {
-                    $extractTasks($item->children);
-                }
+                if ($item->planned_end_date && $item->status !== 'cancelled') $tasks->push($item);
+                if ($item->children->count() > 0) $extractTasks($item->children);
             }
         };
-
         $extractTasks($workItem->children);
 
-        // จัดกลุ่มตามเดือน-ปี (เหมือนในหน้า Vue)
         $groupedMilestones = $tasks->sortBy('planned_end_date')->groupBy(function ($task) {
             return Carbon::parse($task->planned_end_date)->format('Y-m');
         })->map(function ($group) {
             $date = Carbon::parse($group->first()->planned_end_date);
             return [
-                'label' => $date->locale('th')->translatedFormat('F Y'), // เช่น มีนาคม 2569
+                'label' => $date->locale('th')->translatedFormat('F Y'),
                 'timestamp' => $date->timestamp,
-                'tasks' => $group->map(function($t) {
-                    return [
-                        'name' => $t->name,
-                        'description' => $t->description, // ส่ง Description มาด้วย
-                        'status' => $t->status,
-                        'progress' => $t->progress
-                    ];
-                })->toArray()
+                'tasks' => $group->map(function($t) { return ['name' => $t->name, 'description' => $t->description, 'status' => $t->status, 'progress' => $t->progress]; })->toArray()
             ];
         })->sortBy('timestamp')->values();
 
-        // 💡 แบ่งเป็นก้อน (Chunk) ก้อนละ 4 เดือน เพื่อไม่ให้ล้นหน้ากระดาษ A4 แนวนอน
         $chunkedMilestones = $groupedMilestones->chunk(4);
-
         $fileName = 'milestone-timeline-' . $workItem->id . '-' . now()->format('Ymd') . '.pdf';
 
-        // โหลด Blade View
-        $pdf = Pdf::loadView('reports.milestone_pdf', [
-            'item' => $workItem,
-            'chunkedMilestones' => $chunkedMilestones,
-            'date' => now()->format('d/m/Y')
-        ])->setPaper('a4', 'landscape'); // ปรับเป็นแนวนอนให้สวยงาม
-
+        $pdf = Pdf::loadView('reports.milestone_pdf', ['item' => $workItem, 'chunkedMilestones' => $chunkedMilestones, 'date' => now()->format('d/m/Y')])->setPaper('a4', 'landscape');
         $this->logExport('รายงานไทม์ไลน์เป้าหมาย (PDF)', $fileName, $workItem->id, $workItem->name);
-
         return $pdf->stream($fileName);
+    }
+
+    private function logExport($type, $fileName, $modelId = 0, $targetName = null)
+    {
+        AuditLog::create([
+            'user_id' => auth()->id(),
+            'action' => 'EXPORT',
+            'model_type' => $type,
+            'model_id' => $modelId,
+            'ip_address' => request()->ip(),
+            'target_name' => $targetName ?? $type,
+            'changes' => ['ชื่อไฟล์' => $fileName],
+        ]);
     }
 }
