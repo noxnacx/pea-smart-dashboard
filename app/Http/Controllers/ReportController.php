@@ -23,7 +23,6 @@ class ReportController extends Controller
     {
         $divisions = Division::orderBy('name')->get();
         $strategies = WorkItem::whereNull('parent_id')->orderBy('name')->get();
-        // ✅ ดึงรายชื่อโครงการทั้งหมดไปให้หน้าผู้บริหารเลือก
         $projects = WorkItem::where('type', 'project')->orderBy('name')->get(['id', 'name']);
 
         return Inertia::render('Report/Index', [
@@ -33,7 +32,6 @@ class ReportController extends Controller
         ]);
     }
 
-    // ฟังก์ชันช่วยหา ID ลูกหลานทั้งหมด
     public function getDescendantIds($item)
     {
         $ids = [];
@@ -61,7 +59,6 @@ class ReportController extends Controller
                     }]);
                 }]);
 
-            // ✅ กรองยุทธศาสตร์ที่เลือก
             if ($request->strategy_id) {
                 $query->where('id', $request->strategy_id);
             }
@@ -153,10 +150,17 @@ class ReportController extends Controller
     }
 
     // =========================================================================
-    // 3. รายงานผู้บริหาร (Executive Report)
+    // 3. รายงานผู้บริหาร (Executive Report) (✅ มี Validation ป้องกันพัง)
     // =========================================================================
     public function exportExecutivePdf(Request $request)
     {
+        // 🛡️ ป้องกันระบบล่มด้วยการจำกัดสูงสุด 20 โครงการ
+        $request->validate([
+            'project_ids' => 'nullable|array|max:20'
+        ], [
+            'project_ids.max' => 'เลือกโครงการได้สูงสุด 20 รายการต่อการดาวน์โหลด 1 ครั้ง'
+        ]);
+
         $projectIds = $request->project_ids ?? [];
         $cacheKey = 'report_executive_' . md5(json_encode($request->all()));
 
@@ -169,9 +173,8 @@ class ReportController extends Controller
 
             $topProjectsQuery = WorkItem::where('type', 'project');
 
-            // ✅ ดึงเฉพาะโปรเจคที่เลือก หรือถ้าไม่เลือกเลยให้ดึง Top 5
             if (!empty($projectIds)) {
-                $topProjectsQuery->whereIn('id', $projectIds);
+                $topProjectsQuery->whereIn('id', $projectIds)->take(20); // ล็อค Take 20 อีกชั้น
             } else {
                 $topProjectsQuery->orderByDesc('budget')->take(5);
             }
@@ -194,12 +197,14 @@ class ReportController extends Controller
     }
 
     public function exportExecutiveExcel(Request $request) {
+        $request->validate(['project_ids' => 'nullable|array|max:20']);
         $fileName = 'executive-report-' . now()->format('Ymd-His') . '.xlsx';
         $this->logExport('รายงานผู้บริหาร (Excel)', $fileName);
         return Excel::download(new ExecutiveSummaryExport($request), $fileName);
     }
 
     public function exportExecutiveCsv(Request $request) {
+        $request->validate(['project_ids' => 'nullable|array|max:20']);
         $fileName = 'executive-report-' . now()->format('Ymd-His') . '.csv';
         $this->logExport('รายงานผู้บริหาร (CSV)', $fileName);
         return Excel::download(new ExecutiveSummaryExport($request), $fileName, ExcelFormat::CSV);
