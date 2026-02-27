@@ -10,9 +10,16 @@ const toggleSearch = () => {
     isSearchOpen.value = !isSearchOpen.value;
 };
 
-// เช็คสิทธิ์เฉพาะ PM เท่านั้น (Admin ไม่ต้องเห็น)
 const page = usePage();
+
+// 🔒 เช็คสิทธิ์เฉพาะ PM เท่านั้น
 const isPmOnly = computed(() => ['pm', 'project_manager'].includes(page.props.auth.user.role));
+
+// 🔒 เช็คสิทธิ์ให้เห็นเมนูแจ้งเตือน (Admin และ PM)
+const canSeeNotifications = computed(() => ['admin', 'pm', 'project_manager'].includes(page.props.auth.user.role));
+
+// 🔔 ดึงตัวเลขการแจ้งเตือนที่ยังไม่ได้อ่าน
+const unreadCount = computed(() => page.props.auth.unreadNotifications || 0);
 
 // ปุ่มลัด Shift + S สำหรับเปิด Search
 const handleKeydown = (e) => {
@@ -69,6 +76,18 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                       :class="route().current('dashboard') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
                     <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"/></svg>
                     ภาพรวม (Dashboard)
+                </Link>
+
+                <Link v-if="canSeeNotifications" :href="safeRoute('notifications.index')"
+                      class="flex items-center justify-between px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                      :class="isRouteActive('notifications.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                    <div class="flex items-center gap-3">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"/></svg>
+                        การแจ้งเตือน
+                    </div>
+                    <span v-if="unreadCount > 0" class="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full shadow-md">
+                        {{ unreadCount }}
+                    </span>
                 </Link>
 
                 <Link :href="route('calendar.index')"
@@ -218,6 +237,14 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
             <div v-if="showingNavigationDropdown" class="md:hidden bg-[#380d6b] text-white border-b border-purple-800 shadow-xl absolute w-full z-40 top-[60px] max-h-[80vh] overflow-y-auto">
                  <nav class="px-4 py-4 space-y-2">
                     <Link :href="route('dashboard')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">Dashboard</Link>
+
+                    <Link v-if="canSeeNotifications" :href="safeRoute('notifications.index')" class="flex justify-between items-center px-4 py-3 hover:bg-purple-800 rounded-lg">
+                        <span>การแจ้งเตือน</span>
+                        <span v-if="unreadCount > 0" class="bg-red-500 text-white text-[10px] font-bold px-2 py-0.5 rounded-full">
+                            {{ unreadCount }}
+                        </span>
+                    </Link>
+
                     <Link :href="route('calendar.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ปฏิทินรวมงาน</Link>
 
                     <Link v-if="isPmOnly" :href="safeRoute('my-works.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">งานของฉัน (My Works)</Link>

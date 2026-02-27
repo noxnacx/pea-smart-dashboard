@@ -8,6 +8,10 @@ use App\Models\AuditLog;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
 use Inertia\Inertia;
+// ✅ นำเข้าระบบแจ้งเตือน
+use App\Models\User;
+use Illuminate\Support\Facades\Notification;
+use App\Notifications\IssueCreatedNotification;
 
 class IssueController extends Controller
 {
@@ -40,6 +44,12 @@ class IssueController extends Controller
             'title' => $issue->title,
             'type' => $issue->type
         ]);
+
+        // 🔔 แจ้งเตือน Admin ทุกคน เมื่อมีปัญหา/ความเสี่ยงใหม่ถูกสร้างขึ้น
+        $admins = User::where('role', 'admin')->get();
+        if ($admins->count() > 0) {
+            Notification::send($admins, new IssueCreatedNotification($issue, $workItem));
+        }
 
         return back()->with('success', 'บันทึกข้อมูลเรียบร้อย');
     }

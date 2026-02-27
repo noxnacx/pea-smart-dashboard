@@ -33,6 +33,10 @@ class HandleInertiaRequests extends Middleware
             ...parent::share($request),
             'auth' => [
                 'user' => $request->user(),
+
+                // 🚀 เพิ่มบรรทัดนี้ลงไป เพื่อส่งจำนวนการแจ้งเตือนที่ยังไม่ได้อ่านไปให้ Vue
+                'unreadNotifications' => $request->user() ? $request->user()->unreadNotifications->count() : 0,
+
                 'roles' => [
                     'is_admin' => $request->user()?->isAdmin() ?? false,
                     'is_pm' => $request->user()?->isPm() ?? false,

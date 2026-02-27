@@ -11,11 +11,12 @@ use App\Http\Controllers\IssueController;
 use App\Http\Controllers\CalendarController;
 use App\Http\Controllers\GlobalSearchController;
 use App\Http\Controllers\OrganizationController;
+use App\Http\Controllers\NotificationController;
 use App\Http\Controllers\ProjectManagerController;
 use App\Http\Controllers\CommentController;
-use App\Http\Controllers\TrashController;          // ✅ เพิ่มใหม่
-use App\Http\Controllers\WorkItemTypeController;   // ✅ เพิ่มใหม่
-use App\Http\Controllers\MilestoneController;      // ✅ เพิ่มใหม่
+use App\Http\Controllers\TrashController;
+use App\Http\Controllers\WorkItemTypeController;
+use App\Http\Controllers\MilestoneController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -36,11 +37,17 @@ Route::get('/', function () {
 Route::middleware(['auth', 'verified'])->group(function () {
 
     // =========================================================================
-    // 🌍 1. General Access (เข้าถึงได้ทุกคนที่ Login)
+    // 🌍 1. General Access (เข้าถึงได้ทุกคนที่ Login ทั้ง Admin และ PM)
     // =========================================================================
 
     // --- Dashboard ---
     Route::get('/admin/dashboard', [DashboardController::class, 'adminDashboard'])->name('dashboard');
+
+    // 🚀 --- ระบบแจ้งเตือน (Notifications) ย้ายมาตรงนี้เพื่อให้ PM เข้าถึงได้ ---
+    Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
+    Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
+    Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
+    Route::delete('/notifications/{id}', [NotificationController::class, 'destroy'])->name('notifications.destroy');
 
     // --- Work Items Read-Only (รายการงาน) ---
     Route::get('/work-items', [WorkItemController::class, 'index'])->name('work-items.index');
@@ -122,12 +129,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         // --- Work Items (CRUD) ---
         Route::get('/work-items/create', [WorkItemController::class, 'create'])->name('work-items.create');
-        Route::get('/work-items', [WorkItemController::class, 'index'])->name('work-items.index');
+        Route::post('/work-items', [WorkItemController::class, 'store'])->name('work-items.store'); // ✅ เพิ่ม store ที่หายไป!
         Route::get('/work-items/{workItem}/edit', [WorkItemController::class, 'edit'])->name('work-items.edit');
         Route::put('/work-items/{workItem}', [WorkItemController::class, 'update'])->name('work-items.update');
         Route::delete('/work-items/{workItem}', [WorkItemController::class, 'destroy'])->name('work-items.destroy');
         Route::post('/work-items/bulk-action', [WorkItemController::class, 'bulkAction'])->name('work-items.bulk');
-
         Route::put('/work-items/{workItem}/move', [WorkItemController::class, 'move'])->name('work-items.move');
 
         // --- Attachments ---
@@ -139,7 +145,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::put('/issues/{issue}', [IssueController::class, 'update'])->name('issues.update');
         Route::delete('/issues/{issue}', [IssueController::class, 'destroy'])->name('issues.destroy');
 
-        // ✅ --- Milestones ---
+        // --- Milestones ---
         Route::post('/work-items/{workItem}/milestones', [MilestoneController::class, 'store'])->name('milestones.store');
         Route::put('/milestones/{milestone}', [MilestoneController::class, 'update'])->name('milestones.update');
         Route::delete('/milestones/{milestone}', [MilestoneController::class, 'destroy'])->name('milestones.destroy');
@@ -175,10 +181,10 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // PM Directory
         Route::delete('/pm/{id}', [ProjectManagerController::class, 'destroy'])->name('pm.destroy');
 
-        // ✅ --- ตั้งค่าประเภทงาน (Dynamic Hierarchy) ---
+        // --- ตั้งค่าประเภทงาน (Dynamic Hierarchy) ---
         Route::resource('work-item-types', WorkItemTypeController::class)->except(['create', 'show', 'edit']);
 
-        // ✅ --- ระบบถังขยะ (Soft Deletes / Recycle Bin) ---
+        // --- ระบบถังขยะ (Soft Deletes / Recycle Bin) ---
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
         Route::post('/trash/work-items/{id}/restore', [TrashController::class, 'restoreWorkItem'])->name('trash.restore.work-item');
         Route::delete('/trash/work-items/{id}/force-delete', [TrashController::class, 'forceDeleteWorkItem'])->name('trash.force-delete.work-item');

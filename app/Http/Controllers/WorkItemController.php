@@ -19,6 +19,10 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Inertia\Inertia;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
+// ✅ นำเข้าระบบแจ้งเตือน
+use Illuminate\Support\Facades\Notification;
+use App\Notifications\AssignedAsPmNotification;
+use App\Notifications\WorkItemDeletedNotification;
 
 class WorkItemController extends Controller
 {
@@ -173,6 +177,14 @@ class WorkItemController extends Controller
 
         $this->logActivity('CREATE', $workItem, [], $validated);
 
+        // 🔔 แจ้งเตือน PM ถ้ามีการระบุตัวบุคคล
+        if ($workItem->project_manager_id) {
+            $pm = User::find($workItem->project_manager_id);
+            if ($pm) {
+                $pm->notify(new AssignedAsPmNotification($workItem));
+            }
+        }
+
         if ($workItem->parent) {
             $workItem->parent->recalculateProgress();
         }
@@ -225,7 +237,17 @@ class WorkItemController extends Controller
 
         $oldData = $workItem->getOriginal();
 
+        // ถ้ามีการเปลี่ยนตัว PM ให้แจ้งเตือนคนใหม่ด้วย
+        $oldPmId = $workItem->project_manager_id;
+
         $workItem->update($validated);
+
+        if ($workItem->wasChanged('project_manager_id') && $workItem->project_manager_id) {
+            $pm = User::find($workItem->project_manager_id);
+            if ($pm) {
+                $pm->notify(new AssignedAsPmNotification($workItem));
+            }
+        }
 
         if ($workItem->wasChanged('status')) {
             $this->cascadeStatus($workItem, $workItem->status);
@@ -366,6 +388,18 @@ class WorkItemController extends Controller
 
         $this->logActivity('DELETE', $workItem, $workItem->toArray(), []);
         $this->clearRelatedCache($workItem);
+
+        // 🔔 แจ้งเตือน Admin ทุกคน และ PM ที่ดูแลงานนี้
+        $admins = User::where('role', 'admin')->get();
+        Notification::send($admins, new WorkItemDeletedNotification($workItem->name));
+
+        if ($workItem->project_manager_id) {
+            $pm = User::find($workItem->project_manager_id);
+            // ถ้า PM ไม่ใช่ Admin (กันส่งซ้ำ) ให้แจ้งเตือนด้วย
+            if ($pm && $pm->role !== 'admin') {
+                $pm->notify(new WorkItemDeletedNotification($workItem->name));
+            }
+        }
 
         // ✅ ลบงานย่อยที่อยู่ภายใต้ทั้งหมด (Recursive)
         $this->cascadeDelete($workItem);
