@@ -16,6 +16,7 @@ use App\Exports\ExecutiveSummaryExport;
 use Carbon\Carbon;
 use Maatwebsite\Excel\Excel as ExcelFormat;
 use Illuminate\Support\Facades\Cache;
+use App\Jobs\GenerateProgressReportJob; // 🚀 นำเข้าระบบ Queue
 
 class ReportController extends Controller
 {
@@ -44,53 +45,15 @@ class ReportController extends Controller
     }
 
     // =========================================================================
-    // 1. รายงานความก้าวหน้า (Progress Report)
+    // 1. รายงานความก้าวหน้า (Progress Report) - 🚀 เปลี่ยนมาใช้ Queue
     // =========================================================================
     public function exportProgressPdf(Request $request)
     {
-        $cacheKey = 'report_progress_' . md5(json_encode($request->all()));
+        // โยนงานเข้า Queue เพื่อให้ไปทำเบื้องหลัง
+        GenerateProgressReportJob::dispatch(auth()->id(), $request->all());
 
-        $data = Cache::remember($cacheKey, 300, function () use ($request) {
-            $query = WorkItem::whereNull('parent_id')
-                ->with(['children' => function($q) use ($request) {
-                    if ($request->division_id) $q->where('division_id', $request->division_id);
-                    $q->with(['children' => function($sq) use ($request) {
-                        if ($request->division_id) $sq->where('division_id', $request->division_id);
-                    }]);
-                }]);
-
-            if ($request->strategy_id) {
-                $query->where('id', $request->strategy_id);
-            }
-
-            $strategies = $query->get()->sortBy('name', SORT_NATURAL)->values();
-
-            $statsQuery = WorkItem::where('type', 'project');
-            if ($request->division_id) $statsQuery->where('division_id', $request->division_id);
-            if ($request->strategy_id) {
-                $strategy = WorkItem::find($request->strategy_id);
-                $descendants = $strategy ? $this->getDescendantIds($strategy) : [];
-                $statsQuery->whereIn('id', $descendants);
-            }
-
-            $stats = [
-                'total' => $statsQuery->count(),
-                'budget' => $statsQuery->sum('budget'),
-                'completed' => (clone $statsQuery)->where('progress', 100)->count(),
-            ];
-
-            return compact('strategies', 'stats');
-        });
-
-        $fileName = 'progress-report-' . now()->format('Ymd-His') . '.pdf';
-        $pdf = Pdf::loadView('reports.progress_pdf', [
-            'strategies' => $data['strategies'],
-            'stats' => $data['stats'],
-            'date' => now()->format('d/m/Y')
-        ])->setPaper('a4', 'landscape');
-
-        $this->logExport('รายงานความก้าวหน้า (PDF)', $fileName);
-        return $pdf->stream($fileName);
+        // ส่งข้อความกลับไปบอกผู้ใช้ทันที
+        return back()->with('success', 'ระบบกำลังสร้างรายงาน PDF เป็นเบื้องหลัง (Background Task) คุณสามารถทำงานอื่นต่อได้เลย เมื่อเสร็จแล้วไฟล์จะไปอยู่ในโฟลเดอร์ Exports ครับ');
     }
 
     public function exportProgressExcel(Request $request) {
@@ -150,11 +113,10 @@ class ReportController extends Controller
     }
 
     // =========================================================================
-    // 3. รายงานผู้บริหาร (Executive Report) (✅ มี Validation ป้องกันพัง)
+    // 3. รายงานผู้บริหาร (Executive Report)
     // =========================================================================
     public function exportExecutivePdf(Request $request)
     {
-        // 🛡️ ป้องกันระบบล่มด้วยการจำกัดสูงสุด 20 โครงการ
         $request->validate([
             'project_ids' => 'nullable|array|max:20'
         ], [
@@ -174,7 +136,7 @@ class ReportController extends Controller
             $topProjectsQuery = WorkItem::where('type', 'project');
 
             if (!empty($projectIds)) {
-                $topProjectsQuery->whereIn('id', $projectIds)->take(20); // ล็อค Take 20 อีกชั้น
+                $topProjectsQuery->whereIn('id', $projectIds)->take(20);
             } else {
                 $topProjectsQuery->orderByDesc('budget')->take(5);
             }
@@ -258,7 +220,9 @@ class ReportController extends Controller
         return Excel::download(new \App\Exports\StrategyTreeExport($request), $fileName, ExcelFormat::CSV);
     }
 
-    // --- Single Item & Timeline ---
+    // =========================================================================
+    // 5. รายงานรายโครงการ (Project Detail) & Timeline
+    // =========================================================================
     public function exportWorkItemPdf($id)
     {
         $workItem = Cache::remember("report_project_{$id}", 60, function () use ($id) {
