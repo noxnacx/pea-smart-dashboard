@@ -78,9 +78,11 @@ const dateValidationWarnings = computed(() => {
     if (!parent) return warnings;
     const myStart = props.item.planned_start_date ? new Date(props.item.planned_start_date) : null, myEnd = props.item.planned_end_date ? new Date(props.item.planned_end_date) : null;
     const parentStart = parent.planned_start_date ? new Date(parent.planned_start_date) : null, parentEnd = parent.planned_end_date ? new Date(parent.planned_end_date) : null;
+
     // ✅ แกัไขตรงนี้ เพื่อดึงชื่อ parent.name มาแสดงแทนคำว่างานแม่
     if (myStart && parentStart && myStart < parentStart) warnings.push(`⚠️ วันเริ่ม (${formatDate(props.item.planned_start_date)}) ก่อนวันเริ่มของงาน ${parent.name} (${formatDate(parent.planned_start_date)})`);
     if (myEnd && parentEnd && myEnd > parentEnd) warnings.push(`⚠️ วันจบ (${formatDate(props.item.planned_end_date)}) เกินวันจบของงาน ${parent.name} (${formatDate(parent.planned_end_date)})`);
+
     return warnings;
 });
 
@@ -220,7 +222,6 @@ const openBulkProgressModalFromMenu = () => {
 };
 
 const submitBulkProgress = () => {
-    // ป้องกันค่าเป็น Null ก่อน Trim
     const currentComment = bulkProgressForm.comment ? String(bulkProgressForm.comment).trim() : '';
     if(!currentComment) {
         bulkProgressForm.setError('comment', 'กรุณาระบุรายละเอียดการดำเนินงาน');
@@ -235,6 +236,7 @@ const submitBulkProgress = () => {
 const showModal = ref(false), isEditing = ref(false), modalTitle = ref('');
 const showIssueModal = ref(false), showViewIssueModal = ref(false), selectedIssue = ref(null);
 const showUpdateProgressModal = ref(false);
+const showManualModal = ref(false); // ✅ เพิ่มตัวแปรนี้กลับมาแล้ว! จะกดเปิด Modal แก้ไขได้ตามปกติครับ
 const parentNameDisplay = ref('');
 
 const form = useForm({ id: null, parent_id: null, name: '', description: '', type: 'task', budget: 0, progress: 0, status: 'in_active', is_active: true, planned_start_date: '', planned_end_date: '', division_id: '', department_id: '', pm_name: '', project_manager_id: null, weight: 1 });
@@ -251,7 +253,6 @@ const handleStatusToggle = (e) => {
         form.is_active = false;
     } else {
         form.is_active = true;
-        // เช็คให้ฉลาดขึ้น: ถ้าเปอเซ็นต์ถึงไหน ให้กลับไปสถานะนั้น
         if (form.progress >= 100) form.status = 'completed';
         else if (form.progress > 0) form.status = 'in_progress';
         else form.status = 'in_active';
@@ -297,7 +298,7 @@ const deleteManualMilestone = () => {
     }
 };
 
-// 🚀 Progress Update (ดึง Comment ล่าสุด และ บังคับแก้ข้อความ - แก้จอขาวแล้ว!)
+// 🚀 Progress Update
 const lastProgressComment = computed(() => {
     if (!props.historyLogs || !props.historyLogs.data) return '';
     const comments = props.historyLogs.data.filter(log => log.timeline_type === 'comment');
@@ -316,7 +317,6 @@ const openUpdateProgressModal = () => {
 };
 
 const submitProgressUpdate = () => {
-    // ป้องกันค่า null ที่ทำให้จอขาว
     const currentComment = updateProgressForm.comment ? String(updateProgressForm.comment).trim() : '';
     const lastComment = lastProgressComment.value ? String(lastProgressComment.value).trim() : '';
 
@@ -436,7 +436,7 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
 
             <div class="border-b border-gray-200 flex space-x-8 overflow-x-auto">
                 <button @click="activeTab='overview'" :class="activeTab==='overview'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap transition-colors">แผนงาน (Gantt)</button>
-                <button @click="activeTab='milestones'" :class="activeTab==='milestones'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap flex items-center gap-1 transition-colors">📍 เป้าหมาย (Timeline)</button>
+                <button @click="activeTab='milestones'" :class="activeTab==='milestones'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap flex items-center gap-1 transition-colors">📍 Milestone</button>
                 <button @click="activeTab='issues'" :class="activeTab==='issues'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap flex gap-2 items-center transition-colors"><span>⚠️ ปัญหา/ความเสี่ยง</span><span v-if="item.issues?.length" class="bg-red-500 text-white text-[10px] px-1.5 py-0.5 rounded-full">{{ item.issues.length }}</span></button>
                 <button @click="activeTab='files'" :class="activeTab==='files'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap transition-colors">เอกสาร ({{ item.attachments?.length || 0 }})</button>
                 <button @click="activeTab='logs'" :class="activeTab==='logs'?'border-[#7A2F8F] text-[#7A2F8F]':'text-gray-500'" class="py-3 px-1 border-b-2 font-bold text-sm whitespace-nowrap transition-colors">ประวัติ</button>
@@ -513,8 +513,8 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
 
                 <div class="flex justify-between items-center mb-6">
                     <div class="text-left">
-                        <h3 class="font-bold text-[#4A148C] text-lg">📍 ลำดับเวลาเป้าหมาย (Delivery Timeline)</h3>
-                        <p class="text-xs text-gray-500 mt-1">สรุปไทม์ไลน์เป้าหมายอัตโนมัติจากวันสิ้นสุดของงานย่อยทั้งหมด</p>
+                        <h3 class="font-bold text-[#4A148C] text-lg">📍 Milestone (เหตุการณ์สำคัญ)</h3>
+                        <p class="text-xs text-gray-500 mt-1">สรุปไทม์ไลน์เหตุการณ์สำคัญอัตโนมัติจากวันสิ้นสุดของงานย่อยทั้งหมด</p>
                     </div>
 
                     <a :href="route('work-items.export-milestone', item.id)" target="_blank"
@@ -803,7 +803,7 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                 <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="showManualModal = false"></div>
                 <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative z-10 animate-fade-in">
                     <div class="bg-[#4A148C] px-6 py-4 flex justify-between items-center border-b-4 border-purple-400">
-                        <h3 class="text-lg font-bold text-white flex items-center gap-2">✏️ แก้ไขเป้าหมายเดือน {{ manualGroupLabel }}</h3>
+                        <h3 class="text-lg font-bold text-white flex items-center gap-2">✏️ แก้ไข Milestone เดือน {{ manualGroupLabel }}</h3>
                         <button @click="showManualModal = false" class="text-white font-bold text-xl">&times;</button>
                     </div>
                     <form @submit.prevent="submitManualMilestone" class="p-6 space-y-4 bg-gray-50/50">

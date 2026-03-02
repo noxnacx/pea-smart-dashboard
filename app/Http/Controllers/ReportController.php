@@ -151,11 +151,10 @@ class ReportController extends Controller
     }
 
     // =========================================================================
-    // 3. รายงานผู้บริหาร (Executive Report) (✅ มี Validation ป้องกันพัง)
+    // 3. รายงานผู้บริหาร (Executive Report)
     // =========================================================================
     public function exportExecutivePdf(Request $request)
     {
-        // 🛡️ ป้องกันระบบล่มด้วยการจำกัดสูงสุด 20 โครงการ
         $request->validate([
             'project_ids' => 'nullable|array|max:20'
         ], [
@@ -175,7 +174,7 @@ class ReportController extends Controller
             $topProjectsQuery = WorkItem::where('type', 'project');
 
             if (!empty($projectIds)) {
-                $topProjectsQuery->whereIn('id', $projectIds)->take(20); // ล็อค Take 20 อีกชั้น
+                $topProjectsQuery->whereIn('id', $projectIds)->take(20);
             } else {
                 $topProjectsQuery->orderByDesc('budget')->take(5);
             }
@@ -259,45 +258,112 @@ class ReportController extends Controller
         return Excel::download(new \App\Exports\StrategyTreeExport($request), $fileName, ExcelFormat::CSV);
     }
 
+    // --- Helper คำนวณ Milestone Data ให้ตรงกับหน้าเว็บ Vue ---
+    private function generateMilestoneData($workItem)
+    {
+        $tasks = collect();
+        $extractTasks = function ($items) use (&$extractTasks, &$tasks) {
+            foreach ($items as $item) {
+                if ($item->planned_end_date && $item->status !== 'cancelled') {
+                    $tasks->push($item);
+                }
+                if ($item->children && $item->children->count() > 0) {
+                    $extractTasks($item->children);
+                }
+            }
+        };
+        $extractTasks($workItem->children);
+
+        $groups = [];
+
+        // 1. ยัดข้อมูล Auto จากลูกๆ
+        foreach ($tasks as $task) {
+            $date = Carbon::parse($task->planned_end_date);
+            $key = $date->format('Y-m');
+
+            if (!isset($groups[$key])) {
+                $groups[$key] = [
+                    'key' => $key,
+                    'label' => $date->locale('th')->translatedFormat('F Y'),
+                    'timestamp' => Carbon::create($date->year, $date->month, 1)->timestamp,
+                    'tasks' => [],
+                    'manual' => null
+                ];
+            }
+            $groups[$key]['tasks'][] = [
+                'name' => $task->name,
+                'description' => $task->description,
+                'status' => $task->status,
+                'progress' => $task->progress
+            ];
+        }
+
+        // 2. ยัดข้อมูล Manual ทับเข้าไป (พระเอกของเรา)
+        if ($workItem->milestones) {
+            foreach ($workItem->milestones as $ms) {
+                if (!$ms->due_date) continue;
+                $date = Carbon::parse($ms->due_date);
+                $key = $date->format('Y-m');
+
+                if (!isset($groups[$key])) {
+                    $groups[$key] = [
+                        'key' => $key,
+                        'label' => $date->locale('th')->translatedFormat('F Y'),
+                        'timestamp' => Carbon::create($date->year, $date->month, 1)->timestamp,
+                        'tasks' => [],
+                        'manual' => null
+                    ];
+                }
+                $groups[$key]['manual'] = [
+                    'title' => $ms->title,
+                    'status' => $ms->status,
+                ];
+            }
+        }
+
+        // เรียงตามเวลา
+        usort($groups, function($a, $b) {
+            return $a['timestamp'] <=> $b['timestamp'];
+        });
+
+        return collect($groups)->chunk(4);
+    }
+
+
     // --- Single Item & Timeline ---
     public function exportWorkItemPdf($id)
     {
-        $workItem = Cache::remember("report_project_{$id}", 60, function () use ($id) {
-            return WorkItem::with(['children', 'issues', 'attachments', 'parent'])->findOrFail($id);
-        });
+        // โหลดข้อมูลครบๆ รวมถึง milestones ด้วย
+        $workItem = WorkItem::with(['children.children.children', 'milestones', 'issues', 'attachments', 'parent'])->findOrFail($id);
+
+        // ใช้ Helper สร้างข้อมูล Milestone
+        $chunkedMilestones = $this->generateMilestoneData($workItem);
+
         $fileName = 'project-' . $workItem->id . '-' . now()->format('Ymd') . '.pdf';
-        $pdf = Pdf::loadView('reports.work_item_detail', ['item' => $workItem, 'date' => now()->format('d/m/Y')])->setPaper('a4', 'portrait');
+
+        // ส่ง chunkedMilestones ไปให้ view เพื่อทำหน้า 2 ต่อท้าย
+        $pdf = Pdf::loadView('reports.work_item_detail', [
+            'item' => $workItem,
+            'chunkedMilestones' => $chunkedMilestones,
+            'date' => now()->format('d/m/Y')
+        ])->setPaper('a4', 'portrait');
+
         $this->logExport('WorkItem Detail (PDF)', $fileName, $workItem->id, $workItem->name);
         return $pdf->stream($fileName);
     }
 
     public function exportMilestonePdf($id)
     {
-        $workItem = WorkItem::with(['children.children.children'])->findOrFail($id);
-        $tasks = collect();
-        $extractTasks = function ($items) use (&$extractTasks, &$tasks) {
-            foreach ($items as $item) {
-                if ($item->planned_end_date && $item->status !== 'cancelled') $tasks->push($item);
-                if ($item->children->count() > 0) $extractTasks($item->children);
-            }
-        };
-        $extractTasks($workItem->children);
-
-        $groupedMilestones = $tasks->sortBy('planned_end_date')->groupBy(function ($task) {
-            return Carbon::parse($task->planned_end_date)->format('Y-m');
-        })->map(function ($group) {
-            $date = Carbon::parse($group->first()->planned_end_date);
-            return [
-                'label' => $date->locale('th')->translatedFormat('F Y'),
-                'timestamp' => $date->timestamp,
-                'tasks' => $group->map(function($t) { return ['name' => $t->name, 'description' => $t->description, 'status' => $t->status, 'progress' => $t->progress]; })->toArray()
-            ];
-        })->sortBy('timestamp')->values();
-
-        $chunkedMilestones = $groupedMilestones->chunk(4);
+        $workItem = WorkItem::with(['children.children.children', 'milestones'])->findOrFail($id);
+        $chunkedMilestones = $this->generateMilestoneData($workItem);
         $fileName = 'milestone-timeline-' . $workItem->id . '-' . now()->format('Ymd') . '.pdf';
 
-        $pdf = Pdf::loadView('reports.milestone_pdf', ['item' => $workItem, 'chunkedMilestones' => $chunkedMilestones, 'date' => now()->format('d/m/Y')])->setPaper('a4', 'landscape');
+        $pdf = Pdf::loadView('reports.milestone_pdf', [
+            'item' => $workItem,
+            'chunkedMilestones' => $chunkedMilestones,
+            'date' => now()->format('d/m/Y')
+        ])->setPaper('a4', 'landscape');
+
         $this->logExport('รายงานไทม์ไลน์เป้าหมาย (PDF)', $fileName, $workItem->id, $workItem->name);
         return $pdf->stream($fileName);
     }
@@ -314,5 +380,4 @@ class ReportController extends Controller
             'changes' => ['ชื่อไฟล์' => $fileName],
         ]);
     }
-
 }

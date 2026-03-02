@@ -16,7 +16,7 @@
             font-weight: bold;
             src: url("{{ public_path('fonts/THSarabunNew Bold.ttf') }}") format('truetype');
         }
-        body { font-family: "THSarabunNew"; font-size: 14pt; color: #333; line-height: 1.1; }
+        body { font-family: "THSarabunNew"; font-size: 14pt; color: #333; line-height: 1.1; margin: 0; padding: 20px; }
 
         .header { border-bottom: 2px solid #4A148C; padding-bottom: 10px; margin-bottom: 20px; }
         .title { font-size: 22pt; font-weight: bold; color: #4A148C; }
@@ -33,13 +33,44 @@
         th { background-color: #f3e5f5; color: #4A148C; font-weight: bold; text-align: center; }
 
         .badge { padding: 2px 5px; border-radius: 4px; color: white; font-size: 10pt; }
-        .badge-status { background-color: #3b82f6; }
         .progress-bar-bg { width: 100%; background: #eee; height: 6px; border-radius: 3px; margin-top: 3px; }
         .progress-bar-fill { height: 100%; background: #4A148C; border-radius: 3px; }
 
         .info-grid { width: 100%; margin-bottom: 15px; }
         .info-grid td { border: none; padding: 4px; }
         .label { font-weight: bold; color: #555; width: 120px; }
+
+        /* --- CSS สำหรับ Milestone (ป้องกันการแตกของ DomPDF) --- */
+        .page-break { page-break-before: always; }
+        .milestone-header { text-align: center; margin-bottom: 20px; }
+        .milestone-header h2 { color: #4A148C; margin: 0; font-size: 24pt; }
+
+        .timeline-wrapper { width: 100%; margin-bottom: 40px; page-break-inside: avoid; }
+        .timeline-table { width: 100%; table-layout: fixed; border-collapse: collapse; }
+        .cell { width: 25%; text-align: center; vertical-align: top; position: relative; padding: 0 10px; }
+
+        .cell-top { vertical-align: bottom; height: 160px; padding-bottom: 5px; }
+        .cell-bottom { vertical-align: top; height: 160px; padding-top: 5px; }
+        .cell-line { height: 30px; vertical-align: middle; padding: 0; }
+
+        .box { background-color: #fff; border: 1px solid #e5e7eb; border-radius: 8px; padding: 10px; text-align: left; display: inline-block; width: 100%; box-sizing: border-box; }
+        .box-manual { border: 2px solid #a855f7; background-color: #faf5ff; }
+        .month-title { background-color: #f3e8ff; color: #4a148c; font-weight: bold; text-align: center; padding: 4px; border-radius: 4px; font-size: 14pt; margin-bottom: 8px; }
+
+        .task-item { margin-bottom: 6px; line-height: 1.1; display: table; width: 100%; }
+        .task-dot-wrapper { display: table-cell; width: 15px; vertical-align: top; padding-top: 3px; }
+        .dot { display: inline-block; width: 10px; height: 10px; border-radius: 50%; }
+        .desc { display: table-cell; font-size: 13pt; color: #444; }
+        .desc-manual { font-weight: bold; color: #4A148C; font-size: 14pt; }
+
+        .line-container { width: 100%; height: 3px; background-color: #cbd5e1; position: relative; margin: 0 auto; }
+        .node { width: 16px; height: 16px; border-radius: 50%; border: 3px solid #fff; position: absolute; top: -8px; left: 50%; margin-left: -11px; }
+
+        .line-up { border-left: 2px solid #ccc; height: 20px; width: 0; margin: 0 auto; margin-top: 5px; }
+        .line-down { border-left: 2px solid #ccc; height: 20px; width: 0; margin: 0 auto; margin-bottom: 5px; }
+
+        .legend { text-align: center; font-size: 12pt; color: #666; margin-top: 20px; padding-top: 10px; border-top: 1px solid #eee; }
+        .legend-item { display: inline-block; margin: 0 10px; }
     </style>
 </head>
 <body>
@@ -152,19 +183,135 @@
     <p style="color: #888; text-align: center;">- ไม่พบรายการปัญหา -</p>
     @endif
 
-    <div class="section-title">รายการเอกสารแนบ (Attachments)</div>
-    @if($item->attachments->count() > 0)
-    <ul>
-        @foreach($item->attachments as $file)
-        <li style="margin-bottom: 5px;">
-            <strong>{{ $file->file_name }}</strong>
-            <span style="color: #888; font-size: 12pt;">(อัปโหลดเมื่อ: {{ $file->created_at->format('d/m/Y H:i') }})</span>
-        </li>
+    <div class="page-break"></div>
+
+    <div class="milestone-header">
+        <h2>Milestone (เหตุการณ์สำคัญ)</h2>
+        <p style="color: #666;">สรุปเป้าหมายและการส่งมอบงานของโครงการ</p>
+    </div>
+
+    @php
+        function getGroupNodeColor($group) {
+            if ($group['manual']) {
+                if ($group['manual']['status'] == 'completed') return '#22c55e';
+                return '#a855f7';
+            }
+            $tasks = $group['tasks'];
+            $hasDelayed = false; $hasProgress = false; $allCompleted = true;
+            foreach($tasks as $t) {
+                if($t['status'] == 'delayed') $hasDelayed = true;
+                if($t['status'] == 'in_progress' || $t['progress'] > 0) $hasProgress = true;
+                if($t['status'] != 'completed') $allCompleted = false;
+            }
+            if($hasDelayed) return '#ef4444';
+            if($hasProgress) return '#3b82f6';
+            if($allCompleted && count($tasks) > 0) return '#22c55e';
+            return '#9ca3af';
+        }
+
+        function getTaskDotColor($status, $progress) {
+            if($status == 'completed' || $progress == 100) return '#22c55e';
+            if($status == 'delayed') return '#ef4444';
+            if($status == 'in_progress' || $progress > 0) return '#3b82f6';
+            return '#9ca3af';
+        }
+    @endphp
+
+    @if(count($chunkedMilestones) > 0)
+        @foreach($chunkedMilestones as $rowChunk)
+            <div class="timeline-wrapper">
+                <table class="timeline-table">
+                    <tr>
+                        @foreach($rowChunk as $index => $group)
+                            <td class="cell cell-top">
+                                @if($index % 2 == 0)
+                                    <div class="box {{ $group['manual'] ? 'box-manual' : '' }}">
+                                        <div class="month-title">{{ $group['label'] }}</div>
+
+                                        @if($group['manual'])
+                                            <div class="task-item">
+                                                <div class="task-dot-wrapper">
+                                                    <span class="dot" style="background-color: {{ $group['manual']['status'] == 'completed' ? '#22c55e' : '#a855f7' }}"></span>
+                                                </div>
+                                                <div class="desc desc-manual">{!! nl2br(e($group['manual']['title'])) !!}</div>
+                                            </div>
+                                        @else
+                                            @foreach($group['tasks'] as $task)
+                                                <div class="task-item">
+                                                    <div class="task-dot-wrapper">
+                                                        <span class="dot" style="background-color: {{ getTaskDotColor($task['status'], $task['progress']) }}"></span>
+                                                    </div>
+                                                    <div class="desc">{{ !empty($task['description']) ? $task['description'] : $task['name'] }}</div>
+                                                </div>
+                                            @endforeach
+                                        @endif
+                                    </div>
+                                    <div class="line-down"></div>
+                                @endif
+                            </td>
+                        @endforeach
+                        @for($i = count($rowChunk); $i < 4; $i++) <td class="cell cell-top"></td> @endfor
+                    </tr>
+
+                    <tr>
+                        @foreach($rowChunk as $index => $group)
+                            <td class="cell cell-line">
+                                <div class="line-container">
+                                    <div class="node" style="background-color: {{ getGroupNodeColor($group) }}"></div>
+                                </div>
+                            </td>
+                        @endforeach
+                        @for($i = count($rowChunk); $i < 4; $i++)
+                            <td class="cell cell-line"><div class="line-container"></div></td>
+                        @endfor
+                    </tr>
+
+                    <tr>
+                        @foreach($rowChunk as $index => $group)
+                            <td class="cell cell-bottom">
+                                @if($index % 2 != 0)
+                                    <div class="line-up"></div>
+                                    <div class="box {{ $group['manual'] ? 'box-manual' : '' }}">
+                                        <div class="month-title">{{ $group['label'] }}</div>
+
+                                        @if($group['manual'])
+                                            <div class="task-item">
+                                                <div class="task-dot-wrapper">
+                                                    <span class="dot" style="background-color: {{ $group['manual']['status'] == 'completed' ? '#22c55e' : '#a855f7' }}"></span>
+                                                </div>
+                                                <div class="desc desc-manual">{!! nl2br(e($group['manual']['title'])) !!}</div>
+                                            </div>
+                                        @else
+                                            @foreach($group['tasks'] as $task)
+                                                <div class="task-item">
+                                                    <div class="task-dot-wrapper">
+                                                        <span class="dot" style="background-color: {{ getTaskDotColor($task['status'], $task['progress']) }}"></span>
+                                                    </div>
+                                                    <div class="desc">{{ !empty($task['description']) ? $task['description'] : $task['name'] }}</div>
+                                                </div>
+                                            @endforeach
+                                        @endif
+                                    </div>
+                                @endif
+                            </td>
+                        @endforeach
+                        @for($i = count($rowChunk); $i < 4; $i++) <td class="cell cell-bottom"></td> @endfor
+                    </tr>
+                </table>
+            </div>
         @endforeach
-    </ul>
     @else
-    <p style="color: #888; text-align: center;">- ไม่มีเอกสารแนบ -</p>
+        <div style="text-align: center; margin-top: 80px; color: #888; font-size: 16pt;">
+            -- ยังไม่มีเป้าหมายที่ต้องส่งมอบในขณะนี้ --
+        </div>
     @endif
 
+    <div class="legend">
+        <div class="legend-item"><span class="dot" style="background-color: #22c55e;"></span> เสร็จสิ้น</div>
+        <div class="legend-item"><span class="dot" style="background-color: #3b82f6;"></span> กำลังทำ</div>
+        <div class="legend-item"><span class="dot" style="background-color: #ef4444;"></span> ล่าช้า</div>
+        <div class="legend-item"><span class="dot" style="background-color: #9ca3af;"></span> รอเริ่ม</div>
+        <div class="legend-item"><span class="dot" style="background-color: #a855f7;"></span> กำหนดเอง (Manual)</div>
+    </div>
 </body>
 </html>
