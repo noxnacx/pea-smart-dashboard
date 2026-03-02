@@ -43,7 +43,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // --- Dashboard ---
     Route::get('/admin/dashboard', [DashboardController::class, 'adminDashboard'])->name('dashboard');
 
-    // 🚀 --- ระบบแจ้งเตือน (Notifications) ย้ายมาตรงนี้เพื่อให้ PM เข้าถึงได้ ---
+    // --- ระบบแจ้งเตือน (Notifications) ---
     Route::get('/notifications', [NotificationController::class, 'index'])->name('notifications.index');
     Route::post('/notifications/{id}/read', [NotificationController::class, 'markAsRead'])->name('notifications.read');
     Route::post('/notifications/read-all', [NotificationController::class, 'markAllAsRead'])->name('notifications.read-all');
@@ -58,10 +58,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/tasks', [WorkItemController::class, 'list'])->defaults('type', 'task')->name('tasks.index');
     Route::get('/issues', [IssueController::class, 'index'])->name('issues.index');
 
-    // API สำหรับดึง Tree
-    Route::get('/api/strategies/tree', [WorkItemController::class, 'getTree'])->name('api.strategies.tree');
-
-    // Detail Page
+    // --- Detail Page & Progress Update ---
     Route::get('/work-items/{workItem}', [WorkItemController::class, 'show'])
         ->name('work-items.show')
         ->whereNumber('workItem');
@@ -87,6 +84,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // 📤 2. Exports & Data API
     // =========================================================================
 
+    // --- API สำหรับดึงข้อมูล ---
+    Route::get('/api/strategies/tree', [WorkItemController::class, 'getTree'])->name('api.strategies.tree');
+    Route::get('/api/project-managers/search', [WorkItemController::class, 'searchProjectManagers'])->name('api.pm.search');
+    Route::get('/work-items/{workItem}/gantt-data', [WorkItemController::class, 'ganttData'])->name('work-items.gantt-data');
+
     // --- Reports Export ---
     Route::prefix('reports')->name('reports.')->group(function () {
         // Progress
@@ -110,16 +112,12 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::get('/tree/csv', [ReportController::class, 'exportTreeCsv'])->name('tree.csv');
     });
 
-    // --- Single Item Exports ---
+    // --- Single Item Exports & Downloads ---
     Route::get('/work-items/{workItem}/export-pdf', [ReportController::class, 'exportWorkItemPdf'])->name('work-items.export-pdf');
-    Route::get('/calendar/export-agenda', [CalendarController::class, 'exportAgendaPdf'])->name('calendar.export-agenda');
-    Route::post('/work-items/{workItem}/log-export', [WorkItemController::class, 'logExport'])->name('work-items.log-export');
-    Route::get('/attachments/{attachment}/download', [AttachmentController::class, 'download'])->name('attachments.download');
     Route::get('/work-items/{workItem}/export-milestone', [ReportController::class, 'exportMilestonePdf'])->name('work-items.export-milestone');
-
-    // --- APIs ---
-    Route::get('/work-items/{workItem}/gantt-data', [WorkItemController::class, 'ganttData'])->name('work-items.gantt-data');
-    Route::get('/api/project-managers/search', [WorkItemController::class, 'searchProjectManagers'])->name('api.pm.search');
+    Route::post('/work-items/{workItem}/log-export', [WorkItemController::class, 'logExport'])->name('work-items.log-export');
+    Route::get('/calendar/export-agenda', [CalendarController::class, 'exportAgendaPdf'])->name('calendar.export-agenda');
+    Route::get('/attachments/{attachment}/download', [AttachmentController::class, 'download'])->name('attachments.download');
 
 
     // =========================================================================
@@ -129,7 +127,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         // --- Work Items (CRUD) ---
         Route::get('/work-items/create', [WorkItemController::class, 'create'])->name('work-items.create');
-        Route::post('/work-items', [WorkItemController::class, 'store'])->name('work-items.store'); // ✅ เพิ่ม store ที่หายไป!
+        Route::post('/work-items', [WorkItemController::class, 'store'])->name('work-items.store');
         Route::get('/work-items/{workItem}/edit', [WorkItemController::class, 'edit'])->name('work-items.edit');
         Route::put('/work-items/{workItem}', [WorkItemController::class, 'update'])->name('work-items.update');
         Route::delete('/work-items/{workItem}', [WorkItemController::class, 'destroy'])->name('work-items.destroy');
