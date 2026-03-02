@@ -8,7 +8,8 @@ const props = defineProps({
     item: Object,
     level: { type: Number, default: 0 },
     isLast: { type: Boolean, default: false },
-    canManage: { type: Boolean, default: false }
+    canManage: { type: Boolean, default: false },
+    workItemTypes: { type: Array, default: () => [] } // ✅ เพิ่มตัวรับค่าข้อมูลสีและอิโมจิทั้งหมด
 });
 
 const emit = defineEmits(['request-move']);
@@ -21,47 +22,50 @@ const isCancelled = computed(() => props.item.status === 'cancelled');
 const childSummary = computed(() => {
     if (!hasChildren.value) return '';
     const counts = props.item.children.reduce((acc, child) => {
-        const typeLabel = child.work_type ? child.work_type.name : (
-            { 'strategy': 'ยุทธศาสตร์', 'plan': 'แผนงาน', 'project': 'โครงการ', 'task': 'Task' }[child.type] || child.type
-        );
+        // ✅ ค้นหาชื่อประเภทจาก Array
+        const childTypeInfo = props.workItemTypes.find(t => t.key === child.type);
+        const typeLabel = childTypeInfo ? childTypeInfo.name : child.type;
         acc[typeLabel] = (acc[typeLabel] || 0) + 1;
         return acc;
     }, {});
     return Object.entries(counts).map(([label, count]) => `${count} ${label}`).join(' / ');
 });
 
-// 🚀 2. จัดการหน้าตาและสีสันแบบ Dynamic
+// 🚀 2. จัดการหน้าตาและสีสันแบบ Dynamic 100%
 const meta = computed(() => {
-    const typeKey = props.item.work_type ? props.item.work_type.key : props.item.type;
-    const typeName = props.item.work_type ? props.item.work_type.name : (
-        { 'strategy': 'ยุทธศาสตร์', 'plan': 'แผนงาน', 'project': 'โครงการ', 'task': 'Task' }[typeKey] || typeKey
-    );
-    const dynamicColor = props.item.work_type ? props.item.work_type.color_code : null;
-    const dynamicIcon = props.item.work_type ? props.item.work_type.icon : null; // ✅ ดึงไอคอนจาก DB
+    // ✅ จับคู่ข้อมูลจาก workItemTypes ด้วย key (ชัวร์สุด 100%)
+    const typeInfo = props.workItemTypes.find(t => t.key === props.item.type)
+                  || props.item.work_type
+                  || props.item.workType;
 
-    // Fallback ของเดิม
+    const typeName = typeInfo ? typeInfo.name : props.item.type;
+    const dynamicColor = typeInfo ? typeInfo.color_code : null;
+    const dynamicIcon = typeInfo ? typeInfo.icon : null;
+
+    // Fallback เผื่อไม่มีการตั้งค่า
     let icon = '📄';
-    let bgClass = 'bg-gray-50';
-    let badgeClass = 'bg-gray-100 text-gray-600';
-    let fallbackColor = '#9CA3AF';
+    let fallbackColor = '#9CA3AF'; // สีเทา
+    let defaultBadgeClass = 'bg-gray-100 text-gray-600 border border-gray-200';
+    let defaultBgClass = 'bg-gray-50';
 
-    switch (typeKey) {
-        case 'strategy': icon = '🏛️'; bgClass = 'bg-purple-50'; badgeClass = 'bg-[#4A148C] text-white'; fallbackColor = '#6B21A8'; break;
-        case 'plan': icon = '📁'; bgClass = 'bg-yellow-50'; badgeClass = 'bg-yellow-100 text-yellow-700 border border-yellow-200'; fallbackColor = '#EAB308'; break;
-        case 'project': icon = '🚀'; bgClass = 'bg-blue-50'; badgeClass = 'bg-blue-50 text-blue-600 border border-blue-200'; fallbackColor = '#3B82F6'; break;
-        case 'task': icon = '📌'; bgClass = 'bg-green-50'; badgeClass = 'bg-green-50 text-green-600 border border-green-200'; fallbackColor = '#22C55E'; break;
+    // Fallback สำรองตาม Key เดิม
+    switch (props.item.type) {
+        case 'strategy': icon = '🏛️'; fallbackColor = '#6B21A8'; defaultBgClass = 'bg-purple-50'; defaultBadgeClass = 'bg-[#4A148C] text-white'; break;
+        case 'plan': icon = '📁'; fallbackColor = '#EAB308'; defaultBgClass = 'bg-yellow-50'; defaultBadgeClass = 'bg-yellow-100 text-yellow-700 border border-yellow-200'; break;
+        case 'project': icon = '🚀'; fallbackColor = '#3B82F6'; defaultBgClass = 'bg-blue-50'; defaultBadgeClass = 'bg-blue-50 text-blue-600 border border-blue-200'; break;
+        case 'task': icon = '📌'; fallbackColor = '#22C55E'; defaultBgClass = 'bg-green-50'; defaultBadgeClass = 'bg-green-50 text-green-600 border border-green-200'; break;
     }
 
     const finalColor = dynamicColor || fallbackColor;
-    const finalIcon = dynamicIcon || icon; // ✅ ใช้ไอคอนใหม่แทนที่ ถ้ามี
+    const finalIcon = dynamicIcon || icon;
 
+    // ถ้ายกเลิกงาน ให้เป็นสีเทาทั้งหมด
     if (isCancelled.value) {
         return {
             label: typeName,
             icon: finalIcon,
             borderStyle: `border-left: 4px solid #D1D5DB;`,
-            bgStyle: ``,
-            bgClass: 'bg-gray-100 opacity-75',
+            bgStyle: `background-color: #F3F4F6;`,
             badgeStyle: ``,
             badgeClass: 'bg-gray-200 text-gray-500 border border-gray-300',
             barStyle: `background-color: #D1D5DB;`,
@@ -69,10 +73,16 @@ const meta = computed(() => {
         };
     }
 
-    let computedBadgeClass = dynamicColor ? '' : badgeClass;
     let computedBadgeStyle = '';
+    let computedBadgeClass = defaultBadgeClass;
+    let computedBgStyle = '';
+    let computedBgClass = defaultBgClass;
 
     if (dynamicColor) {
+        computedBadgeClass = '';
+        computedBgClass = '';
+        computedBgStyle = `background-color: ${finalColor}0D;`;
+
         if (props.level === 0) {
             computedBadgeStyle = `background-color: ${finalColor}; color: #ffffff; border: 1px solid ${finalColor};`;
         } else {
@@ -82,10 +92,10 @@ const meta = computed(() => {
 
     return {
         label: typeName,
-        icon: finalIcon, // ✅ ส่งไอคอนไปยัง Template
+        icon: finalIcon,
         borderStyle: `border-left: 4px solid ${finalColor};`,
-        bgStyle: dynamicColor ? `background-color: ${finalColor}0D;` : '',
-        bgClass: dynamicColor ? '' : bgClass,
+        bgStyle: computedBgStyle,
+        bgClass: computedBgClass,
         badgeStyle: computedBadgeStyle,
         badgeClass: computedBadgeClass,
         barStyle: `background-color: ${finalColor};`,
@@ -106,11 +116,11 @@ const toggle = () => { if (hasChildren.value) isOpen.value = !isOpen.value; };
             <div
                 class="rounded-lg shadow-sm border border-gray-100 flex items-center p-3 gap-3 cursor-pointer transition-all"
                 :class="[meta.bgClass, isOpen ? 'ring-1 ring-gray-200' : '', isCancelled ? 'grayscale-[0.5]' : 'hover:shadow-md']"
-                :style="meta.borderStyle + (meta.bgStyle ? ' ' + meta.bgStyle : '')"
+                :style="`${meta.borderStyle} ${meta.bgStyle}`"
                 @click="toggle"
             >
                 <button
-                    class="w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-200 transition-colors shrink-0"
+                    class="w-6 h-6 flex items-center justify-center rounded-full hover:bg-black/5 transition-colors shrink-0"
                     :class="{'invisible': !hasChildren}"
                 >
                     <svg class="w-4 h-4 text-gray-500 transition-transform duration-200" :class="{'rotate-90': isOpen}" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" /></svg>
@@ -177,6 +187,7 @@ const toggle = () => { if (hasChildren.value) isOpen.value = !isOpen.value; };
                     :level="level + 1"
                     :isLast="index === item.children.length - 1"
                     :can-manage="canManage"
+                    :work-item-types="workItemTypes"
                     @request-move="$emit('request-move', $event)"
                 />
             </div>

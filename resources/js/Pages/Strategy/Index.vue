@@ -154,6 +154,7 @@ const openMoveModal = (item) => {
                         :item="strategy"
                         :level="0"
                         :can-manage="isAdmin"
+                        :work-item-types="workItemTypes"
                         @request-move="openMoveModal"
                     />
                 </div>
