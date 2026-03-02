@@ -78,8 +78,9 @@ const dateValidationWarnings = computed(() => {
     if (!parent) return warnings;
     const myStart = props.item.planned_start_date ? new Date(props.item.planned_start_date) : null, myEnd = props.item.planned_end_date ? new Date(props.item.planned_end_date) : null;
     const parentStart = parent.planned_start_date ? new Date(parent.planned_start_date) : null, parentEnd = parent.planned_end_date ? new Date(parent.planned_end_date) : null;
-    if (myStart && parentStart && myStart < parentStart) warnings.push(`⚠️ วันเริ่ม (${formatDate(props.item.planned_start_date)}) ก่อนวันเริ่มของงานแม่ (${formatDate(parent.planned_start_date)})`);
-    if (myEnd && parentEnd && myEnd > parentEnd) warnings.push(`⚠️ วันจบ (${formatDate(props.item.planned_end_date)}) เกินวันจบของงานแม่ (${formatDate(parent.planned_end_date)})`);
+    // ✅ แกัไขตรงนี้ เพื่อดึงชื่อ parent.name มาแสดงแทนคำว่างานแม่
+    if (myStart && parentStart && myStart < parentStart) warnings.push(`⚠️ วันเริ่ม (${formatDate(props.item.planned_start_date)}) ก่อนวันเริ่มของงาน ${parent.name} (${formatDate(parent.planned_start_date)})`);
+    if (myEnd && parentEnd && myEnd > parentEnd) warnings.push(`⚠️ วันจบ (${formatDate(props.item.planned_end_date)}) เกินวันจบของงาน ${parent.name} (${formatDate(parent.planned_end_date)})`);
     return warnings;
 });
 
