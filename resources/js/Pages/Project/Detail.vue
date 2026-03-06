@@ -1,6 +1,6 @@
 <script setup>
 import { Head, Link, useForm, usePage } from '@inertiajs/vue3';
-import { ref, computed } from 'vue';
+import { ref, computed, onMounted, onUnmounted } from 'vue';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import GanttChart from '@/Components/GanttChart.vue';
 import PmAutocomplete from '@/Components/PmAutocomplete.vue';
@@ -12,32 +12,27 @@ const props = defineProps({
     historyLogs: Object,
     canViewHistory: { type: Boolean, default: false },
     divisions: Array,
-    workItemTypes: { type: Array, default: () => [] }
+    workItemTypes: { type: Array, default: () => [] },
+    strategicAlignments: { type: Array, default: () => [] } // ✅ รับข้อมูลยุทธศาสตร์
 });
 
 const activeTab = ref('overview');
 const showSuccessModal = ref(false);
 
-// --- Check Role & Permissions ---
 const page = usePage();
 const userRole = computed(() => page.props.auth.user.role);
 const userId = computed(() => page.props.auth.user.id);
 
 const canEdit = computed(() => {
     if (userRole.value === 'admin') return true;
-    if (['pm', 'project_manager'].includes(userRole.value)) {
-        return props.item.project_manager_id === userId.value;
-    }
+    if (['pm', 'project_manager'].includes(userRole.value)) return props.item.project_manager_id === userId.value;
     return false;
 });
 
 const isParent = computed(() => props.item.children && props.item.children.length > 0);
 
 // --- Helpers ---
-const formatDate = (dateString) => {
-    if (!dateString) return '-';
-    return new Date(dateString).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
-};
+const formatDate = (dateString) => dateString ? new Date(dateString).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
 const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
 const formatFileSize = (bytes) => {
     if (bytes === 0) return '0 B';
@@ -45,35 +40,20 @@ const formatFileSize = (bytes) => {
     return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
 };
 
-const getStatusText = (status) => ({
-    completed: 'เสร็จสมบูรณ์',
-    delayed: 'ล่าช้า',
-    in_active: 'รอเริ่มดำเนินการ',
-    in_progress: 'กำลังดำเนินการ',
-    cancelled: 'ยกเลิก',
-    pending: 'รอเริ่มดำเนินการ'
-}[status] || status);
-
+const getStatusText = (status) => ({ completed: 'เสร็จสมบูรณ์', delayed: 'ล่าช้า', in_active: 'รอเริ่มดำเนินการ', in_progress: 'กำลังดำเนินการ', cancelled: 'ยกเลิก', pending: 'รอเริ่มดำเนินการ' }[status] || status);
 const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', in_active: 'bg-gray-100 text-gray-600', pending: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
 
-// 🚀 --- Project Health Logic ---
 const projectHealth = computed(() => {
     const { status, planned_start_date, planned_end_date, progress } = props.item;
     const currentProgress = Number(progress) || 0;
-
     if (status === 'cancelled') return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'ยกเลิกโครงการ', icon: '⚪' };
     if (currentProgress >= 100 || status === 'completed') return { color: 'bg-green-500', bg: 'bg-green-50', text: 'เสร็จสมบูรณ์', icon: '🏆' };
     if (currentProgress > 0) return { color: 'bg-blue-500', bg: 'bg-blue-50', text: 'กำลังดำเนินการ', icon: '⏳' };
     if (!planned_start_date || !planned_end_date) return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'รอเริ่มดำเนินการ', icon: '📅' };
-
-    const start = new Date(planned_start_date).getTime();
-    const end = new Date(planned_end_date).getTime();
     const now = new Date().getTime();
-
-    if (now > end) return { color: 'bg-red-600', bg: 'bg-red-50', text: 'Overdue (เกินกำหนด)', icon: '🔥' };
-    if (now < start) return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'รอเริ่มดำเนินการ', icon: '⏳' };
-
-    return { color: 'bg-yellow-500', bg: 'bg-yellow-50', text: 'ถึงกำหนดเริ่ม (แต่ยังไม่เริ่มงาน)', icon: '🟡' };
+    if (now > new Date(planned_end_date).getTime()) return { color: 'bg-red-600', bg: 'bg-red-50', text: 'Overdue (เกินกำหนด)', icon: '🔥' };
+    if (now < new Date(planned_start_date).getTime()) return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'รอเริ่มดำเนินการ', icon: '⏳' };
+    return { color: 'bg-yellow-500', bg: 'bg-yellow-50', text: 'ถึงกำหนดเริ่ม', icon: '🟡' };
 });
 
 const dateValidationWarnings = computed(() => {
@@ -81,10 +61,8 @@ const dateValidationWarnings = computed(() => {
     if (!parent) return warnings;
     const myStart = props.item.planned_start_date ? new Date(props.item.planned_start_date) : null, myEnd = props.item.planned_end_date ? new Date(props.item.planned_end_date) : null;
     const parentStart = parent.planned_start_date ? new Date(parent.planned_start_date) : null, parentEnd = parent.planned_end_date ? new Date(parent.planned_end_date) : null;
-
     if (myStart && parentStart && myStart < parentStart) warnings.push(`⚠️ วันเริ่ม (${formatDate(props.item.planned_start_date)}) ก่อนวันเริ่มของงาน ${parent.name} (${formatDate(parent.planned_start_date)})`);
     if (myEnd && parentEnd && myEnd > parentEnd) warnings.push(`⚠️ วันจบ (${formatDate(props.item.planned_end_date)}) เกินวันจบของงาน ${parent.name} (${formatDate(parent.planned_end_date)})`);
-
     return warnings;
 });
 
@@ -118,10 +96,7 @@ const groupedMilestones = computed(() => {
                     const date = new Date(child.planned_end_date);
                     const key = `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}`;
                     const label = date.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
-
-                    if (!groups[key]) {
-                        groups[key] = { key: key, label: label, tasks: [], timestamp: new Date(date.getFullYear(), date.getMonth(), 1).getTime(), manual: null };
-                    }
+                    if (!groups[key]) groups[key] = { key, label, tasks: [], timestamp: new Date(date.getFullYear(), date.getMonth(), 1).getTime(), manual: null };
                     groups[key].tasks.push(child);
                 }
                 if (child.children && child.children.length > 0) extractTasks(child.children);
@@ -135,10 +110,7 @@ const groupedMilestones = computed(() => {
             const d = new Date(ms.due_date);
             const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
             const label = d.toLocaleDateString('th-TH', { month: 'long', year: 'numeric' });
-
-            if (!groups[key]) {
-                groups[key] = { key: key, label: label, tasks: [], timestamp: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), manual: null };
-            }
+            if (!groups[key]) groups[key] = { key, label, tasks: [], timestamp: new Date(d.getFullYear(), d.getMonth(), 1).getTime(), manual: null };
             groups[key].manual = ms;
         });
     }
@@ -194,7 +166,7 @@ const filteredProgressHistories = computed(() => {
 });
 
 
-// 🚀 --- ตัวแปรจัดการ Checkbox (Bulk Action) ---
+// 🚀 --- Bulk Action Logic ---
 const selectedChildren = ref([]);
 const toggleAllChildren = (e) => {
     if (e.target.checked && props.item.children) {
@@ -219,7 +191,6 @@ const showBulkProgressModal = ref(false);
 const bulkForm = useForm({ ids: [], action: '', description: '', division_id: '', department_id: '', project_manager_id: null, pm_name: '', type: '', weight: '', bulk_status_mode: 'no_change' });
 const bulkProgressForm = useForm({ ids: [], action: 'update_progress', progress: 0, comment: '' });
 
-// ✅ แก้บัคปุ่ม Bulk ให้ดึงค่า ids ไปส่งได้ถูกต้อง
 const submitBulkDeleteFromMenu = () => {
     showBulkManageModal.value = false;
     if (confirm(`🚨 ยืนยันลบข้อมูลที่เลือกจำนวน ${selectedChildren.value.length} รายการ?`)) {
@@ -263,6 +234,7 @@ const submitBulkProgress = () => {
     });
 };
 
+// --- Modals Logic & Forms ---
 const showModal = ref(false), isEditing = ref(false), modalTitle = ref('');
 const showIssueModal = ref(false), showViewIssueModal = ref(false), selectedIssue = ref(null);
 const showUpdateProgressModal = ref(false);
@@ -281,6 +253,38 @@ const detailsForm = useForm({
     description: props.item.description || ''
 });
 
+// ✅ ระบบค้นหายุทธศาสตร์ (Alignment Search)
+const searchAlignmentStr = ref('');
+const showAlignmentDropdown = ref(false);
+const alignmentDropdownRef = ref(null);
+
+const filteredAlignments = computed(() => {
+    if (!searchAlignmentStr.value) return props.strategicAlignments;
+    const q = searchAlignmentStr.value.toLowerCase();
+    return props.strategicAlignments.filter(a => a.key.toLowerCase().includes(q) || a.description.toLowerCase().includes(q));
+});
+
+const selectAlignment = (strategy) => {
+    const textToAdd = `[${strategy.key}] ${strategy.description}`;
+    // ถ้ายาวและมีของเดิมอยู่แล้ว ให้ต่อท้ายบรรทัดใหม่
+    if (detailsForm.alignment) {
+        detailsForm.alignment += `\n\n${textToAdd}`;
+    } else {
+        detailsForm.alignment = textToAdd;
+    }
+    searchAlignmentStr.value = '';
+    showAlignmentDropdown.value = false;
+};
+
+const handleAlignmentClickOutside = (e) => {
+    if (alignmentDropdownRef.value && !alignmentDropdownRef.value.contains(e.target)) {
+        showAlignmentDropdown.value = false;
+    }
+};
+onMounted(() => document.addEventListener('click', handleAlignmentClickOutside));
+onUnmounted(() => document.removeEventListener('click', handleAlignmentClickOutside));
+
+
 const submitDetails = () => {
     detailsForm.put(route('work-items.update', props.item.id), {
         preserveScroll: true,
@@ -297,7 +301,6 @@ const updateProgressForm = useForm({ progress: 0, comment: '', attachments: [] }
 // ฟอร์ม Issue
 const issueForm = useForm({ id: null, title: '', type: 'issue', severity: 'medium', status: 'open', description: '', solution: '', start_date: '', end_date: '', no_end_date: false });
 
-// ✅ ฟังก์ชันแก้บัค if ใน @change
 const handleNoEndDateChange = () => {
     if (issueForm.no_end_date) {
         issueForm.end_date = '';
@@ -421,7 +424,7 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
 
                         <div class="mt-4 p-4 rounded-lg text-sm leading-relaxed whitespace-pre-line" :class="item.is_manual_description ? 'bg-purple-50 border border-purple-100 text-gray-700' : 'bg-gray-50 border border-gray-200 text-gray-500 font-mono shadow-inner'">
                             <div v-if="!item.is_manual_description" class="text-[10px] font-bold text-gray-400 mb-1 uppercase tracking-widest flex items-center gap-1">
-                                <span class="text-xs">🤖</span> Auto Description
+                                <span class="text-xs">🤖</span> Auto Description (ดึงจากงานย่อย)
                             </div>
                             {{ item.is_manual_description ? (item.description || 'ยังไม่มีรายละเอียดโครงการ') : item.auto_description }}
                         </div>
@@ -496,44 +499,50 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                     </div>
                     <div class="overflow-y-auto flex-1 pb-24 custom-scrollbar">
                         <table class="w-full text-left">
-                            <thead class="bg-gray-50 text-[10px] uppercase text-gray-500 font-bold sticky top-0 z-10 shadow-sm border-b border-gray-100">
+                            <thead class="bg-gray-50 text-xs text-gray-500 font-bold sticky top-0 z-10 shadow-sm border-b border-gray-100">
                                 <tr>
                                     <th v-if="canEdit" class="px-4 py-3 w-10 text-center"><input type="checkbox" @change="toggleAllChildren" :checked="item.children && selectedChildren.length === item.children.length && item.children.length > 0" class="rounded border-gray-300 text-[#7A2F8F] focus:ring-[#7A2F8F] cursor-pointer"></th>
                                     <th class="px-4 py-3">ชื่องาน</th>
-                                    <th class="px-4 py-3 text-center w-32">ความคืบหน้า</th>
-                                    <th class="px-4 py-3 text-center w-20">Weight</th>
-                                    <th class="px-4 py-3 text-center w-28">เริ่ม/สิ้นสุด</th>
-                                    <th v-if="canEdit" class="px-4 py-3 text-center w-20">จัดการ</th>
+                                    <th class="px-2 py-3 text-center w-32">ความคืบหน้า</th>
+                                    <th class="px-2 py-3 text-center w-20 uppercase">Weight</th>
+                                    <th class="px-2 py-3 text-center w-24">เริ่ม</th>
+                                    <th class="px-2 py-3 text-center w-24">สิ้นสุด</th>
+                                    <th v-if="canEdit" class="px-2 py-3 text-center w-20">จัดการ</th>
                                 </tr>
                             </thead>
-                            <tbody class="text-sm text-gray-700 divide-y divide-gray-100">
-                                <tr v-for="child in item.children" :key="child.id" class="hover:bg-purple-50 group transition" :class="{'opacity-60 bg-gray-50 grayscale': !child.is_active, 'bg-purple-50/50': selectedChildren.includes(child.id)}">
-                                    <td v-if="canEdit" class="px-4 py-4 text-center"><input type="checkbox" v-model="selectedChildren" :value="child.id" class="rounded border-gray-300 text-[#7A2F8F] focus:ring-[#7A2F8F] cursor-pointer"></td>
-                                    <td class="px-4 py-4 font-medium">
+                            <tbody class="text-sm text-gray-700">
+                                <tr v-for="child in item.children" :key="child.id" class="border-b border-gray-100 hover:bg-gray-50 transition" :class="{'opacity-60 bg-gray-50 grayscale': !child.is_active, 'bg-purple-50/50': selectedChildren.includes(child.id)}">
+                                    <td v-if="canEdit" class="px-4 py-3 text-center border-r border-dashed border-gray-200">
+                                        <input type="checkbox" v-model="selectedChildren" :value="child.id" class="rounded border-gray-300 text-[#7A2F8F] focus:ring-[#7A2F8F] cursor-pointer">
+                                    </td>
+                                    <td class="px-4 py-3 border-r border-dashed border-gray-200">
                                         <div class="flex items-center gap-2">
                                             <div class="w-2.5 h-2.5 rounded-full shrink-0" :class="!child.is_active ? 'bg-gray-400' : 'bg-[#7A2F8F]'"></div>
-                                            <Link :href="route('work-items.show', child.id)" class="truncate max-w-[180px] hover:text-[#7A2F8F] font-bold text-gray-700 inline-flex items-center gap-1 align-bottom">
+                                            <Link :href="route('work-items.show', child.id)" class="truncate hover:text-[#7A2F8F] font-bold text-gray-700 inline-flex items-center gap-1">
                                                 <span class="truncate" :title="child.name">{{ child.name }}</span> <span v-if="!child.is_active" class="text-[10px] text-gray-400 font-normal shrink-0">(ยกเลิก)</span>
                                                 <span v-if="hasChildDateWarning(child)" class="text-lg shrink-0 cursor-help text-yellow-500" title="⚠️ ระยะเวลาไม่อยู่ในช่วงของงานหลัก">⚠️</span>
                                             </Link>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4 text-center">
-                                        <div class="flex items-center gap-3 justify-center" :title="`สถานะ: ${getStatusText(child.status)}`">
-                                            <div class="w-16 bg-gray-200 rounded-full h-2.5"><div class="h-2.5 rounded-full transition-all duration-500" :class="!child.is_active ? 'bg-gray-400' : 'bg-[#7A2F8F]'" :style="{ width: (child.progress || 0) + '%' }"></div></div>
-                                            <span class="text-xs font-bold text-gray-600 w-8 text-right">{{ child.progress || 0 }}%</span>
+                                    <td class="px-4 py-3 text-center border-r border-dashed border-gray-200">
+                                        <div class="flex items-center justify-center gap-3" :title="`สถานะ: ${getStatusText(child.status)}`">
+                                            <div class="w-16 bg-gray-200 rounded-full h-2.5">
+                                                <div class="h-2.5 rounded-full transition-all duration-500" :class="!child.is_active ? 'bg-gray-400' : 'bg-[#7A2F8F]'" :style="{ width: (child.progress || 0) + '%' }"></div>
+                                            </div>
+                                            <span class="text-xs font-medium text-gray-500 w-8 text-right">{{ child.progress || 0 }}%</span>
                                         </div>
                                     </td>
-                                    <td class="px-4 py-4 text-center text-gray-600 font-medium">{{ child.weight }}</td>
-                                    <td class="px-4 py-4 text-center text-gray-500 whitespace-nowrap text-xs leading-relaxed">{{ formatDate(child.planned_start_date) }}<br>{{ formatDate(child.planned_end_date) }}</td>
-                                    <td v-if="canEdit" class="px-4 py-4 text-center">
+                                    <td class="px-2 py-3 text-center text-gray-600 font-medium border-r border-dashed border-gray-200">{{ child.weight }}</td>
+                                    <td class="px-2 py-3 text-center text-gray-500 text-xs border-r border-dashed border-gray-200">{{ formatDate(child.planned_start_date) }}</td>
+                                    <td class="px-2 py-3 text-center text-gray-500 text-xs border-r border-dashed border-gray-200">{{ formatDate(child.planned_end_date) }}</td>
+                                    <td v-if="canEdit" class="px-2 py-3 text-center">
                                         <div class="flex justify-center gap-3 text-base">
                                             <button @click="openEditModal(child)" class="text-orange-500 hover:scale-110 transition" title="แก้ไข">✏️</button>
-                                            <button @click="deleteItem(child.id)" class="text-gray-400 hover:text-red-500 hover:scale-110 transition grayscale opacity-70 hover:grayscale-0 hover:opacity-100" title="ลบ">🗑</button>
+                                            <button @click="deleteItem(child.id)" class="text-gray-400 hover:text-red-500 hover:scale-110 transition grayscale opacity-70 hover:grayscale-0 hover:opacity-100" title="ลบ">🗑️</button>
                                         </div>
                                     </td>
                                 </tr>
-                                <tr v-if="!item.children || item.children.length === 0"><td :colspan="canEdit ? 6 : 5" class="text-center py-10 text-gray-400">ยังไม่มีงานย่อย</td></tr>
+                                <tr v-if="!item.children || item.children.length === 0"><td :colspan="canEdit ? 7 : 6" class="text-center py-10 text-gray-400">ยังไม่มีงานย่อย</td></tr>
                             </tbody>
                         </table>
                     </div>
@@ -575,30 +584,52 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                         <label class="block font-bold text-gray-800 mb-2">2. วัตถุประสงค์ของแผนงาน (Objective)</label>
                         <textarea v-model="detailsForm.objective" rows="6" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ระบุเป้าหมายที่ต้องการบรรลุ..."></textarea>
                     </div>
-                    <div>
+
+                    <div class="flex flex-col">
                         <label class="block font-bold text-gray-800 mb-2">3. ความสอดคล้องต่อยุทธศาสตร์ (Alignment)</label>
-                        <textarea v-model="detailsForm.alignment" rows="6" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="สอดคล้องกับยุทธศาสตร์ กฟภ. หรือดิจิทัลข้อใด..."></textarea>
+
+                        <div class="relative mb-2" ref="alignmentDropdownRef">
+                            <div class="relative">
+                                <input type="text" v-model="searchAlignmentStr" @focus="showAlignmentDropdown = true"
+                                    class="w-full rounded-lg border-purple-300 focus:border-purple-500 focus:ring-purple-500 text-sm shadow-sm pr-10"
+                                    placeholder="พิมพ์ค้นหา KEY เช่น SO1 หรือพิมพ์ข้อความ...">
+                                <svg class="w-5 h-5 text-gray-400 absolute right-3 top-2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                            </div>
+
+                            <div v-if="showAlignmentDropdown" class="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                                <ul class="py-1 text-sm text-gray-700">
+                                    <li v-if="filteredAlignments.length === 0" class="px-4 py-3 text-gray-400 italic text-center">ไม่พบยุทธศาสตร์ที่ค้นหา</li>
+                                    <li v-for="st in filteredAlignments" :key="st.id" @click="selectAlignment(st)" class="px-4 py-3 hover:bg-purple-50 cursor-pointer border-b border-gray-50 last:border-0 transition">
+                                        <div class="font-bold text-[#4A148C]">{{ st.key }}</div>
+                                        <div class="text-xs text-gray-500 mt-1 line-clamp-2">{{ st.description }}</div>
+                                    </li>
+                                </ul>
+                            </div>
+                        </div>
+
+                        <textarea v-model="detailsForm.alignment" rows="4" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm flex-1" placeholder="ข้อมูลที่เลือกจะมาแสดงตรงนี้ หรือสามารถพิมพ์เพิ่มเติมเองได้..."></textarea>
                     </div>
+
                     <div>
                         <label class="block font-bold text-gray-800 mb-2">4. ขอบเขตงานและผลลัพธ์ (Scope & Output)</label>
                         <textarea v-model="detailsForm.scope_output" rows="6" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ขอบเขตการทำงาน และ Output ที่คาดหวัง..."></textarea>
                     </div>
                 </div>
                 <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm">
-                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2">1. หลักการ และเหตุผล</h4>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:border-[#7A2F8F] transition">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2"><span>📌</span> 1. หลักการ และเหตุผล</h4>
                         <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.rationale || '-' }}</p>
                     </div>
-                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm">
-                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2">2. วัตถุประสงค์ของแผนงาน</h4>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:border-[#7A2F8F] transition">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2"><span>🎯</span> 2. วัตถุประสงค์ของแผนงาน</h4>
                         <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.objective || '-' }}</p>
                     </div>
-                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm">
-                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2">3. ความสอดคล้องต่อยุทธศาสตร์</h4>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:border-[#7A2F8F] transition">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2"><span>🔗</span> 3. ความสอดคล้องต่อยุทธศาสตร์</h4>
                         <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.alignment || '-' }}</p>
                     </div>
-                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm">
-                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2">4. ขอบเขตงานและผลลัพธ์ที่คาดหวัง</h4>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:border-[#7A2F8F] transition">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2"><span>📦</span> 4. ขอบเขตงานและผลลัพธ์ที่คาดหวัง</h4>
                         <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.scope_output || '-' }}</p>
                     </div>
                 </div>
@@ -648,7 +679,7 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
 
                                     <div v-if="group.manual" class="space-y-3">
                                         <div class="flex items-start gap-2">
-                                            <div class="w-3 h-3 rounded-full mt-1 shrink-0 shadow-sm" :class="getGroupStatusBg(group).split(' ')[0]"></div>
+                                            <div class="w-3 h-3 rounded-full mt-1 shrink-0 shadow-sm" :class="group.manual.status === 'completed' ? 'bg-green-500' : 'bg-purple-500'"></div>
                                             <div class="flex-1">
                                                 <p class="text-xs font-bold leading-relaxed text-[#4A148C] whitespace-pre-line">{{ group.manual.title }}</p>
                                                 <div class="mt-2 flex items-center gap-2">
@@ -807,77 +838,6 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
         </div>
 
         <Teleport to="body">
-            <div v-if="showBulkManageModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="showBulkManageModal = false"></div>
-                <div class="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in">
-                    <div class="px-6 py-4 flex justify-between items-center border-b border-gray-100"><h3 class="text-lg font-bold text-gray-800">จัดการงานแบบกลุ่ม</h3><button @click="showBulkManageModal = false" class="text-gray-400 hover:text-gray-600 text-2xl">&times;</button></div>
-                    <div class="p-2 space-y-1">
-                        <button @click="openBulkEditModal" class="w-full text-left flex items-center p-3 hover:bg-gray-50 transition border-b border-gray-100 group">
-                            <div class="w-10 h-10 rounded-full bg-yellow-100 text-yellow-600 flex items-center justify-center shrink-0 mr-4"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"/></svg></div>
-                            <div class="flex-1"><h4 class="font-bold text-gray-800 text-sm group-hover:text-yellow-600">แก้ไขข้อมูล / สถานะ</h4><p class="text-[10px] text-gray-500">เปลี่ยนรายละเอียด กอง แผนก ประเภท ฯลฯ</p></div>
-                        </button>
-                        <button v-if="canBulkUpdateProgress" @click="openBulkProgressModalFromMenu" class="w-full text-left flex items-center p-3 hover:bg-gray-50 transition border-b border-gray-100 group">
-                            <div class="w-10 h-10 rounded-full bg-green-100 text-green-600 flex items-center justify-center shrink-0 mr-4"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
-                            <div class="flex-1"><h4 class="font-bold text-gray-800 text-sm group-hover:text-green-600">อัปเดตความคืบหน้า</h4><p class="text-[10px] text-gray-500">รายงาน % ผลการดำเนินงาน</p></div>
-                        </button>
-                        <button @click="submitBulkDeleteFromMenu" class="w-full text-left flex items-center p-3 hover:bg-red-50 transition group rounded-b-xl">
-                            <div class="w-10 h-10 rounded-full bg-red-100 text-red-600 flex items-center justify-center shrink-0 mr-4"><svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg></div>
-                            <div class="flex-1"><h4 class="font-bold text-gray-800 text-sm group-hover:text-red-600">ลบรายการ</h4><p class="text-[10px] text-gray-500">ย้ายข้อมูลลงถังขยะ</p></div>
-                        </button>
-                    </div>
-                </div>
-            </div>
-
-            <div v-if="showBulkEditModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="showBulkEditModal = false"></div>
-                <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl relative z-10 animate-fade-in flex flex-col max-h-[90vh]">
-                    <div class="bg-yellow-500 px-6 py-4 flex justify-between items-center border-b-4 border-yellow-600">
-                        <h3 class="text-lg font-bold text-white">⚡ แก้ไขข้อมูลแบบกลุ่ม ({{ selectedChildren.length }})</h3>
-                        <button @click="showBulkEditModal = false" class="text-white hover:text-yellow-100 font-bold text-xl">&times;</button>
-                    </div>
-                    <div class="p-6 overflow-y-auto space-y-4 flex-1 custom-scrollbar">
-                         <div class="bg-gray-50 p-3 rounded border border-gray-200 text-xs text-gray-500 mb-4">💡 กรอกเฉพาะช่องที่ต้องการแก้ไข (ช่องว่าง = ไม่เปลี่ยนค่าเดิม)</div>
-                         <div><label class="block text-sm font-bold text-gray-700 mb-1">รายละเอียด (Description)</label><textarea v-model="bulkForm.description" rows="2" class="w-full rounded-lg border-gray-300 text-sm focus:border-yellow-500 focus:ring-yellow-500"></textarea></div>
-                         <div class="grid grid-cols-2 gap-4">
-                            <div><label class="block text-sm font-bold text-gray-700 mb-1">กอง</label><select v-model="bulkForm.division_id" class="w-full rounded-lg border-gray-300 text-sm focus:border-yellow-500 focus:ring-yellow-500"><option value="">(ไม่เปลี่ยน)</option><option v-for="d in divisions" :key="d.id" :value="d.id">{{ d.name }}</option></select></div>
-                            <div><label class="block text-sm font-bold text-gray-700 mb-1">แผนก</label><select v-model="bulkForm.department_id" class="w-full rounded-lg border-gray-300 text-sm focus:border-yellow-500 focus:ring-yellow-500" :disabled="!bulkForm.division_id"><option value="">(ไม่เปลี่ยน)</option><option v-for="d in bulkEditDepartments" :key="d.id" :value="d.id">{{ d.name }}</option></select></div>
-                         </div>
-                         <div><label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแล (PM)</label><PmAutocomplete v-model="bulkForm.pm_name" @update:id="(id) => bulkForm.project_manager_id = id" placeholder="ค้นหาเพื่อเปลี่ยน PM..." /></div>
-                         <div class="grid grid-cols-2 gap-4">
-                            <div><label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน</label><select v-model="bulkForm.type" class="w-full rounded-lg border-gray-300 focus:border-yellow-500 focus:ring-yellow-500"><option value="">(ไม่เปลี่ยน)</option><option v-for="t in workItemTypes" :key="t.id" :value="t.key">{{ t.name }}</option></select></div>
-                            <div><label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน</label><input v-model="bulkForm.weight" type="number" step="0.01" class="w-full rounded-lg border-gray-300 focus:border-yellow-500 focus:ring-yellow-500" placeholder="(ไม่เปลี่ยน)"></div>
-                         </div>
-                         <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label>
-                            <div class="flex items-center gap-2 p-2 border border-gray-200 rounded-lg bg-gray-50">
-                                <div class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold border border-purple-200 uppercase">AUTO</div>
-                                <select v-model="bulkForm.bulk_status_mode" class="flex-1 rounded-md border-gray-300 text-sm ml-2 focus:border-yellow-500 focus:ring-yellow-500">
-                                    <option value="no_change">คงเดิม (ไม่เปลี่ยนแปลง)</option>
-                                    <option value="active">🟢 เปิดใช้งาน (ดึงกลับมาทำต่อ)</option>
-                                    <option value="cancelled">🔴 ระงับ / ยกเลิกรายการนี้</option>
-                                </select>
-                            </div>
-                         </div>
-                    </div>
-                    <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 bg-gray-50">
-                        <button @click="showBulkEditModal = false" class="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 font-bold text-sm hover:bg-gray-100">ยกเลิก</button>
-                        <button @click="submitBulkEdit" :disabled="bulkForm.processing" class="px-4 py-2 bg-yellow-500 text-white rounded-lg font-bold text-sm shadow hover:bg-yellow-600 disabled:opacity-50">บันทึกการแก้ไข</button>
-                    </div>
-                </div>
-            </div>
-
-            <div v-if="showBulkProgressModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
-                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="showBulkProgressModal = false"></div>
-                <div class="bg-white rounded-2xl w-full max-w-md overflow-hidden shadow-2xl relative z-10 animate-fade-in">
-                    <div class="bg-green-500 px-6 py-4 flex justify-between items-center"><h3 class="text-lg font-bold text-white">✅ อัปเดตความคืบหน้า (กลุ่ม)</h3><button @click="showBulkProgressModal = false" class="text-white hover:text-green-100 font-bold text-xl">&times;</button></div>
-                    <div class="p-6 space-y-5">
-                        <div><label class="block text-sm font-bold text-gray-700 mb-2">อัปเดต % ทั้งหมดเป็น:</label><div class="flex items-center gap-3"><input type="range" v-model="bulkProgressForm.progress" min="0" max="100" class="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-500"><input type="number" v-model="bulkProgressForm.progress" min="0" max="100" class="w-20 text-center rounded-lg border-gray-300 font-bold text-lg text-green-600"></div></div>
-                        <div><label class="block text-sm font-bold text-gray-700 mb-1">รายละเอียด (ระบุรวมกัน) <span class="text-red-500">*</span></label><textarea v-model="bulkProgressForm.comment" rows="3" class="w-full rounded-lg border-gray-300 text-sm focus:border-green-500 focus:ring-green-500" required placeholder="ระบุผลการดำเนินงาน..."></textarea></div>
-                        <div class="pt-2 border-t border-gray-100 flex justify-end gap-3"><button @click="showBulkProgressModal = false" class="px-4 py-2 bg-gray-100 rounded-lg text-gray-700 font-bold text-sm hover:bg-gray-200">ยกเลิก</button><button @click="submitBulkProgress" :disabled="bulkProgressForm.processing || !bulkProgressForm.comment" class="px-4 py-2 bg-green-500 text-white rounded-lg font-bold text-sm shadow hover:bg-green-600 disabled:opacity-50">ส่งรายงาน</button></div>
-                    </div>
-                </div>
-            </div>
-
             <div v-if="showModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="closeMainModalSafely"></div>
                 <div class="bg-white rounded-2xl w-full max-w-lg overflow-hidden shadow-2xl h-[90vh] flex flex-col relative z-10">

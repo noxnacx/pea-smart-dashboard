@@ -190,7 +190,6 @@ class WorkItemController extends Controller
             $request->merge(['department_id' => null]);
         }
 
-        // 🚀 แก้บัคการบันทึก: ใช้ sometimes เพื่อให้สามารถอัปเดตเฉพาะบางฟิลด์ (เช่น ฟิลด์ Details อย่างเดียว) ได้
         $validated = $request->validate([
             'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
@@ -220,17 +219,16 @@ class WorkItemController extends Controller
             }
         }
 
-        // จัดการเรื่องสถานะ Is Active เฉพาะตอนที่มีการส่งสถานะมา
         if (isset($validated['status'])) {
             $validated['is_active'] = $validated['status'] !== 'cancelled';
         }
+        $validated['is_manual_description'] = $validated['is_manual_description'] ?? false;
 
         $oldData = $workItem->getOriginal();
         $oldPmId = $workItem->project_manager_id;
 
         $workItem->update($validated);
 
-        // ✅ ถ้าความคืบหน้าเปลี่ยน ให้บันทึกประวัติ
         if ($workItem->wasChanged('progress')) {
             $workItem->progressHistories()->create(['progress' => $workItem->progress]);
         }
@@ -287,7 +285,6 @@ class WorkItemController extends Controller
 
         $workItem->update(['progress' => $newProgress]);
 
-        // ✅ บันทึกประวัติ
         $workItem->progressHistories()->create(['progress' => $newProgress]);
 
         $commentBody = $request->comment . "\n(ปรับความคืบหน้า: {$oldProgress}% ➝ {$newProgress}%)";
@@ -532,7 +529,6 @@ class WorkItemController extends Controller
             'projectManager'
         ]);
 
-        // 🛡️ เช็คสิทธิ์การดูประวัติ (Admin หรือ PM ที่ดูแลงานนี้ หรือ PM ที่ดูแลงานแม่)
         $user = auth()->user();
         $canViewHistory = false;
 
@@ -566,19 +562,22 @@ class WorkItemController extends Controller
             $paginatedTimeline = new LengthAwarePaginator($paginatedItems, $total, $perPage, $page, ['path' => request()->url(), 'query' => request()->query()]);
             $paginatedTimeline->withQueryString();
         } else {
-            // ส่ง Array ว่างไปให้ถ้าไม่มีสิทธิ์
             $paginatedTimeline = new LengthAwarePaginator([], 0, 10, 1);
         }
 
         $divisions = Division::with('departments')->orderBy('name')->get();
         $workItemTypes = WorkItemType::orderBy('level_order')->get();
 
+        // ✅ 4. ส่งข้อมูลยุทธศาสตร์ไปให้หน้า Detail
+        $strategicAlignments = \App\Models\StrategicAlignment::orderBy('key', 'asc')->get();
+
         return Inertia::render('Project/Detail', [
             'item' => $workItem,
             'historyLogs' => $paginatedTimeline,
-            'canViewHistory' => $canViewHistory, // ✅ ส่งสถานะการเข้าถึงไปบอกหน้า Vue ด้วย
+            'canViewHistory' => $canViewHistory,
             'divisions' => $divisions,
-            'workItemTypes' => $workItemTypes
+            'workItemTypes' => $workItemTypes,
+            'strategicAlignments' => $strategicAlignments // ✅ ส่งตัวแปรนี้เข้าไป
         ]);
     }
 

@@ -17,6 +17,7 @@ use App\Http\Controllers\CommentController;
 use App\Http\Controllers\TrashController;
 use App\Http\Controllers\WorkItemTypeController;
 use App\Http\Controllers\MilestoneController;
+use App\Http\Controllers\StrategicAlignmentController; // ✅ นำเข้า Controller ใหม่
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -181,6 +182,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
         // --- ตั้งค่าประเภทงาน (Dynamic Hierarchy) ---
         Route::resource('work-item-types', WorkItemTypeController::class)->except(['create', 'show', 'edit']);
+
+        // ✅ --- ตั้งค่ายุทธศาสตร์ (Strategic Alignments) ---
+        Route::resource('strategic-alignments', StrategicAlignmentController::class)->except(['create', 'show', 'edit']);
 
         // --- ระบบถังขยะ (Soft Deletes / Recycle Bin) ---
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
