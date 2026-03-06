@@ -18,6 +18,15 @@ const isOpen = ref(false);
 const hasChildren = computed(() => props.item.children && props.item.children.length > 0);
 const isCancelled = computed(() => props.item.status === 'cancelled');
 
+// ✅ ฟังก์ชันแปลสถานะเป็นภาษาไทยสำหรับแสดงผล (Phase 3)
+const getStatusText = (status) => ({
+    completed: 'เสร็จสมบูรณ์',
+    delayed: 'ล่าช้า',
+    in_active: 'รอเริ่มดำเนินการ',
+    in_progress: 'กำลังดำเนินการ',
+    cancelled: 'ยกเลิก'
+}[status] || status);
+
 // 🚀 1. สรุปรายการงานลูกแบบ Dynamic
 const childSummary = computed(() => {
     if (!hasChildren.value) return '';
@@ -142,7 +151,7 @@ const toggle = () => { if (hasChildren.value) isOpen.value = !isOpen.value; };
                     </div>
 
                     <div class="flex items-center gap-4 text-xs text-gray-500">
-                        <div class="flex items-center gap-2 w-32">
+                        <div class="flex items-center gap-2 w-32" :title="`สถานะ: ${getStatusText(item.status)}`">
                             <div class="flex-1 h-1.5 bg-gray-200/80 rounded-full overflow-hidden">
                                 <div class="h-full rounded-full transition-all duration-500" :style="`${meta.barStyle} width: ${item.progress}%`"></div>
                             </div>

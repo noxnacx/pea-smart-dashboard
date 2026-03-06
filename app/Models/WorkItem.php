@@ -5,29 +5,35 @@ namespace App\Models;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
-use Illuminate\Database\Eloquent\SoftDeletes; // ✅ เอาคอมเมนต์ออก
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class WorkItem extends Model
 {
-    use HasFactory, SoftDeletes; // ✅ นำ SoftDeletes กลับมาใช้
+    use HasFactory, SoftDeletes;
 
     protected $fillable = [
         'name',
         'type',
-        'work_item_type_id', // ✅ เพิ่มคอลัมน์ใหม่สำหรับเก็บประเภทแบบ Dynamic
+        'work_item_type_id',
         'status',
         'progress',
         'budget',
         'planned_start_date',
         'planned_end_date',
         'parent_id',
-        'project_manager_id', // ✅ ID นี้ตอนนี้คือ User ID
+        'project_manager_id',
         'division_id',
         'department_id',
         'order_index',
         'weight',
         'is_active',
-        'description'
+        'description',
+        // ✅ เพิ่มฟิลด์ใหม่สำหรับรายละเอียดโครงการ (Phase 1 & 2)
+        'is_manual_description',
+        'rationale',
+        'objective',
+        'alignment',
+        'scope_output',
     ];
 
     protected $guarded = [];
@@ -38,26 +44,30 @@ class WorkItem extends Model
         'actual_start_date' => 'date',
         'actual_end_date' => 'date',
         'is_active' => 'boolean',
+        'is_manual_description' => 'boolean', // ✅ Cast เป็น Boolean
         'weight' => 'float',
     ];
 
-    protected $appends = ['ev', 'pv', 'sv', 'performance_status'];
+    // ✅ ส่ง auto_description ไปให้ Vue ใช้ด้วย
+    protected $appends = ['ev', 'pv', 'sv', 'performance_status', 'auto_description'];
 
     // --- Relationship ---
 
-    // ✅ 1. ความสัมพันธ์กับตารางประเภทงาน (Dynamic Hierarchy)
     public function workType()
     {
         return $this->belongsTo(WorkItemType::class, 'work_item_type_id');
     }
 
-    // ✅ 2. ความสัมพันธ์กับตาราง Milestones (Auto-Milestone)
     public function milestones()
     {
         return $this->hasMany(Milestone::class);
     }
 
-    // (ส่วนดั้งเดิมทั้งหมดคงไว้เหมือนเดิมเป๊ะ)
+    public function progressHistories()
+    {
+        return $this->hasMany(ProgressHistory::class)->orderBy('created_at', 'desc');
+    }
+
     public function parent()
     {
         return $this->belongsTo(WorkItem::class, 'parent_id');
@@ -116,7 +126,51 @@ class WorkItem extends Model
         ");
     }
 
-    // --- Calculation Logic (คงเดิม) ---
+    // ==========================================================
+    // 🤖 ระบบสรุป Description อัตโนมัติจากงานลูก (อัปเกรดใหม่)
+    // ==========================================================
+    public function getAutoDescriptionAttribute()
+    {
+        if ($this->status === 'cancelled') return $this->description;
+
+        // ค้นหางานลูกทั้งหมดที่ไม่ถูกยกเลิก และไม่ใช่รอเริ่ม
+        $children = collect($this->children)->whereNotIn('status', ['cancelled', 'in_active']);
+
+        if ($children->isEmpty()) {
+            return "💡 ยังไม่มีงานย่อยที่กำลังดำเนินการในขณะนี้";
+        }
+
+        $delayed = $children->where('status', 'delayed');
+        $inProgress = $children->where('status', 'in_progress');
+        $completed = $children->where('status', 'completed');
+
+        $text = "";
+
+        if ($delayed->count() > 0) {
+            $text .= "🔴 งานที่กำลังล่าช้า:\n";
+            foreach ($delayed->take(2) as $t) {
+                $text .= "- " . $t->name . " (" . $t->progress . "%)\n";
+            }
+        }
+
+        if ($inProgress->count() > 0) {
+            $text .= ($text ? "\n" : "") . "🔵 กำลังดำเนินการ:\n";
+            foreach ($inProgress->take(3) as $t) {
+                $text .= "- " . $t->name . " (" . $t->progress . "%)\n";
+            }
+        }
+
+        if ($text === "" && $completed->count() > 0) {
+            $text .= "🟢 ล่าสุด (เสร็จสมบูรณ์):\n";
+            foreach ($completed->sortByDesc('updated_at')->take(2) as $t) {
+                $text .= "- " . $t->name . " (" . $t->progress . "%)\n";
+            }
+        }
+
+        return $text === "" ? "💡 กำลังดำเนินการงานย่อย" : $text;
+    }
+
+    // --- Calculation Logic ---
 
     public function getEvAttribute()
     {
@@ -148,7 +202,7 @@ class WorkItem extends Model
         if ($this->progress >= 100) return 'Completed';
         if ($this->budget == 0) return 'On Track';
 
-        $variancePercent = ($this->sv / $this->budget) * 100;
+        $variancePercent = ($this->sv / max(1, $this->budget)) * 100;
 
         if ($variancePercent < -10) return 'Critical Delayed';
         if ($variancePercent < 0) return 'Behind Schedule';
@@ -162,9 +216,9 @@ class WorkItem extends Model
     // ==========================================================
     public function recalculateProgress()
     {
-        // ถ้ามีลูก ห้ามใช้ค่าที่กรอกมือเด็ดขาด ให้คำนวณจากลูกเท่านั้น
+        $oldProgress = $this->progress;
+
         if ($this->children()->count() > 0) {
-            // ไม่เอาลูกที่ถูกยกเลิกมาคำนวณ
             $activeChildren = $this->children()->where('status', '!=', 'cancelled')->get();
             $totalWeight = $activeChildren->sum('weight');
 
@@ -179,7 +233,11 @@ class WorkItem extends Model
             }
         }
 
-        // ส่งต่อให้แม่คำนวณตัวเองใหม่ด้วย (Real-time Cascade)
+        // ✅ เก็บประวัติถ้า % เปลี่ยน (Phase 1 & 2)
+        if ($oldProgress != $this->progress) {
+            $this->progressHistories()->create(['progress' => $this->progress]);
+        }
+
         if ($this->parent_id) {
             $parent = Self::find($this->parent_id);
             if ($parent) {
@@ -188,25 +246,16 @@ class WorkItem extends Model
         }
     }
 
-    // ==========================================================
-    // กฏการปรับสถานะอัตโนมัติ (Auto Update Status Logic)
-    // ==========================================================
     public function autoUpdateStatus()
     {
-        // กฏข้อที่ 1: ถ้ายกเลิกไปแล้ว ห้ามระบบ Auto เข้าไปยุ่งเด็ดขาด
-        if ($this->status === 'cancelled') {
-            return;
-        }
+        if ($this->status === 'cancelled') return;
 
-        // กฏข้อที่ 2: ถ้าครบ 100% = เสร็จแล้ว (Completed)
         if ($this->progress >= 100) {
-            $this->progress = 100; // ล็อคไว้ไม่ให้เกิน 100
+            $this->progress = 100;
             $this->status = 'completed';
             return;
         }
 
-        // กฏข้อที่ 3: ล่าช้า (Delayed)
-        // -> ถ้ามีวันสิ้นสุด และ วันนี้ผ่านวันสิ้นสุดมาแล้ว (End of Day) แต่ยังไม่ 100%
         if ($this->planned_end_date && $this->progress < 100) {
             $endDate = \Carbon\Carbon::parse($this->planned_end_date)->endOfDay();
             if (now()->greaterThan($endDate)) {
@@ -215,13 +264,11 @@ class WorkItem extends Model
             }
         }
 
-        // กฏข้อที่ 4: อัปเดตงานครั้งแรก (Progress > 0) = กำลังดำเนินการ (In Progress)
         if ($this->progress > 0 && $this->progress < 100) {
             $this->status = 'in_progress';
             return;
         }
 
-        // กฏข้อที่ 5: เพิ่งสร้างงาน หรือ Progress กลับมาเป็น 0 = รอเริ่ม (In Active)
         if ($this->progress == 0) {
             $this->status = 'in_active';
             return;

@@ -193,8 +193,12 @@
     @php
         function getGroupNodeColor($group) {
             if ($group['manual']) {
-                if ($group['manual']['status'] == 'completed') return '#22c55e';
-                return '#a855f7';
+                $s = $group['manual']['status'];
+                if ($s === 'completed') return '#22c55e'; // เขียว
+                if ($s === 'delayed') return '#ef4444'; // แดง
+                if ($s === 'in_progress') return '#3b82f6'; // ฟ้า
+                if ($s === 'pending' || $s === 'in_active') return '#9ca3af'; // เทา
+                return '#a855f7'; // ม่วง (ค่าเผื่อเหลือเผื่อขาด)
             }
             $tasks = $group['tasks'];
             $hasDelayed = false; $hasProgress = false; $allCompleted = true;
@@ -208,7 +212,6 @@
             if($allCompleted && count($tasks) > 0) return '#22c55e';
             return '#9ca3af';
         }
-
         function getTaskDotColor($status, $progress) {
             if($status == 'completed' || $progress == 100) return '#22c55e';
             if($status == 'delayed') return '#ef4444';

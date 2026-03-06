@@ -17,6 +17,35 @@ const props = defineProps({
 const page = usePage();
 const userName = computed(() => page.props.auth.user.name);
 
+// ✅ ตัวแปรและฟังก์ชันสำหรับระบบย้อนเวลา (Time Machine)
+const timeMachineFilter = ref(new URLSearchParams(window.location.search).get('time') || 'now');
+const specificDate = ref('');
+
+// ถ้าเปิดหน้าเว็บมาแล้วใน URL มีวันที่แบบเจาะจง ให้เซ็ตค่าใส่ปฏิทินด้วย
+if (timeMachineFilter.value && timeMachineFilter.value.match(/^\d{4}-\d{2}-\d{2}$/)) {
+    specificDate.value = timeMachineFilter.value;
+}
+
+const applyTimeMachine = (timeCode) => {
+    if (['now', '1m', '3m', '1y'].includes(timeCode)) {
+        specificDate.value = ''; // เคลียร์ปฏิทินทิ้งถ้ากดปุ่มลัด
+    }
+    timeMachineFilter.value = timeCode;
+    router.get(route('dashboard'), { time: timeCode }, { preserveState: true, preserveScroll: true });
+};
+
+// เมื่อกดเลือกวันที่ในปฏิทิน
+const applySpecificDate = () => {
+    if (specificDate.value) {
+        applyTimeMachine(specificDate.value);
+    }
+};
+
+const clearSpecificDate = () => {
+    specificDate.value = '';
+    applyTimeMachine('now');
+};
+
 // --- Helpers ---
 const formatCurrency = (value) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', maximumFractionDigits: 0 }).format(value);
 const formatDate = (d) => d ? new Date(d).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
@@ -29,8 +58,9 @@ const getStatusColor = (s) => ({
     cancelled: 'bg-gray-200 text-gray-500'
 }[s] || 'bg-gray-100');
 
+// ✅ ฟังก์ชันแปลข้อความให้เป็นไทย
 const getStatusText = (s) => ({
-    completed: 'เสร็จสิ้น', in_progress: 'กำลังทำ', delayed: 'ล่าช้า', in_active: 'รอเริ่ม', cancelled: 'ยกเลิก' // ✅ เปลี่ยนเป็น in_active
+    completed: 'เสร็จสิ้น', in_progress: 'กำลังทำ', delayed: 'ล่าช้า', in_active: 'รอเริ่ม', cancelled: 'ยกเลิก'
 }[s] || s);
 
 // --- ApexCharts Options ---
@@ -41,7 +71,6 @@ const chartOptions = computed(() => ({
         events: {
             dataPointSelection: (event, chartContext, config) => {
                 const index = config.dataPointIndex;
-                // ✅ เปลี่ยน pending เป็น in_active ใน Array นี้สำคัญมาก ไม่งั้นเวลากดกราฟมันจะพาไปหาผิดสถานะ
                 const statusKeys = ['completed', 'in_progress', 'delayed', 'in_active', 'cancelled'];
                 const selectedStatus = statusKeys[index];
                 if (selectedStatus) {
@@ -50,7 +79,7 @@ const chartOptions = computed(() => ({
             }
         }
     },
-    labels: props.projectChart.labels,
+    labels: props.projectChart.labels ? props.projectChart.labels.map(l => getStatusText(l)) : [],
     colors: props.projectChart.colors,
     plotOptions: {
         pie: {
@@ -78,7 +107,6 @@ const chartOptions = computed(() => ({
     tooltip: { enabled: true, followCursor: true }
 }));
 
-// ฟังก์ชันช่วยเช็ค Route (กัน Error ถ้า Route ไม่มี)
 const safeRoute = (name, params = {}) => {
     try {
         return route().has(name) ? route(name, params) : '#';
@@ -87,7 +115,6 @@ const safeRoute = (name, params = {}) => {
     }
 };
 
-// --- Move Modal Logic ---
 const showMoveModal = ref(false);
 const itemToMove = ref(null);
 
@@ -102,7 +129,7 @@ const openMoveModal = (item) => {
     <PeaSidebarLayout>
         <div class="py-8 px-6 max-w-[1920px] mx-auto space-y-8 bg-gray-50/50 min-h-screen">
 
-            <div class="flex flex-col md:flex-row justify-between items-end border-b border-gray-200 pb-6 gap-4">
+            <div class="flex flex-col xl:flex-row justify-between xl:items-end border-b border-gray-200 pb-6 gap-4">
                 <div>
                     <div class="flex items-center gap-2 mb-1">
                         <span class="text-3xl">👋</span>
@@ -110,6 +137,43 @@ const openMoveModal = (item) => {
                     </div>
                     <p class="text-gray-500 font-medium">ยินดีต้อนรับสู่ <span class="text-[#FDB913] font-bold">PEA Smart Dashboard</span> ระบบติดตามโครงการและแผนงาน</p>
                 </div>
+
+                <div class="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
+                    <span class="text-xs font-bold text-gray-400 pl-3 pr-2 uppercase tracking-widest hidden sm:inline-block">⏳ มุมมองข้อมูล:</span>
+
+                    <div class="flex items-center gap-2 bg-purple-50 px-3 py-1 rounded-lg border border-purple-100 transition focus-within:ring-2 focus-within:ring-purple-300">
+                        <span class="text-xs font-bold text-purple-800">วันที่:</span>
+                        <input type="date" v-model="specificDate" @change="applySpecificDate" class="text-xs rounded border-none bg-transparent focus:ring-0 p-0 m-0 h-6 cursor-pointer text-purple-900 font-bold">
+                        <button v-if="specificDate" @click="clearSpecificDate" class="text-red-400 hover:text-red-600 text-lg leading-none transition" title="ล้างวันที่">&times;</button>
+                    </div>
+
+                    <div class="h-6 w-px bg-gray-200 mx-1 hidden md:block"></div>
+
+                    <button @click="applyTimeMachine('now')" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='now' && !specificDate ?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">ปัจจุบัน</button>
+                    <button @click="applyTimeMachine('1m')" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='1m'?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">1 เดือน</button>
+                    <button @click="applyTimeMachine('3m')" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='3m'?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">3 เดือน</button>
+                    <button @click="applyTimeMachine('1y')" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='1y'?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">1 ปี</button>
+                </div>
+            </div>
+
+            <div v-if="timeMachineFilter !== 'now'" class="bg-yellow-50 border border-yellow-200 p-4 rounded-xl flex items-center justify-between shadow-sm animate-fade-in -mt-2">
+                <div class="flex items-center gap-3">
+                    <span class="text-3xl">🕒</span>
+                    <div>
+                        <h4 class="text-yellow-800 font-bold text-sm">
+                            คุณกำลังดูข้อมูลย้อนหลัง
+                            <span v-if="specificDate" class="text-[#4A148C] bg-white px-2 py-0.5 rounded border border-yellow-300 ml-1">(ณ วันที่ {{ new Date(specificDate).toLocaleDateString('th-TH', { year: 'numeric', month: 'long', day: 'numeric' }) }})</span>
+                            <span v-else-if="timeMachineFilter === '1m'" class="text-[#4A148C] bg-white px-2 py-0.5 rounded border border-yellow-300 ml-1">(1 เดือนที่แล้ว)</span>
+                            <span v-else-if="timeMachineFilter === '3m'" class="text-[#4A148C] bg-white px-2 py-0.5 rounded border border-yellow-300 ml-1">(3 เดือนที่แล้ว)</span>
+                            <span v-else-if="timeMachineFilter === '1y'" class="text-[#4A148C] bg-white px-2 py-0.5 rounded border border-yellow-300 ml-1">(1 ปีที่แล้ว)</span>
+                        </h4>
+                        <p class="text-xs text-yellow-600 mt-1">ตัวเลขความก้าวหน้า สถานะโครงการ และกราฟ จะถูกแสดงเป็นข้อมูลจำลองตามช่วงเวลาที่คุณเลือก</p>
+                    </div>
+                </div>
+                <button @click="clearSpecificDate" class="bg-white px-4 py-2 rounded-lg border border-yellow-300 text-yellow-700 text-xs font-bold shadow-sm hover:bg-yellow-100 transition flex items-center gap-1">
+                    <svg class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 19l-7-7m0 0l7-7m-7 7h18"/></svg>
+                    กลับสู่ปัจจุบัน
+                </button>
             </div>
 
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">

@@ -62,6 +62,16 @@ watch(filterForm, throttle(() => {
 }, 500), { deep: true });
 
 const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', in_active: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
+
+// ✅ ฟังก์ชันแปลสถานะเป็นภาษาไทย
+const getStatusText = (status) => ({
+    completed: 'เสร็จสมบูรณ์',
+    delayed: 'ล่าช้า',
+    in_active: 'รอเริ่มดำเนินการ',
+    in_progress: 'กำลังดำเนินการ',
+    cancelled: 'ยกเลิก'
+}[status] || status);
+
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
 const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
 const formatFileSize = (bytes) => { if(bytes===0) return '0 B'; const k=1024, i=Math.floor(Math.log(bytes)/Math.log(k)); return parseFloat((bytes/Math.pow(k,i)).toFixed(2))+' '+['B','KB','MB','GB'][i]; };
@@ -171,9 +181,9 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                 <div class="flex gap-2 w-full md:w-auto overflow-x-auto">
                     <select v-model="filterForm.status" class="rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F]">
                         <option value="">ทุกสถานะ</option>
-                        <option value="in_active">รอเริ่ม (In Active)</option>
+                        <option value="in_active">รอเริ่มดำเนินการ</option>
                         <option value="in_progress">กำลังดำเนินการ</option>
-                        <option value="completed">เสร็จสิ้น</option>
+                        <option value="completed">เสร็จสมบูรณ์</option>
                         <option value="delayed">ล่าช้า</option>
                         <option value="cancelled">ยกเลิก</option>
                     </select>
@@ -216,7 +226,6 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                                             <button v-if="hasActiveRisks(item.issues)" @click.stop="openQuickView(item, 'risk')" class="w-5 h-5 rounded-full bg-yellow-100 flex items-center justify-center hover:scale-110 transition cursor-pointer" title="ดูรายการความเสี่ยง">
                                                 <div class="w-2 h-2 rounded-full bg-yellow-500"></div>
                                             </button>
-
                                         </div>
                                         <div class="text-[10px] text-gray-500 mt-0.5 flex flex-wrap items-center gap-1">
                                             <span v-if="item.division" class="bg-blue-50 text-blue-600 px-1.5 rounded border border-blue-100">🏢 {{ item.division.name }}</span>
@@ -229,7 +238,11 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                                 <span v-if="item.project_manager" class="bg-green-50 text-green-700 border border-green-200 px-2 py-1 rounded text-xs font-bold whitespace-nowrap">👤 {{ item.project_manager.name }}</span>
                                 <span v-else class="text-gray-300">-</span>
                             </td>
-                            <td class="px-6 py-4 text-center"><span class="px-2 py-1 rounded text-xs font-bold uppercase" :class="statusColor(item.status)">{{ item.status === 'in_active' ? 'IN ACTIVE' : item.status }}</span></td>
+                            <td class="px-6 py-4 text-center">
+                                <span class="px-2 py-1 rounded text-xs font-bold uppercase whitespace-nowrap" :class="statusColor(item.status)">
+                                    {{ getStatusText(item.status) }}
+                                </span>
+                            </td>
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-2">
                                     <div class="w-full bg-gray-200 rounded-full h-1.5">
@@ -249,12 +262,10 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                             <td v-if="canEdit" class="px-6 py-4 text-center">
                                 <div class="flex justify-center gap-2">
                                     <Link :href="route('work-items.show', item.id)" class="p-1.5 rounded-lg hover:bg-blue-50 text-lg transition">🔍</Link>
-
                                     <template v-if="canManageItem(item)">
                                         <button @click="openEditModal(item)" class="p-1.5 rounded-lg hover:bg-yellow-50 text-lg transition">✏️</button>
                                         <button @click="deleteItem(item.id)" class="p-1.5 rounded-lg hover:bg-red-50 text-lg transition">🗑️</button>
                                     </template>
-
                                 </div>
                             </td>
                         </tr>
@@ -297,7 +308,6 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                                     class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F] pr-10"
                                     :class="{'bg-purple-50 text-purple-900 font-semibold border-purple-200': form.parent_id, 'border-red-500': form.errors.parent_id}"
                                 >
-
                                 <button
                                     v-if="parentSearch"
                                     @click.prevent="clearParent"
@@ -348,17 +358,16 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                             </div>
                         </div>
 
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแล (PM)</label>
-                            <PmAutocomplete
-                                v-model="form.pm_name"
-                                @update:id="(id) => form.project_manager_id = id"
-                                placeholder="ค้นหาจากชื่อ User..."
-                            />
-                            <div v-if="form.errors.project_manager_id" class="text-red-500 text-xs mt-1">{{ form.errors.project_manager_id }}</div>
-                        </div>
-
                         <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแล (PM)</label>
+                                <PmAutocomplete
+                                    v-model="form.pm_name"
+                                    @update:id="(id) => form.project_manager_id = id"
+                                    placeholder="ค้นหาจากชื่อ User..."
+                                />
+                                <div v-if="form.errors.project_manager_id" class="text-red-500 text-xs mt-1">{{ form.errors.project_manager_id }}</div>
+                            </div>
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
                                 <select v-model="form.type" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.type}" required>
@@ -367,61 +376,70 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                                 </select>
                                 <div v-if="form.errors.type" class="text-red-500 text-xs mt-1">{{ form.errors.type }}</div>
                             </div>
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label>
-                                <input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.budget}">
-                                <div v-if="form.errors.budget" class="text-red-500 text-xs mt-1">{{ form.errors.budget }}</div>
-                            </div>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน (Weight)</label>
-                                <input v-model="form.weight" type="number" step="0.01" min="0" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.weight}">
-                                <span class="text-[10px] text-gray-500 block mt-1">ใช้คำนวณความสำคัญของงาน</span>
-                                <div v-if="form.errors.weight" class="text-red-500 text-xs mt-1">{{ form.errors.weight }}</div>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ (Status)</label>
-
-                                <div class="w-full rounded-lg border border-gray-200 bg-white p-2 h-[42px] flex justify-between items-center cursor-not-allowed opacity-80" title="ระบบคำนวณสถานะให้อัตโนมัติ">
-                                    <span class="text-xs font-bold px-2 py-1 rounded uppercase" :class="statusColor(form.status)">
-                                        {{ form.status === 'in_active' ? 'IN ACTIVE' : form.status }}
-                                    </span>
-                                    <span class="text-[9px] text-[#7A2F8F] font-bold bg-purple-100 border border-purple-200 px-1.5 py-0.5 rounded">AUTO</span>
+                        <template v-if="isEditing">
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label>
+                                    <input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.budget}">
+                                    <div v-if="form.errors.budget" class="text-red-500 text-xs mt-1">{{ form.errors.budget }}</div>
                                 </div>
+                            </div>
 
-                                <div v-if="isEditing" class="mt-2 pl-1">
-                                    <label class="inline-flex items-center cursor-pointer group">
-                                        <input type="checkbox"
-                                               class="rounded border-gray-300 text-red-600 shadow-sm focus:ring-red-500 cursor-pointer"
-                                               :checked="form.status === 'cancelled'"
-                                               @change="form.status = $event.target.checked ? 'cancelled' : 'in_active'">
-                                        <span class="ml-2 text-xs font-bold text-gray-500 group-hover:text-red-600 transition-colors">ระงับ / ยกเลิกรายการนี้</span>
-                                    </label>
+                            <div class="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน (Weight)</label>
+                                    <input v-model="form.weight" type="number" step="0.01" min="0" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.weight}">
+                                    <span class="text-[10px] text-gray-500 block mt-1">ใช้คำนวณความสำคัญของงาน</span>
+                                    <div v-if="form.errors.weight" class="text-red-500 text-xs mt-1">{{ form.errors.weight }}</div>
                                 </div>
-                                <div v-if="form.errors.status" class="text-red-500 text-xs mt-1">{{ form.errors.status }}</div>
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ (Status)</label>
+                                    <div class="flex items-center gap-2 p-2 bg-white border border-gray-200 rounded-lg">
+                                        <div class="bg-purple-100 text-purple-700 px-2 py-0.5 rounded text-[10px] font-bold border border-purple-200 uppercase">AUTO</div>
+                                        <span class="text-xs font-bold px-2 py-1 rounded uppercase flex-1 text-center whitespace-nowrap" :class="statusColor(form.status)">
+                                            {{ getStatusText(form.status) }}
+                                        </span>
+                                    </div>
+
+                                    <div class="mt-2 pl-1">
+                                        <label class="inline-flex items-center cursor-pointer group">
+                                            <input type="checkbox"
+                                                   class="rounded border-gray-300 text-red-600 shadow-sm focus:ring-red-500 cursor-pointer"
+                                                   :checked="form.status === 'cancelled'"
+                                                   @change="form.status = $event.target.checked ? 'cancelled' : 'in_active'">
+                                            <span class="ml-2 text-xs font-bold text-gray-500 group-hover:text-red-600 transition-colors">ระงับ / ยกเลิกรายการนี้</span>
+                                        </label>
+                                    </div>
+                                    <div v-if="form.errors.status" class="text-red-500 text-xs mt-1">{{ form.errors.status }}</div>
+                                </div>
                             </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">เริ่ม</label>
+                                    <input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.planned_start_date}">
+                                    <div v-if="form.errors.planned_start_date" class="text-red-500 text-xs mt-1">{{ form.errors.planned_start_date }}</div>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">สิ้นสุด</label>
+                                    <input v-model="form.planned_end_date" type="date" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.planned_end_date}">
+                                    <div v-if="form.errors.planned_end_date" class="text-red-500 text-xs mt-1">{{ form.errors.planned_end_date }}</div>
+                                </div>
+                            </div>
+                        </template>
+
+                        <div v-if="!isEditing" class="bg-yellow-50 text-yellow-800 p-3 rounded-lg text-xs border border-yellow-200 mt-2 font-bold shadow-sm">
+                            💡 สร้างข้อมูลเบื้องต้นก่อน แล้วไปเพิ่มรายละเอียดแบบเต็มในหน้า "จัดการข้อมูล"
                         </div>
 
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">เริ่ม</label>
-                                <input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.planned_start_date}">
-                                <div v-if="form.errors.planned_start_date" class="text-red-500 text-xs mt-1">{{ form.errors.planned_start_date }}</div>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">สิ้นสุด</label>
-                                <input v-model="form.planned_end_date" type="date" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.planned_end_date}">
-                                <div v-if="form.errors.planned_end_date" class="text-red-500 text-xs mt-1">{{ form.errors.planned_end_date }}</div>
-                            </div>
-                        </div>
                     </form>
                     <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0 bg-gray-50">
                         <button type="button" @click="closeModalSafely" class="px-5 py-2.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-lg font-bold">ยกเลิก</button>
                         <button type="submit" @click="submit" class="px-5 py-2.5 bg-[#7A2F8F] hover:bg-[#5e2270] text-white rounded-lg font-bold shadow-md" :disabled="form.processing">
                             <span v-if="form.processing">กำลังบันทึก...</span>
-                            <span v-else>บันทึก</span>
+                            <span v-else>{{ isEditing ? 'บันทึก' : 'บันทึกและไปต่อ' }}</span>
                         </button>
                     </div>
                 </div>
@@ -464,6 +482,5 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                 </div>
             </div>
         </Teleport>
-
     </PeaSidebarLayout>
 </template>

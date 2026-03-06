@@ -3,8 +3,8 @@
 namespace App\Http\Controllers;
 
 use App\Models\WorkItem;
-use App\Models\WorkItemType; // ✅ เพิ่ม
-use App\Models\Milestone; // ✅ เพิ่ม
+use App\Models\WorkItemType;
+use App\Models\Milestone;
 use App\Models\AuditLog;
 use App\Models\Comment;
 use App\Models\WorkItemLink;
@@ -19,34 +19,22 @@ use Illuminate\Pagination\LengthAwarePaginator;
 use Inertia\Inertia;
 use Carbon\Carbon;
 use Illuminate\Support\Facades\Cache;
-// ✅ นำเข้าระบบแจ้งเตือน
 use Illuminate\Support\Facades\Notification;
 use App\Notifications\AssignedAsPmNotification;
 use App\Notifications\WorkItemDeletedNotification;
 
 class WorkItemController extends Controller
 {
-    // --- 1. หน้าแผนงานทั้งหมด (Plans) ---
-    public function plans(Request $request)
-    {
-        return $this->renderList($request, 'plan');
-    }
+    public function plans(Request $request) { return $this->renderList($request, 'plan'); }
+    public function projects(Request $request) { return $this->renderList($request, 'project'); }
 
-    // --- 2. หน้าโครงการทั้งหมด (Projects) ---
-    public function projects(Request $request)
-    {
-        return $this->renderList($request, 'project');
-    }
-
-    // --- 3. หน้างานของฉัน (My Works) ---
     public function myWorks(Request $request)
     {
         $query = WorkItem::with(['issues', 'parent', 'division', 'department', 'projectManager'])
             ->where('project_manager_id', auth()->id());
 
         if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where('name', 'ilike', '%' . $search . '%');
+            $query->where('name', 'ilike', '%' . $request->search . '%');
         }
         if ($request->filled('status')) $query->where('status', $request->status);
         if ($request->filled('year')) $query->whereYear('planned_start_date', $request->year);
@@ -67,7 +55,6 @@ class WorkItemController extends Controller
             });
 
         $divisions = Division::with('departments')->orderBy('name')->get();
-        // ✅ ดึงประเภทงานไปเตรียมไว้ให้หน้าบ้าน
         $workItemTypes = WorkItemType::orderBy('level_order')->get();
 
         return Inertia::render('WorkItem/List', [
@@ -76,27 +63,22 @@ class WorkItemController extends Controller
             'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir']),
             'parentOptions' => $parentOptions,
             'divisions' => $divisions,
-            'workItemTypes' => $workItemTypes // ✅ ส่งไปเตรียมไว้
+            'workItemTypes' => $workItemTypes
         ]);
     }
 
-    // --- ฟังก์ชันกลางสำหรับดึงข้อมูลและ Render หน้า List ---
-    private function renderList(Request $request, $type = null) // ✅ อนุญาตให้ $type เป็น null ได้ (default view)
+    private function renderList(Request $request, $type = null)
     {
-        // ✅ ดึงประเภทงานทั้งหมดมาก่อน เพื่อหา Default Type (ถ้าไม่ส่ง $type มา)
         $workItemTypes = WorkItemType::orderBy('level_order')->get();
 
-        // ถ้าไม่มีการระบุ type มา ให้ใช้ type ของ level 2 เป็นค่าเริ่มต้น (เพราะ Level 1 อยู่หน้า Tree View แล้ว)
-        // แต่ถ้าอยากให้เริ่มที่ Level 1 เลยก็แก้เป็น $workItemTypes->first()->key
         if (!$type && $workItemTypes->count() > 1) {
             $type = $workItemTypes[1]->key;
         } elseif (!$type) {
             $type = $workItemTypes->first()->key ?? 'plan';
         }
 
-        // ✅ Query ข้อมูลตาม Type ที่เลือก (รองรับ Dynamic Key)
         $query = WorkItem::where('type', $type)
-            ->with(['issues', 'parent', 'division', 'department', 'projectManager', 'workType']); // เพิ่ม workType
+            ->with(['issues', 'parent', 'division', 'department', 'projectManager', 'workType']);
 
         if ($request->filled('search')) {
             $search = $request->search;
@@ -123,7 +105,6 @@ class WorkItemController extends Controller
 
         $divisions = Division::with('departments')->orderBy('name')->get();
 
-        // ✅ ดึง parentOptions แบบ Dynamic ตามประเภทงาน
         $parentOptions = WorkItem::with('workType')
             ->select('id', 'name', 'type', 'work_item_type_id')
             ->get()
@@ -131,7 +112,7 @@ class WorkItemController extends Controller
                 $item->type_label = $item->workType ? $item->workType->name : $item->type;
                 return $item;
             })
-            ->sortBy('type_label'); // หรือเรียงตาม level_order ถ้า join table
+            ->sortBy('type_label');
 
         return Inertia::render('WorkItem/List', [
             'type' => $type,
@@ -139,11 +120,9 @@ class WorkItemController extends Controller
             'filters' => $request->all(['search', 'status', 'year', 'sort_by', 'sort_dir', 'division_id', 'department_id']),
             'parentOptions' => $parentOptions,
             'divisions' => $divisions,
-            'workItemTypes' => $workItemTypes // ✅ ส่งประเภทงานทั้งหมดไปสร้าง Tabs
+            'workItemTypes' => $workItemTypes
         ]);
     }
-
-    // --- CRUD Functions ---
 
     public function store(Request $request)
     {
@@ -175,9 +154,11 @@ class WorkItemController extends Controller
 
         $workItem = WorkItem::create($validated);
 
+        // ✅ บันทึกประวัติเปอร์เซ็นต์เริ่มต้น
+        $workItem->progressHistories()->create(['progress' => $workItem->progress]);
+
         $this->logActivity('CREATE', $workItem, [], $validated);
 
-        // 🔔 แจ้งเตือน PM ถ้ามีการระบุตัวบุคคล
         if ($workItem->project_manager_id) {
             $pm = User::find($workItem->project_manager_id);
             if ($pm) {
@@ -209,17 +190,23 @@ class WorkItemController extends Controller
             $request->merge(['department_id' => null]);
         }
 
+        // 🚀 แก้บัคการบันทึก: ใช้ sometimes เพื่อให้สามารถอัปเดตเฉพาะบางฟิลด์ (เช่น ฟิลด์ Details อย่างเดียว) ได้
         $validated = $request->validate([
-            'name' => 'required|string|max:255',
+            'name' => 'sometimes|required|string|max:255',
             'description' => 'nullable|string',
+            'is_manual_description' => 'nullable|boolean',
+            'rationale' => 'nullable|string',
+            'objective' => 'nullable|string',
+            'alignment' => 'nullable|string',
+            'scope_output' => 'nullable|string',
             'progress' => 'nullable|numeric|min:0|max:100',
-            'status' => 'required|string',
+            'status' => 'sometimes|required|string',
             'budget' => 'nullable|numeric',
             'planned_start_date' => 'nullable|date',
             'planned_end_date' => 'nullable|date',
-            'type' => 'required|string',
+            'type' => 'sometimes|required|string',
             'parent_id' => 'nullable|exists:work_items,id',
-            'division_id' => 'required|exists:divisions,id',
+            'division_id' => 'sometimes|required|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
             'project_manager_id' => 'nullable|exists:users,id',
             'weight' => 'nullable|numeric|min:0',
@@ -233,14 +220,20 @@ class WorkItemController extends Controller
             }
         }
 
-        $validated['is_active'] = $validated['status'] !== 'cancelled';
+        // จัดการเรื่องสถานะ Is Active เฉพาะตอนที่มีการส่งสถานะมา
+        if (isset($validated['status'])) {
+            $validated['is_active'] = $validated['status'] !== 'cancelled';
+        }
 
         $oldData = $workItem->getOriginal();
-
-        // ถ้ามีการเปลี่ยนตัว PM ให้แจ้งเตือนคนใหม่ด้วย
         $oldPmId = $workItem->project_manager_id;
 
         $workItem->update($validated);
+
+        // ✅ ถ้าความคืบหน้าเปลี่ยน ให้บันทึกประวัติ
+        if ($workItem->wasChanged('progress')) {
+            $workItem->progressHistories()->create(['progress' => $workItem->progress]);
+        }
 
         if ($workItem->wasChanged('project_manager_id') && $workItem->project_manager_id) {
             $pm = User::find($workItem->project_manager_id);
@@ -272,16 +265,11 @@ class WorkItemController extends Controller
             } catch (\Exception $e) {}
         }
 
-        if ($workItem->parent) {
-            $workItem->parent->recalculateProgress();
-        }
-
         return back()->with('success', 'บันทึกข้อมูลเรียบร้อยแล้ว');
     }
 
     public function updateProgress(Request $request, WorkItem $workItem)
     {
-        // ✅ เพิ่มการจำกัดนามสกุลไฟล์
         $request->validate([
             'progress' => 'required|integer|min:0|max:100',
             'comment' => 'required|string',
@@ -298,6 +286,9 @@ class WorkItemController extends Controller
         $newProgress = $request->progress;
 
         $workItem->update(['progress' => $newProgress]);
+
+        // ✅ บันทึกประวัติ
+        $workItem->progressHistories()->create(['progress' => $newProgress]);
 
         $commentBody = $request->comment . "\n(ปรับความคืบหน้า: {$oldProgress}% ➝ {$newProgress}%)";
         $workItem->comments()->create([
@@ -342,20 +333,19 @@ class WorkItemController extends Controller
         $oldParent = $workItem->parent;
         $oldData = $workItem->getOriginal();
 
-        // อัปเดตและเซฟ
         $workItem->update(['parent_id' => $newParentId]);
-        $workItem->refresh(); // ✅ ดึงข้อมูลล่าสุดจาก DB ทันที
+        $workItem->refresh();
 
         $this->logActivity('MOVE', $workItem, $oldData, $workItem->getChanges());
 
         $this->clearRelatedCache($workItem);
         if ($oldParent) {
             $this->clearRelatedCache($oldParent);
-            $oldParent->recalculateProgress(); // ✅ กระตุ้นแม่เดิม
+            $oldParent->recalculateProgress();
         }
         if ($workItem->parent) {
             $this->clearRelatedCache($workItem->parent);
-            $workItem->parent->recalculateProgress(); // ✅ กระตุ้นแม่ใหม่
+            $workItem->parent->recalculateProgress();
         }
 
         return back()->with('success', 'ย้ายงานเรียบร้อยแล้ว (อัปเดต % ทันที)');
@@ -389,19 +379,16 @@ class WorkItemController extends Controller
         $this->logActivity('DELETE', $workItem, $workItem->toArray(), []);
         $this->clearRelatedCache($workItem);
 
-        // 🔔 แจ้งเตือน Admin ทุกคน และ PM ที่ดูแลงานนี้
         $admins = User::where('role', 'admin')->get();
         Notification::send($admins, new WorkItemDeletedNotification($workItem->name));
 
         if ($workItem->project_manager_id) {
             $pm = User::find($workItem->project_manager_id);
-            // ถ้า PM ไม่ใช่ Admin (กันส่งซ้ำ) ให้แจ้งเตือนด้วย
             if ($pm && $pm->role !== 'admin') {
                 $pm->notify(new WorkItemDeletedNotification($workItem->name));
             }
         }
 
-        // ✅ ลบงานย่อยที่อยู่ภายใต้ทั้งหมด (Recursive)
         $this->cascadeDelete($workItem);
 
         if ($parent) {
@@ -416,15 +403,13 @@ class WorkItemController extends Controller
         foreach ($item->children as $child) {
             $this->cascadeDelete($child);
         }
-        $item->delete(); // Soft Delete
+        $item->delete();
     }
 
     private function clearRelatedCache($workItem)
     {
         Cache::forget('dashboard_hierarchy');
         Cache::forget('dashboard_s_curve');
-
-        // ✅ เพิ่ม 2 บรรทัดนี้เพื่อให้แน่ใจว่าล้าง Cache ต้นไม้ทั้งหมดทิ้งเวลาอัปเดต/ย้าย
         Cache::forget('strategies_index');
         Cache::forget('strategies_index_v2');
 
@@ -436,7 +421,6 @@ class WorkItemController extends Controller
 
     private function logActivity($action, $model, $oldData = [], $changes = [])
     {
-        // โค้ด logActivity เดิม...
         $relationMap = [
             'project_manager_id' => ['model' => User::class, 'label' => 'ผู้ดูแล (PM)'],
             'parent_id' => ['model' => WorkItem::class, 'label' => 'งานภายใต้'],
@@ -531,13 +515,13 @@ class WorkItemController extends Controller
 
     public function show(WorkItem $workItem)
     {
-        // ✅ โหลด Relations ตัวใหม่ที่เพิ่งสร้าง (milestones, workType)
         $workItem->load([
             'parent.parent.parent',
             'attachments.uploader',
             'issues.user',
-            'milestones', // 👈 เพิ่มตรงนี้
-            'workType',   // 👈 เพิ่มตรงนี้
+            'milestones',
+            'workType',
+            'progressHistories',
             'children' => function($q) {
                 $q->orderBy('order_index')->with(['attachments', 'projectManager']);
             },
@@ -548,28 +532,43 @@ class WorkItemController extends Controller
             'projectManager'
         ]);
 
-        $relatedIds = collect([$workItem->id])->merge(collect($workItem->children)->pluck('id'))->unique()->toArray();
-        $logs = AuditLog::with('user')
-            ->where(function($q) use ($relatedIds) { $q->where('model_type', 'WorkItem')->whereIn('model_id', $relatedIds); })
-            ->orWhere(function($q) use ($workItem) { $q->whereIn('model_type', ['Attachment', 'Issue'])->where(function($sq) use ($workItem) { $sq->where('changes->work_item_id', $workItem->id)->orWhere('changes->after->work_item_id', $workItem->id); }); })
-            ->get()
-            ->map(function ($item) {
-                $item->timeline_type = 'log';
+        // 🛡️ เช็คสิทธิ์การดูประวัติ (Admin หรือ PM ที่ดูแลงานนี้ หรือ PM ที่ดูแลงานแม่)
+        $user = auth()->user();
+        $canViewHistory = false;
+
+        if ($user) {
+            $canViewHistory = $user->role === 'admin'
+                            || $workItem->project_manager_id === $user->id
+                            || ($workItem->parent && $workItem->parent->project_manager_id === $user->id);
+        }
+
+        if ($canViewHistory) {
+            $relatedIds = collect([$workItem->id])->merge(collect($workItem->children)->pluck('id'))->unique()->toArray();
+            $logs = AuditLog::with('user')
+                ->where(function($q) use ($relatedIds) { $q->where('model_type', 'WorkItem')->whereIn('model_id', $relatedIds); })
+                ->orWhere(function($q) use ($workItem) { $q->whereIn('model_type', ['Attachment', 'Issue'])->where(function($sq) use ($workItem) { $sq->where('changes->work_item_id', $workItem->id)->orWhere('changes->after->work_item_id', $workItem->id); }); })
+                ->get()
+                ->map(function ($item) {
+                    $item->timeline_type = 'log';
+                    return $item;
+                });
+
+            $comments = Comment::with('user')->whereIn('work_item_id', $relatedIds)->get()->map(function ($item) {
+                $item->timeline_type = 'comment';
                 return $item;
             });
 
-        $comments = Comment::with('user')->whereIn('work_item_id', $relatedIds)->get()->map(function ($item) {
-            $item->timeline_type = 'comment';
-            return $item;
-        });
-
-        $timeline = $logs->concat($comments)->sortByDesc('created_at')->values();
-        $page = request()->get('page', 1);
-        $perPage = 10;
-        $total = $timeline->count();
-        $paginatedItems = $timeline->slice(($page - 1) * $perPage, $perPage)->values();
-        $paginatedTimeline = new LengthAwarePaginator($paginatedItems, $total, $perPage, $page, ['path' => request()->url(), 'query' => request()->query()]);
-        $paginatedTimeline->withQueryString();
+            $timeline = $logs->concat($comments)->sortByDesc('created_at')->values();
+            $page = request()->get('page', 1);
+            $perPage = 10;
+            $total = $timeline->count();
+            $paginatedItems = $timeline->slice(($page - 1) * $perPage, $perPage)->values();
+            $paginatedTimeline = new LengthAwarePaginator($paginatedItems, $total, $perPage, $page, ['path' => request()->url(), 'query' => request()->query()]);
+            $paginatedTimeline->withQueryString();
+        } else {
+            // ส่ง Array ว่างไปให้ถ้าไม่มีสิทธิ์
+            $paginatedTimeline = new LengthAwarePaginator([], 0, 10, 1);
+        }
 
         $divisions = Division::with('departments')->orderBy('name')->get();
         $workItemTypes = WorkItemType::orderBy('level_order')->get();
@@ -577,8 +576,9 @@ class WorkItemController extends Controller
         return Inertia::render('Project/Detail', [
             'item' => $workItem,
             'historyLogs' => $paginatedTimeline,
+            'canViewHistory' => $canViewHistory, // ✅ ส่งสถานะการเข้าถึงไปบอกหน้า Vue ด้วย
             'divisions' => $divisions,
-            'workItemTypes' => $workItemTypes // ✅ ส่งให้ Vue เผื่อไว้ใช้
+            'workItemTypes' => $workItemTypes
         ]);
     }
 
@@ -586,8 +586,8 @@ class WorkItemController extends Controller
     public function index(Request $request) {
         return $this->renderList($request, $request->query('type'));
     }
-        public function strategies() {
-        // 🚀 ดึงข้อมูล Tree View
+
+    public function strategies() {
         $strategies = Cache::remember('strategies_index_v2', 3600, function () {
             $recursiveLoad = function ($q) {
                 $q->orderBy('name', 'asc')
@@ -616,7 +616,6 @@ class WorkItemController extends Controller
             }, SORT_NATURAL)->values();
         });
 
-        // ✅ ดึงข้อมูลประกอบสำหรับ Modal แบบเต็ม
         $workItemTypes = \App\Models\WorkItemType::orderBy('level_order')->get();
         $divisions = Division::with('departments')->orderBy('name')->get();
 
@@ -632,8 +631,8 @@ class WorkItemController extends Controller
         return Inertia::render('Strategy/Index', [
             'strategies' => $strategies,
             'workItemTypes' => $workItemTypes,
-            'divisions' => $divisions,         // ส่งไปให้ Modal
-            'parentOptions' => $parentOptions  // ส่งไปให้ Modal
+            'divisions' => $divisions,
+            'parentOptions' => $parentOptions
         ]);
     }
 
@@ -699,17 +698,12 @@ class WorkItemController extends Controller
             ->get(['id', 'name']);
     }
 
-    // -------------------------------------------------------------------------
-    // ✨ ฟังก์ชันสำหรับรับค่าจาก Checkbox (Bulk Action)
-    // -------------------------------------------------------------------------
     public function bulkAction(Request $request)
     {
         $request->validate([
             'ids' => 'required|array',
             'ids.*' => 'exists:work_items,id',
             'action' => 'required|string|in:delete,update_progress,update_general',
-
-            // Validation สำหรับการแก้ไขข้อมูล
             'description' => 'nullable|string',
             'division_id' => 'nullable|exists:divisions,id',
             'department_id' => 'nullable|exists:departments,id',
@@ -717,8 +711,6 @@ class WorkItemController extends Controller
             'type' => 'nullable|string',
             'weight' => 'nullable|numeric|min:0',
             'bulk_status_mode' => 'nullable|in:no_change,active,cancelled',
-
-            // Validation สำหรับ Progress
             'progress' => 'nullable|integer|min:0|max:100',
             'comment' => 'nullable|string'
         ]);
@@ -729,11 +721,9 @@ class WorkItemController extends Controller
         foreach ($items as $item) {
             if ($item->parent_id) $parentsToUpdate->push($item->parent_id);
 
-            // 1. ลบรายการ
             if ($request->action === 'delete') {
                 $this->cascadeDelete($item);
             }
-            // 2. อัปเดตข้อมูลทั่วไป (Bulk Edit)
             elseif ($request->action === 'update_general') {
                 $data = [];
                 if ($request->filled('description')) $data['description'] = $request->description;
@@ -743,14 +733,12 @@ class WorkItemController extends Controller
                 if ($request->filled('type')) $data['type'] = $request->type;
                 if ($request->filled('weight')) $data['weight'] = $request->weight;
 
-                // จัดการสถานะ (Active / Cancelled)
                 if ($request->bulk_status_mode === 'cancelled') {
                     $data['status'] = 'cancelled';
                     $data['is_active'] = false;
                     $this->cascadeStatus($item, 'cancelled');
                 } elseif ($request->bulk_status_mode === 'active') {
                     $data['is_active'] = true;
-                    // ✅ ฉลาดขึ้น: ถ้าเปิดกลับมา ให้เช็ค % ว่าควรเป็นสถานะไหน
                     if ($item->progress == 100) {
                         $data['status'] = 'completed';
                     } elseif ($item->progress > 0) {
@@ -765,11 +753,13 @@ class WorkItemController extends Controller
                     $item->update($data);
                 }
             }
-            // 3. อัปเดตความคืบหน้า (เฉพาะรายการที่ไม่มีลูก)
             elseif ($request->action === 'update_progress' && isset($request->progress)) {
                 if ($item->children()->count() == 0) {
                     $oldProgress = $item->progress;
                     $item->update(['progress' => $request->progress]);
+
+                    // ✅ บันทึกประวัติแบบกลุ่ม
+                    $item->progressHistories()->create(['progress' => $request->progress]);
 
                     if ($request->comment) {
                         $item->comments()->create([
@@ -781,7 +771,6 @@ class WorkItemController extends Controller
             }
         }
 
-        // กระตุ้นการคำนวณ % ให้แม่ของทุกรายการที่ถูกแก้
         foreach ($parentsToUpdate->unique() as $parentId) {
             $parent = WorkItem::find($parentId);
             if ($parent) $parent->recalculateProgress();

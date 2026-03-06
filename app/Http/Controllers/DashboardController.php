@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\WorkItem;
 use App\Models\Issue;
+use App\Models\ProgressHistory;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 use Carbon\Carbon;
@@ -11,10 +12,24 @@ use Illuminate\Support\Facades\Cache;
 
 class DashboardController extends Controller
 {
-    public function adminDashboard()
+    public function adminDashboard(Request $request)
     {
+        // 🚀 1. รับค่า Time Machine จาก URL (รองรับทั้ง 1m, 3m, 1y และ วันที่แบบเจาะจง)
+        $time = $request->input('time', 'now');
+        $targetDate = null;
+
+        if ($time === '1m') {
+            $targetDate = now()->subMonth()->endOfDay();
+        } elseif ($time === '3m') {
+            $targetDate = now()->subMonths(3)->endOfDay();
+        } elseif ($time === '1y') {
+            $targetDate = now()->subYear()->endOfDay();
+        } elseif (preg_match('/^\d{4}-\d{2}-\d{2}$/', $time)) { // ✅ เช็คว่าเป็นรูปแบบวันที่ YYYY-MM-DD หรือไม่
+            $targetDate = Carbon::parse($time)->endOfDay();
+        }
+
         // ==================================================================================
-        // 1. Hierarchy (Strategy -> Plan -> Project ...) | 🚀 CACHED (เก็บ 60 นาที)
+        // 2. Hierarchy (Strategy -> Plan -> Project ...) | 🚀 CACHED & TIME MACHINE
         // ==================================================================================
         $strategies = Cache::remember('dashboard_hierarchy', 3600, function () {
             $recursiveLoad = function ($q) {
@@ -48,23 +63,102 @@ class DashboardController extends Controller
             ->values();
         });
 
-        // ==================================================================================
-        // 2. ข้อมูล Projects & Plans & Issues (Real-time)
-        // ==================================================================================
-        $projects = WorkItem::where('type', 'project')->get();
-        $plansCount = WorkItem::where('type', 'plan')->count(); // นับแผนงาน
+        // ⏳ ถ้าผู้ใช้ดูข้อมูลย้อนหลัง ต้องแปลงค่า Progress ในโครงสร้าง Tree ใหม่
+        if ($targetDate) {
+            $strategies = unserialize(serialize($strategies)); // Deep Clone กัน Cache พัง
 
-        $allActiveIssues = Issue::where('status', '!=', 'resolved')
-            ->with(['user', 'workItem'])
-            ->orderBy('severity', 'desc')
-            ->get();
+            $histories = ProgressHistory::where('created_at', '<=', $targetDate)
+                ->orderBy('created_at', 'desc')
+                ->get()
+                ->groupBy('work_item_id');
+
+            $adjustTree = function($items) use (&$adjustTree, $targetDate, $histories) {
+                return $items->filter(function($item) use ($targetDate) {
+                    return clone $item->created_at <= $targetDate; // ตัดงานที่ยังไม่เกิดในอดีตทิ้ง
+                })->map(function($item) use (&$adjustTree, $targetDate, $histories) {
+
+                    // แปลงค่า Progress เป็นอดีต
+                    if ($histories->has($item->id)) {
+                        $item->progress = $histories->get($item->id)->first()->progress;
+                    } else {
+                        $item->progress = 0;
+                    }
+
+                    // คำนวณ Status ในอดีตกลับมา
+                    if ($item->progress >= 100) {
+                        $item->status = 'completed';
+                    } elseif ($item->planned_end_date && clone $targetDate > Carbon::parse($item->planned_end_date)->endOfDay() && $item->progress < 100) {
+                        $item->status = 'delayed';
+                    } elseif ($item->progress > 0) {
+                        $item->status = 'in_progress';
+                    } else {
+                        $item->status = 'in_active';
+                    }
+
+                    if ($item->children) {
+                        $item->setRelation('children', $adjustTree($item->children));
+                    }
+                    return $item;
+                })->values();
+            };
+
+            $strategies = $adjustTree($strategies);
+        }
 
         // ==================================================================================
-        // 3. Stats Cards
+        // 3. ข้อมูล Projects & Plans & Issues (รองรับ Time Machine)
+        // ==================================================================================
+        $projectsQuery = WorkItem::where('type', 'project');
+        $plansQuery = WorkItem::where('type', 'plan');
+        $issuesQuery = Issue::with(['user', 'workItem'])->orderBy('severity', 'desc');
+
+        if ($targetDate) {
+            $projectsQuery->where('created_at', '<=', $targetDate);
+            $plansQuery->where('created_at', '<=', $targetDate);
+            $issuesQuery->where('created_at', '<=', $targetDate);
+        }
+
+        $projects = $projectsQuery->with('projectManager')->get();
+        $plansCount = $plansQuery->count();
+
+        // ⏳ จำลอง Progress และ Status กลับไปในอดีตสำหรับ List ของโปรเจกต์
+        if ($targetDate && $projects->count() > 0) {
+            $projectHistories = ProgressHistory::whereIn('work_item_id', $projects->pluck('id'))
+                ->where('created_at', '<=', $targetDate)
+                ->orderBy('created_at', 'desc')
+                ->get()
+                ->groupBy('work_item_id');
+
+            $projects = $projects->map(function($p) use ($targetDate, $projectHistories) {
+                if ($projectHistories->has($p->id)) {
+                    $p->progress = $projectHistories->get($p->id)->first()->progress;
+                } else {
+                    $p->progress = 0;
+                }
+
+                if ($p->progress >= 100) {
+                    $p->status = 'completed';
+                } elseif ($p->planned_end_date && clone $targetDate > Carbon::parse($p->planned_end_date)->endOfDay() && $p->progress < 100) {
+                    $p->status = 'delayed';
+                } elseif ($p->progress > 0) {
+                    $p->status = 'in_progress';
+                } else {
+                    $p->status = 'in_active';
+                }
+                return $p;
+            });
+        }
+
+        $allActiveIssues = $issuesQuery->where('status', '!=', 'resolved')->get();
+
+        // ==================================================================================
+        // 4. Stats Cards (✅ แก้บัค: ลบคำว่า clone ออก เพราะ sum และ count คืนค่าเป็นตัวเลขธรรมดา)
         // ==================================================================================
         $stats = [
             'total_projects' => $projects->count(),
             'total_plans' => $plansCount,
+            'total_budget' => $projects->sum('budget'),
+            'active_projects' => $projects->whereNotIn('status', ['completed', 'cancelled'])->count(),
             'avg_progress' => $projects->count() > 0 ? round($projects->avg('progress'), 2) : 0,
             'open_issues' => $allActiveIssues->where('type', 'issue')->count(),
             'active_risks' => $allActiveIssues->where('type', 'risk')->count(),
@@ -72,9 +166,10 @@ class DashboardController extends Controller
         ];
 
         // ==================================================================================
-        // 4. Project Chart Data
+        // 5. Project Chart Data (✅ แก้บัค: ลบคำว่า clone ออก)
         // ==================================================================================
         $statusCounts = $projects->groupBy('status')->map->count();
+
         $projectChart = [
             'series' => [
                 $statusCounts['completed'] ?? 0,
@@ -83,35 +178,41 @@ class DashboardController extends Controller
                 $statusCounts['in_active'] ?? 0,
                 $statusCounts['cancelled'] ?? 0,
             ],
-            'labels' => ['เสร็จสิ้น', 'กำลังทำ', 'ล่าช้า', 'รอเริ่ม', 'ยกเลิก'],
+            // ✅ ส่งเป็นคีย์ภาษาอังกฤษ เพื่อให้เวลากดที่กราฟ ระบบจะได้ค้นหาสถานะเจอ
+            'labels' => ['completed', 'in_progress', 'delayed', 'in_active', 'cancelled'],
             'colors' => ['#10B981', '#3B82F6', '#EF4444', '#9CA3AF', '#4B5563']
         ];
 
         // ==================================================================================
-        // 5. โครงการที่ต้องจับตา (Watch List) | ✅ ปรับปรุงใหม่
+        // 6. โครงการที่ต้องจับตา (Watch List)
         // ==================================================================================
-        $watchProjects = WorkItem::where('type', 'project')
-            ->whereNotIn('status', ['completed', 'cancelled'])
-            ->with('projectManager') // ✅ ดึงข้อมูล PM มาด้วย
-            ->where(function($q) {
-                 $q->where('status', 'delayed')
-                   ->orWhere('planned_end_date', '<=', now()->addDays(30));
-            })
-            ->orderByRaw("CASE WHEN status = 'delayed' THEN 1 ELSE 2 END")
-            ->orderBy('planned_end_date', 'asc')
-            ->take(5)
-            ->get()
-            ->map(function($p) {
-                return [
-                    'id' => $p->id,
-                    'name' => $p->name,
-                    'pm_name' => $p->projectManager ? $p->projectManager->name : 'ไม่ระบุ PM', // ✅ ส่งชื่อ PM
-                    'progress' => $p->progress,
-                    'status' => $p->status,
-                    'due_date' => $p->planned_end_date ? Carbon::parse($p->planned_end_date)->format('d/m/Y') : '-',
-                    'is_urgent' => $p->status === 'delayed' || Carbon::parse($p->planned_end_date)->lte(now()->addDays(7)),
-                ];
-            });
+        $watchProjects = $projects->filter(function($p) use ($targetDate) {
+            if (in_array($p->status, ['completed', 'cancelled'])) return false;
+            $isDelayed = $p->status === 'delayed';
+
+            $isEndingSoon = false;
+            if ($p->planned_end_date) {
+                $compareDate = $targetDate ? clone $targetDate : now();
+                $isEndingSoon = Carbon::parse($p->planned_end_date)->lte($compareDate->addDays(30));
+            }
+            return $isDelayed || $isEndingSoon;
+        })
+        ->sortBy(function($p) {
+            return $p->status === 'delayed' ? 1 : 2;
+        })
+        ->take(5)
+        ->map(function($p) use ($targetDate) {
+            $compareDate = $targetDate ? clone $targetDate : now();
+            return [
+                'id' => $p->id,
+                'name' => $p->name,
+                'pm_name' => $p->projectManager ? $p->projectManager->name : 'ไม่ระบุ PM',
+                'progress' => $p->progress,
+                'status' => $p->status,
+                'due_date' => $p->planned_end_date ? Carbon::parse($p->planned_end_date)->format('d/m/Y') : '-',
+                'is_urgent' => $p->status === 'delayed' || ($p->planned_end_date && Carbon::parse($p->planned_end_date)->lte($compareDate->addDays(7))),
+            ];
+        })->values();
 
         return Inertia::render('Dashboard/AdminDashboard', [
             'hierarchy' => $strategies,

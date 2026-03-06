@@ -13,7 +13,10 @@ class MilestoneController extends Controller
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'due_date' => 'nullable|date',
+            'status' => 'nullable|string|max:50', // ✅ รับค่า Status
         ]);
+
+        $validated['status'] = $validated['status'] ?? 'pending';
 
         $workItem->milestones()->create($validated);
 
@@ -24,7 +27,7 @@ class MilestoneController extends Controller
     {
         $validated = $request->validate([
             'title' => 'required|string|max:255',
-            'status' => 'required|in:pending,completed',
+            'status' => 'required|string|max:50', // ✅ รับค่าได้ทุก Status (แก้บัคสีไม่เปลี่ยน)
             'due_date' => 'nullable|date',
             'remarks' => 'nullable|string'
         ]);

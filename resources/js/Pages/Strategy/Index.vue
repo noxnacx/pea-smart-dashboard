@@ -102,11 +102,21 @@ const submitCreate = () => {
             setTimeout(() => showSuccessModal.value = false, 2000);
         }
     };
+    // ถ้าอนาคตมีทำระบบอัปเดตจากหน้านี้ สามารถเพิ่มเงื่อนไข if(isEditing.value) ได้ครับ
     form.post(route('work-items.store'), options);
 };
 
 // UI Helpers
 const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', in_active: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
+
+// ✅ ฟังก์ชันแปลสถานะเป็นภาษาไทย
+const getStatusText = (status) => ({
+    completed: 'เสร็จสมบูรณ์',
+    delayed: 'ล่าช้า',
+    in_active: 'รอเริ่มดำเนินการ',
+    in_progress: 'กำลังดำเนินการ',
+    cancelled: 'ยกเลิก'
+}[status] || status);
 
 // --- Move Modal Logic ---
 const showMoveModal = ref(false);
@@ -222,11 +232,6 @@ const openMoveModal = (item) => {
                             <div v-if="form.errors.name" class="text-red-500 text-xs mt-1">{{ form.errors.name }}</div>
                         </div>
 
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">รายละเอียด (Description)</label>
-                            <textarea v-model="form.description" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm" :class="{'border-red-500': form.errors.description}" rows="3" placeholder="ระบุรายละเอียด..."></textarea>
-                        </div>
-
                         <div class="grid grid-cols-2 gap-4 bg-purple-50 p-3 rounded-lg border border-purple-100">
                             <div class="col-span-2 text-xs font-bold text-[#4A148C] uppercase">สังกัดหน่วยงาน</div>
                             <div>
@@ -245,61 +250,73 @@ const openMoveModal = (item) => {
                             </div>
                         </div>
 
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแล (PM)</label>
-                            <PmAutocomplete
-                                v-model="form.pm_name"
-                                @update:id="(id) => form.project_manager_id = id"
-                                placeholder="ค้นหาจากชื่อ User..."
-                            />
-                        </div>
-
                         <div class="grid grid-cols-2 gap-4">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">ผู้ดูแล (PM)</label>
+                                <PmAutocomplete
+                                    v-model="form.pm_name"
+                                    @update:id="(id) => form.project_manager_id = id"
+                                    placeholder="ค้นหาชื่อ User..."
+                                />
+                            </div>
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
                                 <select v-model="form.type" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.type}" required>
                                     <option v-for="type in workItemTypes" :key="type.id" :value="type.key">{{ type.name }}</option>
                                 </select>
                             </div>
+                        </div>
+
+                        <template v-if="isEditing">
+                            <div>
+                                <label class="block text-sm font-bold text-gray-700 mb-1">รายละเอียด (Description)</label>
+                                <textarea v-model="form.description" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm" :class="{'border-red-500': form.errors.description}" rows="3" placeholder="ระบุรายละเอียด..."></textarea>
+                            </div>
+
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label>
                                 <input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.budget}">
                             </div>
-                        </div>
 
-                        <div class="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน (Weight)</label>
-                                <input v-model="form.weight" type="number" step="0.01" min="0" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.weight}">
-                                <span class="text-[10px] text-gray-500 block mt-1">ใช้คำนวณความสำคัญของงาน</span>
-                            </div>
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ (Status)</label>
-                                <div class="w-full rounded-lg border border-gray-200 bg-white p-2 h-[42px] flex justify-between items-center cursor-not-allowed opacity-80" title="ระบบคำนวณสถานะให้อัตโนมัติ">
-                                    <span class="text-xs font-bold px-2 py-1 rounded uppercase" :class="statusColor(form.status)">
-                                        {{ form.status === 'in_active' ? 'IN ACTIVE' : form.status }}
-                                    </span>
-                                    <span class="text-[9px] text-[#7A2F8F] font-bold bg-purple-100 border border-purple-200 px-1.5 py-0.5 rounded">AUTO</span>
+                            <div class="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนักงาน (Weight)</label>
+                                    <input v-model="form.weight" type="number" step="0.01" min="0" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.weight}">
+                                    <span class="text-[10px] text-gray-500 block mt-1">ใช้คำนวณความสำคัญของงาน</span>
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ (Status)</label>
+                                    <div class="w-full rounded-lg border border-gray-200 bg-white p-2 h-[42px] flex justify-between items-center cursor-not-allowed opacity-80" title="ระบบคำนวณสถานะให้อัตโนมัติ">
+                                        <span class="text-xs font-bold px-2 py-1 rounded uppercase whitespace-nowrap" :class="statusColor(form.status)">
+                                            {{ getStatusText(form.status) }}
+                                        </span>
+                                        <span class="text-[9px] text-[#7A2F8F] font-bold bg-purple-100 border border-purple-200 px-1.5 py-0.5 rounded">AUTO</span>
+                                    </div>
                                 </div>
                             </div>
+
+                            <div class="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">เริ่ม</label>
+                                    <input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
+                                </div>
+                                <div>
+                                    <label class="block text-sm font-bold text-gray-700 mb-1">สิ้นสุด</label>
+                                    <input v-model="form.planned_end_date" type="date" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
+                                </div>
+                            </div>
+                        </template>
+
+                        <div v-if="!isEditing" class="bg-yellow-50 text-yellow-800 p-3 rounded text-xs border border-yellow-200 mt-2 font-bold shadow-sm">
+                            💡 สร้างข้อมูลเบื้องต้นก่อน แล้วไปเพิ่มรายละเอียดแบบเต็มในหน้า "จัดการข้อมูล"
                         </div>
 
-                        <div class="grid grid-cols-2 gap-4">
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">เริ่ม</label>
-                                <input v-model="form.planned_start_date" type="date" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
-                            </div>
-                            <div>
-                                <label class="block text-sm font-bold text-gray-700 mb-1">สิ้นสุด</label>
-                                <input v-model="form.planned_end_date" type="date" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]">
-                            </div>
-                        </div>
                     </form>
                     <div class="px-6 py-4 border-t border-gray-100 flex justify-end gap-3 shrink-0 bg-gray-50">
                         <button type="button" @click="closeModalSafely" class="px-5 py-2.5 bg-white border border-gray-300 hover:bg-gray-100 text-gray-700 rounded-lg font-bold">ยกเลิก</button>
-                        <button type="submit" class="px-5 py-2.5 bg-[#7A2F8F] hover:bg-[#5e2270] text-white rounded-lg font-bold shadow-md" :disabled="form.processing">
+                        <button type="submit" @click="submitCreate" class="px-5 py-2.5 bg-[#7A2F8F] hover:bg-[#5e2270] text-white rounded-lg font-bold shadow-md" :disabled="form.processing">
                             <span v-if="form.processing">กำลังบันทึก...</span>
-                            <span v-else>บันทึก</span>
+                            <span v-else>{{ isEditing ? 'บันทึกข้อมูล' : 'บันทึกและไปต่อ' }}</span>
                         </button>
                     </div>
                 </div>
