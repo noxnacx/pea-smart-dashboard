@@ -11,40 +11,83 @@ const props = defineProps({
     stats: Object,
     projectChart: Object,
     watchProjects: Array,
-    activeIssues: Array
+    activeIssues: Array,
+    focusedItem: Object // ✅ รับค่า Focus
 });
 
 const page = usePage();
 const userName = computed(() => page.props.auth.user.name);
 
-// ✅ ตัวแปรและฟังก์ชันสำหรับระบบย้อนเวลา (Time Machine)
-const timeMachineFilter = ref(new URLSearchParams(window.location.search).get('time') || 'now');
+// ✅ จัดการ State ของ URL (ควบรวมทั้ง Time Machine และ Focus Mode)
+const urlParams = new URLSearchParams(window.location.search);
+const timeMachineFilter = ref(urlParams.get('time') || 'now');
 const specificDate = ref('');
+const currentFocusId = ref(urlParams.get('focus_id') || '');
 
-// ถ้าเปิดหน้าเว็บมาแล้วใน URL มีวันที่แบบเจาะจง ให้เซ็ตค่าใส่ปฏิทินด้วย
 if (timeMachineFilter.value && timeMachineFilter.value.match(/^\d{4}-\d{2}-\d{2}$/)) {
     specificDate.value = timeMachineFilter.value;
 }
 
-const applyTimeMachine = (timeCode) => {
+// 🔄 ฟังก์ชันรวมอัปเดต URL (ส่งค่าทั้งเวลาและจุดโฟกัสไปพร้อมกัน)
+const applyFilters = (timeCode = timeMachineFilter.value, focus = currentFocusId.value) => {
     if (['now', '1m', '3m', '1y'].includes(timeCode)) {
-        specificDate.value = ''; // เคลียร์ปฏิทินทิ้งถ้ากดปุ่มลัด
+        specificDate.value = '';
     }
     timeMachineFilter.value = timeCode;
-    router.get(route('dashboard'), { time: timeCode }, { preserveState: true, preserveScroll: true });
+    currentFocusId.value = focus;
+
+    const params = {};
+    if (timeCode !== 'now') params.time = timeCode;
+    if (focus) params.focus_id = focus;
+
+    router.get(route('dashboard'), params, { preserveState: true, preserveScroll: true });
 };
 
-// เมื่อกดเลือกวันที่ในปฏิทิน
 const applySpecificDate = () => {
-    if (specificDate.value) {
-        applyTimeMachine(specificDate.value);
-    }
+    if (specificDate.value) applyFilters(specificDate.value, currentFocusId.value);
 };
 
 const clearSpecificDate = () => {
     specificDate.value = '';
-    applyTimeMachine('now');
+    applyFilters('now', currentFocusId.value);
 };
+
+const clearFocus = () => {
+    applyFilters(timeMachineFilter.value, '');
+};
+
+// 🎯 โลจิกสำหรับ Modal ค้นหาจุดโฟกัส (แปลง Tree เป็น Flat List ให้ค้นหาง่ายๆ)
+const showFocusModal = ref(false);
+const focusSearch = ref('');
+
+const flattenedHierarchy = computed(() => {
+    const result = [];
+    const flatten = (items, depth = 0, path = '') => {
+        items.forEach(item => {
+            const currentPath = path ? `${path} > ${item.name}` : item.name;
+            result.push({ ...item, depth, fullPath: currentPath });
+            if (item.children && item.children.length > 0) {
+                flatten(item.children, depth + 1, currentPath);
+            }
+        });
+    };
+    flatten(props.hierarchy);
+    return result;
+});
+
+const filteredFocusList = computed(() => {
+    if (!focusSearch.value) return flattenedHierarchy.value;
+    const q = focusSearch.value.toLowerCase();
+    return flattenedHierarchy.value.filter(item =>
+        item.name.toLowerCase().includes(q) || item.fullPath.toLowerCase().includes(q)
+    );
+});
+
+const selectFocus = (id) => {
+    showFocusModal.value = false;
+    applyFilters(timeMachineFilter.value, id);
+};
+
 
 // --- Helpers ---
 const formatCurrency = (value) => new Intl.NumberFormat('th-TH', { style: 'currency', currency: 'THB', maximumFractionDigits: 0 }).format(value);
@@ -58,7 +101,6 @@ const getStatusColor = (s) => ({
     cancelled: 'bg-gray-200 text-gray-500'
 }[s] || 'bg-gray-100');
 
-// ✅ ฟังก์ชันแปลข้อความให้เป็นไทย
 const getStatusText = (s) => ({
     completed: 'เสร็จสิ้น', in_progress: 'กำลังทำ', delayed: 'ล่าช้า', in_active: 'รอเริ่ม', cancelled: 'ยกเลิก'
 }[s] || s);
@@ -138,21 +180,40 @@ const openMoveModal = (item) => {
                     <p class="text-gray-500 font-medium">ยินดีต้อนรับสู่ <span class="text-[#FDB913] font-bold">PEA Smart Dashboard</span> ระบบติดตามโครงการและแผนงาน</p>
                 </div>
 
-                <div class="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
-                    <span class="text-xs font-bold text-gray-400 pl-3 pr-2 uppercase tracking-widest hidden sm:inline-block">⏳ มุมมองข้อมูล:</span>
+                <div class="flex flex-col items-end gap-3">
 
-                    <div class="flex items-center gap-2 bg-purple-50 px-3 py-1 rounded-lg border border-purple-100 transition focus-within:ring-2 focus-within:ring-purple-300">
-                        <span class="text-xs font-bold text-purple-800">วันที่:</span>
-                        <input type="date" v-model="specificDate" @change="applySpecificDate" class="text-xs rounded border-none bg-transparent focus:ring-0 p-0 m-0 h-6 cursor-pointer text-purple-900 font-bold">
-                        <button v-if="specificDate" @click="clearSpecificDate" class="text-red-400 hover:text-red-600 text-lg leading-none transition" title="ล้างวันที่">&times;</button>
+                    <button @click="showFocusModal = true" class="flex items-center gap-2 bg-white px-4 py-2 rounded-xl border border-gray-200 shadow-sm hover:border-[#7A2F8F] hover:shadow transition group">
+                        <div v-if="focusedItem" class="flex items-center gap-2">
+                            <span class="text-lg">🎯</span>
+                            <div class="text-left">
+                                <div class="text-[10px] text-purple-600 font-bold uppercase tracking-wider">กำลังโฟกัสข้อมูล</div>
+                                <div class="text-sm font-bold text-gray-800 truncate max-w-[200px]">{{ focusedItem.name }}</div>
+                            </div>
+                            <span class="bg-gray-100 p-1 rounded-full group-hover:bg-red-50 group-hover:text-red-500 transition ml-2" @click.stop="clearFocus" title="ยกเลิกโฟกัส">✖</span>
+                        </div>
+                        <div v-else class="flex items-center gap-2 text-gray-600">
+                            <span class="text-lg grayscale opacity-50 group-hover:grayscale-0 group-hover:opacity-100 transition">🌍</span>
+                            <span class="text-sm font-bold">แสดงข้อมูลทั้งหมด (Global View)</span>
+                            <svg class="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7"/></svg>
+                        </div>
+                    </button>
+
+                    <div class="flex flex-wrap items-center gap-2 bg-white p-1.5 rounded-xl border border-gray-200 shadow-sm">
+                        <span class="text-xs font-bold text-gray-400 pl-3 pr-2 uppercase tracking-widest hidden sm:inline-block">⏳ มุมมองข้อมูล:</span>
+
+                        <div class="flex items-center gap-2 bg-purple-50 px-3 py-1 rounded-lg border border-purple-100 transition focus-within:ring-2 focus-within:ring-purple-300">
+                            <span class="text-xs font-bold text-purple-800">วันที่:</span>
+                            <input type="date" v-model="specificDate" @change="applySpecificDate" class="text-xs rounded border-none bg-transparent focus:ring-0 p-0 m-0 h-6 cursor-pointer text-purple-900 font-bold">
+                            <button v-if="specificDate" @click="clearSpecificDate" class="text-red-400 hover:text-red-600 text-lg leading-none transition" title="ล้างวันที่">&times;</button>
+                        </div>
+
+                        <div class="h-6 w-px bg-gray-200 mx-1 hidden md:block"></div>
+
+                        <button @click="applyFilters('now', currentFocusId)" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='now' && !specificDate ?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">ปัจจุบัน</button>
+                        <button @click="applyFilters('1m', currentFocusId)" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='1m'?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">1 เดือน</button>
+                        <button @click="applyFilters('3m', currentFocusId)" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='3m'?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">3 เดือน</button>
+                        <button @click="applyFilters('1y', currentFocusId)" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='1y'?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">1 ปี</button>
                     </div>
-
-                    <div class="h-6 w-px bg-gray-200 mx-1 hidden md:block"></div>
-
-                    <button @click="applyTimeMachine('now')" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='now' && !specificDate ?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">ปัจจุบัน</button>
-                    <button @click="applyTimeMachine('1m')" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='1m'?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">1 เดือน</button>
-                    <button @click="applyTimeMachine('3m')" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='3m'?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">3 เดือน</button>
-                    <button @click="applyTimeMachine('1y')" class="px-3 py-1.5 text-xs font-bold rounded-lg transition" :class="timeMachineFilter==='1y'?'bg-[#7A2F8F] text-white shadow':'text-gray-600 hover:bg-gray-100'">1 ปี</button>
                 </div>
             </div>
 
@@ -312,6 +373,70 @@ const openMoveModal = (item) => {
             @close="showMoveModal = false"
             @success="showMoveModal = false"
         />
+
+        <Teleport to="body">
+            <div v-if="showFocusModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="showFocusModal = false"></div>
+                <div class="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl relative z-10 animate-fade-in flex flex-col max-h-[85vh]">
+
+                    <div class="bg-[#4A148C] px-6 py-4 flex justify-between items-center border-b-4 border-[#FDB913] shrink-0">
+                        <div>
+                            <h3 class="text-lg font-bold text-white flex items-center gap-2">🎯 เลือกเป้าหมายเพื่อโฟกัสข้อมูล</h3>
+                            <p class="text-[10px] text-purple-200 mt-0.5">เมื่อเลือกแล้ว Dashboard จะแสดงผลรวมเฉพาะงานย่อยภายใต้สิ่งที่เลือกเท่านั้น</p>
+                        </div>
+                        <button @click="showFocusModal = false" class="text-white hover:text-yellow-400 font-bold text-2xl">&times;</button>
+                    </div>
+
+                    <div class="p-4 border-b border-gray-100 bg-gray-50 shrink-0">
+                        <div class="relative">
+                            <input type="text" v-model="focusSearch" placeholder="🔍 พิมพ์ค้นหาชื่องาน, แผนงาน หรือยุทธศาสตร์..." class="w-full rounded-xl border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F] pl-10 py-2.5 text-sm shadow-sm">
+                            <svg class="w-5 h-5 text-gray-400 absolute left-3 top-3 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </div>
+                    </div>
+
+                    <div class="overflow-y-auto flex-1 p-2 custom-scrollbar">
+                        <button @click="clearFocus" class="w-full text-left p-4 rounded-xl hover:bg-gray-100 transition flex items-center gap-3 border-b border-gray-100 mb-2 group">
+                            <div class="w-10 h-10 rounded-full bg-gray-200 flex items-center justify-center text-xl grayscale group-hover:grayscale-0 transition">🌍</div>
+                            <div>
+                                <h4 class="font-bold text-gray-800 text-sm">ดูข้อมูลทั้งหมด (Global View)</h4>
+                                <p class="text-xs text-gray-500">ล้างการตั้งค่าโฟกัส และดูภาพรวมของทั้งองค์กร (ค่าเริ่มต้น)</p>
+                            </div>
+                            <div v-if="!currentFocusId" class="ml-auto text-green-500">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            </div>
+                        </button>
+
+                        <div v-if="filteredFocusList.length === 0" class="p-10 text-center text-gray-400">
+                            ไม่มีข้อมูลที่ค้นหา
+                        </div>
+
+                        <div v-for="item in filteredFocusList" :key="item.id"
+                             @click="selectFocus(item.id)"
+                             class="w-full text-left p-3 rounded-lg hover:bg-purple-50 transition flex items-center gap-3 border-b border-gray-50 group cursor-pointer"
+                             :class="currentFocusId == item.id ? 'bg-purple-50 ring-1 ring-purple-300' : ''">
+
+                            <div :style="`width: ${item.depth * 20}px`" class="shrink-0 hidden md:block"></div>
+
+                            <div class="w-8 h-8 rounded flex items-center justify-center text-lg shrink-0" :class="item.type === 'strategy' ? 'bg-blue-100' : (item.type === 'plan' ? 'bg-yellow-100' : 'bg-purple-100')">
+                                {{ item.type === 'strategy' ? '🏛️' : (item.type === 'plan' ? '📁' : '🚀') }}
+                            </div>
+
+                            <div class="flex-1 min-w-0">
+                                <div class="text-[10px] text-gray-400 uppercase tracking-widest font-bold mb-0.5 flex items-center gap-1">
+                                    <span v-if="item.depth > 0" class="text-purple-300">↳</span>
+                                    {{ item.type }}
+                                </div>
+                                <h4 class="font-bold text-gray-800 text-sm truncate group-hover:text-[#4A148C] transition">{{ item.name }}</h4>
+                            </div>
+
+                            <div v-if="currentFocusId == item.id" class="ml-auto text-[#7A2F8F]">
+                                <svg class="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
 
     </PeaSidebarLayout>
 </template>
