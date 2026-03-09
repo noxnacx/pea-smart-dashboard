@@ -5,18 +5,63 @@ namespace App\Http\Controllers;
 use App\Models\WorkItem;
 use App\Models\Issue;
 use App\Models\AuditLog;
-use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Cache; // ✅ เพิ่ม Cache Facade
-use Inertia\Inertia;
-// ✅ นำเข้าระบบแจ้งเตือน
 use App\Models\User;
+use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Notification;
 use App\Notifications\IssueCreatedNotification;
+use Inertia\Inertia;
 
 class IssueController extends Controller
 {
     // =========================================================================
-    // 1. สร้าง Issue
+    // 1. หน้าแสดงรายการ Issue ทั้งหมด (พร้อมระบบค้นหาและตัวกรอง)
+    // =========================================================================
+    public function index(Request $request)
+    {
+        $query = Issue::with(['workItem', 'user']);
+
+        // 🔍 ระบบค้นหาแบบ Case-Insensitive (รองรับ PostgreSQL ด้วย ilike)
+        if ($request->filled('search')) {
+            $search = $request->search;
+            $query->where(function($q) use ($search) {
+                $q->where('title', 'ilike', "%{$search}%")
+                  ->orWhereHas('workItem', function($w) use ($search) {
+                      $w->where('name', 'ilike', "%{$search}%");
+                  });
+            });
+        }
+
+        // 🎯 ระบบตัวกรอง (Filters)
+        if ($request->filled('type')) {
+            $query->where('type', $request->type);
+        }
+
+        if ($request->filled('severity')) {
+            $query->where('severity', $request->severity);
+        }
+
+        if ($request->filled('status')) {
+            $query->where('status', $request->status);
+        }
+
+        // ↕️ ระบบจัดเรียง (Sorting)
+        $sortField = $request->input('sort_by', 'created_at');
+        $sortDir = $request->input('sort_dir', 'desc');
+        $query->orderBy($sortField, $sortDir);
+
+        // 📄 ระบบแบ่งหน้า (Pagination)
+        $issues = $query->paginate(10)->withQueryString();
+
+        return Inertia::render('Issue/Index', [
+            'issues' => $issues,
+            // ใช้ only() เพื่อดึงเฉพาะค่าที่มีอยู่จริง ป้องกันค่า null ที่ไม่จำเป็น
+            'filters' => $request->only(['search', 'type', 'severity', 'status', 'sort_by', 'sort_dir']),
+        ]);
+    }
+
+    // =========================================================================
+    // 2. สร้าง Issue ใหม่
     // =========================================================================
     public function store(Request $request, WorkItem $workItem)
     {
@@ -34,7 +79,7 @@ class IssueController extends Controller
         $validated['user_id'] = auth()->id();
         $issue = $workItem->issues()->create($validated);
 
-        // ✅ อัปเดตงานหลัก และ เคลียร์ Cache ปฏิทิน (เพราะ Issue โชว์ในปฏิทิน)
+        // ✅ อัปเดตงานหลัก และ เคลียร์ Cache ปฏิทิน
         $workItem->touch();
         $this->clearCalendarCache();
 
@@ -47,7 +92,7 @@ class IssueController extends Controller
 
         // 🔔 แจ้งเตือน Admin ทุกคน เมื่อมีปัญหา/ความเสี่ยงใหม่ถูกสร้างขึ้น
         $admins = User::where('role', 'admin')->get();
-        if ($admins->count() > 0) {
+        if ($admins->isNotEmpty()) {
             Notification::send($admins, new IssueCreatedNotification($issue, $workItem));
         }
 
@@ -55,7 +100,7 @@ class IssueController extends Controller
     }
 
     // =========================================================================
-    // 2. แก้ไข Issue
+    // 3. แก้ไข Issue
     // =========================================================================
     public function update(Request $request, Issue $issue)
     {
@@ -92,7 +137,7 @@ class IssueController extends Controller
     }
 
     // =========================================================================
-    // 3. ลบ Issue
+    // 4. ลบ Issue
     // =========================================================================
     public function destroy(Issue $issue)
     {
@@ -104,11 +149,14 @@ class IssueController extends Controller
 
         // ✅ อัปเดตงานหลัก และ เคลียร์ Cache ปฏิทิน
         $workItem = WorkItem::find($workItemId);
-        if ($workItem) $workItem->touch();
+        if ($workItem) {
+            $workItem->touch();
+        }
+
         $this->clearCalendarCache();
 
         // 📝 บันทึก Log
-        $this->logActivity('DELETE', (object)['id' => $issueId, 'title' => $title], [
+        $this->logActivity('DELETE', clone $issue, [
             'work_item_id' => $workItemId,
             'title' => $title
         ]);
@@ -121,20 +169,16 @@ class IssueController extends Controller
     // =========================================================================
 
     /**
-     * ล้าง Cache ของปฏิทินทั้งหมด (เนื่องจาก Key มี Filter เยอะ การล้างหมดง่ายสุด)
-     * หรือจะใช้วิธีเปลี่ยน Key รายชั่วโมงแบบใน CalendarController ก็ได้
+     * ล้าง Cache ของปฏิทิน
      */
     private function clearCalendarCache()
     {
-        // เนื่องจากเราใช้ Key แบบ Dynamic (calendar_events_md5(...)) เราไม่รู้ชื่อ Key ทั้งหมด
-        // แต่วิธีที่ง่ายกว่าคือ "รอให้ Cache หมดอายุเอง (1 ชม.)" หรือ "ใช้ Cache Tags"
-        // ถ้าใช้ Redis แนะนำ Cache::tags(['calendar'])->flush(); (ถ้า CalendarController ใช้ tags)
-
-        // แต่ใน CalendarController เราใช้ Key ธรรมดา ดังนั้นปล่อยให้มันหมดอายุเองตามรอบก็ได้
-        // หรือถ้าอยากให้หายทันที ต้องไปแก้ CalendarController ให้ใช้ Cache::tags(['calendar']) ครับ
-        // (ณ โค้ดชุดนี้ ผมจะข้ามไปก่อนเพื่อความปลอดภัยของโค้ดเดิมครับ)
+        // ปล่อยว่างไว้ตามที่คุณตั้งใจ (รอให้ Cache หมดอายุเอง หรือรอเขียนเพิ่มแบบ tags ในอนาคต)
     }
 
+    /**
+     * บันทึกประวัติการกระทำ (Audit Log)
+     */
     private function logActivity($action, $model, $changes = [])
     {
         AuditLog::create([
@@ -144,39 +188,6 @@ class IssueController extends Controller
             'model_id' => $model->id ?? 0,
             'ip_address' => request()->ip(),
             'changes' => $changes
-        ]);
-    }
-
-    public function index(Request $request)
-    {
-        $query = Issue::with(['workItem', 'user']);
-
-        // Search
-        if ($request->filled('search')) {
-            $search = $request->search;
-            $query->where(function($q) use ($search) {
-                $q->where('title', 'ilike', "%{$search}%")
-                  ->orWhereHas('workItem', function($w) use ($search) {
-                      $w->where('name', 'ilike', "%{$search}%");
-                  });
-            });
-        }
-
-        // Filters
-        if ($request->filled('type')) $query->where('type', $request->type); // issue หรือ risk
-        if ($request->filled('severity')) $query->where('severity', $request->severity);
-        if ($request->filled('status')) $query->where('status', $request->status);
-
-        // Sorting
-        $sortField = $request->input('sort_by', 'created_at');
-        $sortDir = $request->input('sort_dir', 'desc');
-        $query->orderBy($sortField, $sortDir);
-
-        $issues = $query->paginate(10)->withQueryString();
-
-        return Inertia::render('Issue/Index', [
-            'issues' => $issues,
-            'filters' => $request->all(['search', 'type', 'severity', 'status', 'sort_by', 'sort_dir']),
         ]);
     }
 }

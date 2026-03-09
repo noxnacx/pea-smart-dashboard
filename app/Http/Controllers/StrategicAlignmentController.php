@@ -8,11 +8,28 @@ use Inertia\Inertia;
 
 class StrategicAlignmentController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $alignments = StrategicAlignment::orderBy('key', 'asc')->get();
+        $query = StrategicAlignment::query();
+
+        // 🚀 ระบบค้นหาแบบ Case-Insensitive (รองรับ PostgreSQL โดยใช้ ILIKE)
+        if ($request->filled('search')) {
+            $search = $request->search;
+
+            $query->where(function ($q) use ($search) {
+                // Laravel จะใส่ "key" (Double Quote) ให้อัตโนมัติ ป้องกัน Error คำสงวน
+                // และ ILIKE จะจัดการค้นหาแบบไม่สนพิมพ์เล็ก-พิมพ์ใหญ่ให้เอง
+                $q->where('key', 'ILIKE', "%{$search}%")
+                  ->orWhere('description', 'ILIKE', "%{$search}%");
+            });
+        }
+
+        // เรียงลำดับ KEY ตามตัวอักษร (A-Z) และแบ่งหน้าละ 10 รายการ
+        $alignments = $query->orderBy('key', 'asc')->paginate(10)->withQueryString();
+
         return Inertia::render('StrategicAlignment/Index', [
-            'alignments' => $alignments
+            'alignments' => $alignments,
+            'filters' => $request->only('search'),
         ]);
     }
 

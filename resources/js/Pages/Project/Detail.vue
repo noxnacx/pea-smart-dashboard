@@ -52,7 +52,7 @@ const projectHealth = computed(() => {
     if (status === 'cancelled') return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'ยกเลิกโครงการ', icon: '⚪' };
     if (currentProgress >= 100 || status === 'completed') return { color: 'bg-green-500', bg: 'bg-green-50', text: 'เสร็จสมบูรณ์', icon: '🏆' };
 
-    // 💡 ดักตรงนี้! ถ้ายาวกว่ากำหนด + ยังไม่เสร็จ = แสดงป้ายแดงว่าล่าช้าเลย
+    // ดักตรงนี้! ถ้ายาวกว่ากำหนด + ยังไม่เสร็จ = แสดงป้ายแดงว่าล่าช้าเลย
     if (endDate && now > endDate && currentProgress < 100) return { color: 'bg-red-600', bg: 'bg-red-50', text: 'ล่าช้า (Overdue)', icon: '🔥' };
 
     if (currentProgress > 0) return { color: 'bg-blue-500', bg: 'bg-blue-50', text: 'กำลังดำเนินการ', icon: '⏳' };
@@ -62,7 +62,6 @@ const projectHealth = computed(() => {
     return { color: 'bg-yellow-500', bg: 'bg-yellow-50', text: 'ถึงกำหนดเริ่ม', icon: '🟡' };
 });
 
-// ✅ แก้ไขคำเตือนวันเวลาให้ดึง "ชื่องานแม่" มาแสดงจริงๆ
 const dateValidationWarnings = computed(() => {
     const warnings = [];
     const parent = props.item.parent;
@@ -99,24 +98,18 @@ const breadcrumbs = computed(() => {
     return crumbs.reverse();
 });
 
-// 🚀 ระบบจัดกลุ่ม Auto Description (อัปเกรดใหม่: ฉลาดขึ้น + ดึงเฉพาะชื่องาน)
+// 🚀 ระบบจัดกลุ่ม Auto Description
 const autoDescriptionData = computed(() => {
     const children = props.item.children || [];
-    // กรองงานที่ถูกยกเลิกทิ้ง
     const validChildren = children.filter(c => c.status !== 'cancelled');
-
-    // เช็คจากวันที่หมดอายุและเปอร์เซ็นต์เป็นหลัก (เพื่อความแม่นยำ ไม่สนสถานะที่ค้างใน DB)
     const now = new Date().getTime();
 
     const delayed = validChildren.filter(c => c.status === 'delayed' || (c.planned_end_date && new Date(c.planned_end_date).getTime() < now && c.progress < 100));
-
-    // สนใจเฉพาะ progress > 0
     const inProgress = validChildren.filter(c => (c.status === 'in_progress' || (c.progress > 0 && c.progress < 100)) && !delayed.includes(c));
-
     const completed = validChildren.filter(c => c.status === 'completed' || c.progress >= 100);
 
     return {
-        delayed: delayed.slice(0, 3), // จำกัดแสดงแค่ 3 รายการต่อกลุ่ม
+        delayed: delayed.slice(0, 3),
         inProgress: inProgress.slice(0, 4),
         completed: completed.slice(0, 3),
         hasData: (delayed.length + inProgress.length + completed.length) > 0
@@ -219,7 +212,27 @@ const canBulkUpdateProgress = computed(() => {
     });
 });
 
-// ✅ ตัวแปรสำหรับ Modal จัดการกลุ่ม
+// 🚀🚀🚀 ระบบ Custom Confirm Modal สวยๆ แทน Alert ของเบราว์เซอร์ 🚀🚀🚀
+const confirmDialog = ref({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'ยืนยัน',
+    colorClass: 'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+    icon: 'trash',
+    onConfirm: null
+});
+
+const openConfirm = (title, message, confirmText, colorClass, icon, onConfirmAction) => {
+    confirmDialog.value = { isOpen: true, title, message, confirmText, colorClass, icon, onConfirm: onConfirmAction };
+};
+
+const executeConfirm = () => {
+    if (confirmDialog.value.onConfirm) confirmDialog.value.onConfirm();
+    confirmDialog.value.isOpen = false;
+};
+
+// Modal แบบกลุ่ม
 const showBulkManageModal = ref(false);
 const showBulkEditModal = ref(false);
 const showBulkProgressModal = ref(false);
@@ -227,28 +240,36 @@ const showBulkProgressModal = ref(false);
 const bulkForm = useForm({ ids: [], action: '', description: '', division_id: '', department_id: '', project_manager_id: null, pm_name: '', type: '', weight: '', bulk_status_mode: 'no_change' });
 const bulkProgressForm = useForm({ ids: [], action: 'update_progress', progress: 0, comment: '' });
 
+// ✅ เปลี่ยนเป็น Custom Confirm
 const submitBulkDeleteFromMenu = () => {
     showBulkManageModal.value = false;
-    if (confirm(`🚨 ยืนยันลบข้อมูลที่เลือกจำนวน ${selectedChildren.value.length} รายการ?`)) {
-        bulkForm.reset();
-        bulkForm.ids = selectedChildren.value; // ยัด ID
-        bulkForm.action = 'delete';
-        bulkForm.post(route('work-items.bulk'), {
-            onSuccess: () => { selectedChildren.value = []; showSuccessModal.value = true; setTimeout(() => showSuccessModal.value = false, 2000); }
-        });
-    }
+    openConfirm(
+        'ยืนยันลบข้อมูลแบบกลุ่ม',
+        `คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลที่เลือกจำนวน ${selectedChildren.value.length} รายการ? (ย้ายไปถังขยะ)`,
+        'ลบข้อมูล',
+        'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+        'trash',
+        () => {
+            bulkForm.reset();
+            bulkForm.ids = selectedChildren.value;
+            bulkForm.action = 'delete';
+            bulkForm.post(route('work-items.bulk'), {
+                onSuccess: () => { selectedChildren.value = []; showSuccessModal.value = true; setTimeout(() => showSuccessModal.value = false, 2000); }
+            });
+        }
+    );
 };
 
 const openBulkEditModal = () => {
     showBulkManageModal.value = false;
     bulkForm.reset(); bulkForm.clearErrors();
-    bulkForm.ids = selectedChildren.value; // ยัด ID ก่อนเปิดฟอร์ม
+    bulkForm.ids = selectedChildren.value;
     bulkForm.action = 'update_general';
     showBulkEditModal.value = true;
 };
 
 const submitBulkEdit = () => {
-    bulkForm.ids = selectedChildren.value; // ยัดซ้ำเพื่อความชัวร์
+    bulkForm.ids = selectedChildren.value;
     bulkForm.post(route('work-items.bulk'), {
         onSuccess: () => { showBulkEditModal.value = false; selectedChildren.value = []; showSuccessModal.value = true; setTimeout(() => showSuccessModal.value = false, 2000); }
     });
@@ -276,7 +297,6 @@ const showUpdateProgressModal = ref(false);
 const showManualModal = ref(false);
 const parentNameDisplay = ref('');
 
-// ฟอร์มสร้าง/แก้ไขงานหลัก
 const form = useForm({ id: null, parent_id: null, name: '', type: 'task', budget: 0, progress: 0, status: 'in_active', is_active: true, planned_start_date: '', planned_end_date: '', division_id: '', department_id: '', pm_name: '', project_manager_id: null, weight: 1 });
 
 const isEditingDetails = ref(false);
@@ -379,10 +399,16 @@ const submitManualMilestone = () => {
     else manualForm.post(route('milestones.store', props.item.id), options);
 };
 
+// ✅ เปลี่ยนเป็น Custom Confirm
 const deleteManualMilestone = () => {
-    if(confirm('ยืนยันลบการแก้ไขนี้ และกลับไปใช้ระบบดึงข้อมูลอัตโนมัติ?')) {
-        useForm({}).delete(route('milestones.destroy', manualForm.id), { onSuccess: () => showManualModal.value = false });
-    }
+    openConfirm(
+        'ยืนยันลบการแก้ไข',
+        'คุณแน่ใจหรือไม่ว่าต้องการลบการแก้ไขนี้ และกลับไปใช้ระบบดึงข้อมูลอัตโนมัติ?',
+        'ลบและใช้ระบบอัตโนมัติ',
+        'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+        'trash',
+        () => useForm({}).delete(route('milestones.destroy', manualForm.id), { onSuccess: () => showManualModal.value = false })
+    );
 };
 
 const lastProgressComment = computed(() => {
@@ -408,22 +434,55 @@ const filteredFiles = computed(() => fileFilter.value==='all' ? props.item.attac
 const modalDepartments = computed(() => { if (!form.division_id) return []; const div = props.divisions?.find(d => d.id == form.division_id); return div ? div.departments : []; });
 const bulkEditDepartments = computed(() => { if (!bulkForm.division_id) return []; const div = props.divisions?.find(d => d.id == bulkForm.division_id); return div ? div.departments : []; });
 
-const closeMainModalSafely = () => { if (form.isDirty) { if (confirm('ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดใช่หรือไม่?')) { showModal.value = false; form.reset(); form.clearErrors(); } } else { showModal.value = false; form.reset(); form.clearErrors(); } };
-const closeProgressModalSafely = () => { if (updateProgressForm.isDirty) { if (confirm('ข้อมูลยังไม่ได้บันทึก ต้องการปิดใช่หรือไม่?')) { showUpdateProgressModal.value = false; updateProgressForm.reset(); updateProgressForm.clearErrors(); } } else { showUpdateProgressModal.value = false; updateProgressForm.reset(); updateProgressForm.clearErrors(); } };
-const closeIssueModalSafely = () => { if (issueForm.isDirty) { if (confirm('ข้อมูลยังไม่ได้บันทึก ต้องการปิดใช่หรือไม่?')) { showIssueModal.value = false; issueForm.reset(); issueForm.clearErrors(); } } else { showIssueModal.value = false; issueForm.reset(); issueForm.clearErrors(); } };
+// ✅ เปลี่ยนเป็น Custom Confirm ทั้งหมด
+const closeMainModalSafely = () => {
+    if (form.isDirty) {
+        openConfirm('ละทิ้งการเปลี่ยนแปลง?', 'ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?', 'ละทิ้งข้อมูล', 'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/30', 'warning', () => { showModal.value = false; form.reset(); form.clearErrors(); });
+    } else {
+        showModal.value = false; form.reset(); form.clearErrors();
+    }
+};
+const closeProgressModalSafely = () => {
+    if (updateProgressForm.isDirty) {
+        openConfirm('ละทิ้งการเปลี่ยนแปลง?', 'ข้อมูลยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?', 'ละทิ้งข้อมูล', 'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/30', 'warning', () => { showUpdateProgressModal.value = false; updateProgressForm.reset(); updateProgressForm.clearErrors(); });
+    } else {
+        showUpdateProgressModal.value = false; updateProgressForm.reset(); updateProgressForm.clearErrors();
+    }
+};
+const closeIssueModalSafely = () => {
+    if (issueForm.isDirty) {
+        openConfirm('ละทิ้งการเปลี่ยนแปลง?', 'ข้อมูลยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?', 'ละทิ้งข้อมูล', 'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/30', 'warning', () => { showIssueModal.value = false; issueForm.reset(); issueForm.clearErrors(); });
+    } else {
+        showIssueModal.value = false; issueForm.reset(); issueForm.clearErrors();
+    }
+};
 
 const openCreateModal = () => { isEditing.value = false; modalTitle.value = `สร้างรายการย่อย`; form.reset(); form.clearErrors(); form.parent_id = props.item.id; parentNameDisplay.value = props.item.name; form.type = 'task'; form.division_id = props.item.division_id || ''; form.department_id = props.item.department_id || ''; if (props.item.project_manager) { form.pm_name = props.item.project_manager.name; form.project_manager_id = props.item.project_manager_id; } else if (['pm', 'project_manager'].includes(userRole.value)) { form.pm_name = page.props.auth.user.name; form.project_manager_id = userId.value; } else { form.pm_name = ''; form.project_manager_id = null; } form.status = 'in_active'; form.is_active = true; form.weight = 1; showModal.value = true; };
 const openEditModal = (t) => { isEditing.value=true; modalTitle.value=`แก้ไข: ${t.name}`; form.clearErrors(); form.id=t.id; form.name=t.name; form.type=t.type; form.budget=t.budget; form.progress=t.progress; form.status=t.status; form.is_active=t.is_active !== false; form.planned_start_date=formatDateForInput(t.planned_start_date); form.planned_end_date=formatDateForInput(t.planned_end_date); form.parent_id = t.parent_id; parentNameDisplay.value = t.id === props.item.id ? (props.item.parent ? props.item.parent.name : '-') : props.item.name; form.division_id = t.division_id || ''; form.department_id = t.department_id || ''; form.pm_name = t.project_manager ? t.project_manager.name : ''; form.project_manager_id = t.project_manager_id || null; form.weight = t.weight !== undefined ? t.weight : 1; showModal.value=true; };
 const submit = () => { const options = { onSuccess: () => { showModal.value = false; showSuccessModal.value = true; setTimeout(() => showSuccessModal.value = false, 2000); } }; if (isEditing.value) { form.put(route('work-items.update', form.id), options); } else { form.post(route('work-items.store'), options); } };
-const deleteItem = (id) => { if(confirm('ยืนยันลบ?')) useForm({}).delete(route('work-items.destroy', id)); };
+
+// ✅ เปลี่ยนเป็น Custom Confirm
+const deleteItem = (id) => {
+    openConfirm('ยืนยันการลบข้อมูล', 'คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลนี้? (ข้อมูลจะถูกย้ายไปที่ถังขยะ)', 'ลบข้อมูล', 'bg-red-500 hover:bg-red-600 shadow-red-500/30', 'trash', () => useForm({}).delete(route('work-items.destroy', id)));
+};
 
 const openCreateIssue = () => { isEditing.value=false; issueForm.reset(); issueForm.clearErrors(); issueForm.no_end_date = false; showIssueModal.value=true; };
 const openEditIssue = (issue) => { showViewIssueModal.value=false; isEditing.value=true; issueForm.clearErrors(); issueForm.id=issue.id; issueForm.title=issue.title; issueForm.type=issue.type; issueForm.severity=issue.severity; issueForm.status=issue.status; issueForm.description=issue.description; issueForm.solution=issue.solution; issueForm.start_date=formatDateForInput(issue.start_date); issueForm.end_date=formatDateForInput(issue.end_date); issueForm.no_end_date = !issue.end_date; showIssueModal.value=true; };
 const openViewIssue = (issue) => { selectedIssue.value=issue; showViewIssueModal.value=true; };
 const submitIssue = () => { if(issueForm.no_end_date) { issueForm.end_date = null; } isEditing.value ? issueForm.put(route('issues.update', issueForm.id), {onSuccess:()=>showIssueModal.value=false}) : issueForm.post(route('issues.store', props.item.id), {onSuccess:()=>showIssueModal.value=false}); };
-const deleteIssue = (id) => { if(confirm('ยืนยันลบ?')) { showViewIssueModal.value=false; useForm({}).delete(route('issues.destroy', id)); } };
+
+// ✅ เปลี่ยนเป็น Custom Confirm
+const deleteIssue = (id) => {
+    openConfirm('ยืนยันการลบปัญหา/ความเสี่ยง', 'คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลนี้?', 'ลบข้อมูล', 'bg-red-500 hover:bg-red-600 shadow-red-500/30', 'trash', () => { showViewIssueModal.value=false; useForm({}).delete(route('issues.destroy', id)); });
+};
+
 const uploadFile = () => { if(fileForm.file) { fileForm.post(route('attachments.store', props.item.id), { onSuccess: () => fileForm.reset() }); } };
-const deleteFile = (id) => { if(confirm('ลบไฟล์?')) useForm({}).delete(route('attachments.destroy', id)); };
+
+// ✅ เปลี่ยนเป็น Custom Confirm
+const deleteFile = (id) => {
+    openConfirm('ยืนยันการลบไฟล์', 'คุณแน่ใจหรือไม่ว่าต้องการลบไฟล์แนบนี้?', 'ลบไฟล์', 'bg-red-500 hover:bg-red-600 shadow-red-500/30', 'trash', () => useForm({}).delete(route('attachments.destroy', id)));
+};
+
 const downloadFile = (id) => window.open(route('attachments.download', id), '_blank');
 const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.post(route('comments.store', props.item.id), { onSuccess: () => commentForm.reset(), preserveScroll: true }); };
 </script>
@@ -913,6 +972,29 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
         </div>
 
         <Teleport to="body">
+
+            <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="confirmDialog.isOpen = false"></div>
+                <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in p-8 text-center transform scale-100 transition-transform">
+
+                    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"
+                         :class="confirmDialog.icon === 'trash' ? 'bg-red-100 text-red-500' : 'bg-yellow-100 text-yellow-500'">
+                        <svg v-if="confirmDialog.icon === 'trash'" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        <svg v-else class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+
+                    <h3 class="text-2xl font-black text-gray-800 mb-2">{{ confirmDialog.title }}</h3>
+                    <p class="text-sm text-gray-500 mb-8 leading-relaxed">{{ confirmDialog.message }}</p>
+
+                    <div class="flex gap-3 justify-center">
+                        <button @click="confirmDialog.isOpen = false" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition flex-1">ยกเลิก</button>
+                        <button @click="executeConfirm" class="px-5 py-3 text-white rounded-xl font-bold transition flex-1 shadow-lg transform hover:-translate-y-0.5" :class="confirmDialog.colorClass">
+                            {{ confirmDialog.confirmText }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <div v-if="showBulkManageModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="showBulkManageModal = false"></div>
                 <div class="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in">

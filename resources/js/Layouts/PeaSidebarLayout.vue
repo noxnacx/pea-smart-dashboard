@@ -1,5 +1,5 @@
 <script setup>
-import { Link, usePage } from '@inertiajs/vue3';
+import { Link, usePage, router } from '@inertiajs/vue3';
 import { ref, onMounted, onUnmounted, computed } from 'vue';
 import GlobalSearchModal from '@/Components/GlobalSearchModal.vue';
 
@@ -43,6 +43,54 @@ const isRouteActive = (name) => {
 
 onMounted(() => window.addEventListener('keydown', handleKeydown));
 onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
+
+
+// 🚀🚀🚀 ระบบ Custom Confirm Modal สวยๆ 🚀🚀🚀
+const confirmDialog = ref({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'ยืนยัน',
+    colorClass: 'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+    icon: 'logout',
+    onConfirm: null
+});
+
+const openConfirm = (title, message, confirmText, colorClass, icon, onConfirmAction) => {
+    confirmDialog.value = {
+        isOpen: true,
+        title,
+        message,
+        confirmText,
+        colorClass,
+        icon,
+        onConfirm: onConfirmAction
+    };
+};
+
+const executeConfirm = () => {
+    if (confirmDialog.value.onConfirm) {
+        confirmDialog.value.onConfirm();
+    }
+    confirmDialog.value.isOpen = false;
+};
+
+// ✅ ฟังก์ชันเรียกใช้งานตอนกดปุ่มออกจากระบบ (Logout)
+const handleLogout = () => {
+    // ปิดเมนูมือถือด้วยถ้าเปิดอยู่
+    showingNavigationDropdown.value = false;
+
+    openConfirm(
+        'ยืนยันการออกจากระบบ',
+        'คุณแน่ใจหรือไม่ว่าต้องการออกจากระบบในขณะนี้?',
+        'ออกจากระบบ',
+        'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+        'logout',
+        () => {
+            router.post(route('logout'));
+        }
+    );
+};
 </script>
 
 <template>
@@ -119,7 +167,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                 <Link :href="route('plans.index')"
                       class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                       :class="['plans.index', 'projects.index', 'tasks.index'].includes(route().current()) ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
-                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 00-2-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
+                    <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"/></svg>
                     รายการงานทั้งหมด
                 </Link>
 
@@ -141,7 +189,6 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                         <span>ค้นหาอัจฉริยะ</span>
                     </div>
-                    <span class="text-[10px] bg-purple-900/50 border border-purple-700 px-1.5 py-0.5 rounded text-purple-300 group-hover:text-white transition">Shift S</span>
                 </button>
 
                 <Link :href="route('reports.index')"
@@ -216,9 +263,9 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                         <p class="text-sm font-bold text-white truncate">{{ $page.props.auth.user.name }}</p>
                         <p class="text-[10px] text-purple-300 truncate uppercase tracking-wide font-semibold">{{ $page.props.auth.user.role || 'Staff' }}</p>
                     </div>
-                    <Link :href="route('logout')" method="post" as="button" class="text-purple-300 hover:text-[#FDB913] transition-colors p-2 hover:bg-white/10 rounded-full">
+                    <button @click="handleLogout" class="text-purple-300 hover:text-[#FDB913] transition-colors p-2 hover:bg-white/10 rounded-full">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
-                    </Link>
+                    </button>
                 </div>
             </div>
         </aside>
@@ -286,7 +333,7 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                     </template>
 
                     <div class="border-t border-purple-800 mt-2 pt-2">
-                         <Link :href="route('logout')" method="post" as="button" class="block w-full text-left px-4 py-3 text-red-300 hover:text-red-100">ออกจากระบบ</Link>
+                         <button @click="handleLogout" class="block w-full text-left px-4 py-3 text-red-300 hover:text-red-100 font-bold">ออกจากระบบ</button>
                     </div>
                  </nav>
             </div>
@@ -295,5 +342,40 @@ onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
                 <slot />
             </div>
         </main>
+
+        <Teleport to="body">
+            <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="confirmDialog.isOpen = false"></div>
+                <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in p-8 text-center transform scale-100 transition-transform">
+
+                    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"
+                         :class="confirmDialog.icon === 'logout' ? 'bg-red-100 text-red-500' : 'bg-yellow-100 text-yellow-500'">
+                        <svg v-if="confirmDialog.icon === 'logout'" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1"/></svg>
+                        <svg v-else class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+
+                    <h3 class="text-2xl font-black text-gray-800 mb-2">{{ confirmDialog.title }}</h3>
+                    <p class="text-sm text-gray-500 mb-8 leading-relaxed whitespace-pre-line">{{ confirmDialog.message }}</p>
+
+                    <div class="flex gap-3 justify-center">
+                        <button @click="confirmDialog.isOpen = false" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition flex-1">ยกเลิก</button>
+                        <button @click="executeConfirm" class="px-5 py-3 text-white rounded-xl font-bold transition flex-1 shadow-lg transform hover:-translate-y-0.5" :class="confirmDialog.colorClass">
+                            {{ confirmDialog.confirmText }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
+
     </div>
 </template>
+
+<style scoped>
+.animate-fade-in {
+    animation: fadeIn 0.2s ease-out;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: scale(0.95); }
+    to { opacity: 1; transform: scale(1); }
+}
+</style>

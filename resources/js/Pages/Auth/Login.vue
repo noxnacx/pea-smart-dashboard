@@ -5,6 +5,7 @@ import InputLabel from '@/Components/InputLabel.vue';
 import PrimaryButton from '@/Components/PrimaryButton.vue';
 import TextInput from '@/Components/TextInput.vue';
 import { Head, Link, useForm } from '@inertiajs/vue3';
+import { computed } from 'vue'; // ✅ นำเข้า computed มาใช้แปลภาษา
 
 defineProps({
     canResetPassword: {
@@ -19,6 +20,34 @@ const form = useForm({
     email: '',
     password: '',
     remember: false,
+});
+
+// 🚀 ฟังก์ชันดักจับและแปล Error Message เป็นภาษาไทย
+const translatedErrors = computed(() => {
+    const errors = {
+        email: form.errors.email,
+        password: form.errors.password
+    };
+
+    // แปล Error ของ Email
+    if (errors.email) {
+        if (errors.email.includes('These credentials do not match our records')) {
+            errors.email = 'อีเมลหรือรหัสผ่านไม่ถูกต้อง โปรดลองอีกครั้ง';
+        } else if (errors.email.includes('The email field is required')) {
+            errors.email = 'กรุณาระบุอีเมล';
+        }
+    }
+
+    // แปล Error ของ Password
+    if (errors.password) {
+        if (errors.password.includes('The password field is required')) {
+            errors.password = 'กรุณาระบุรหัสผ่าน';
+        } else if (errors.password.includes('incorrect')) {
+            errors.password = 'รหัสผ่านไม่ถูกต้อง';
+        }
+    }
+
+    return errors;
 });
 
 const submit = () => {
@@ -61,12 +90,17 @@ const submit = () => {
                 {{ status }}
             </div>
 
+            <div v-if="translatedErrors.email || translatedErrors.password" class="mb-6 text-sm font-bold text-red-600 bg-red-50 p-4 rounded-xl border border-red-200 flex items-center gap-3 animate-fade-in shadow-sm relative z-10">
+                <svg class="w-6 h-6 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                <span>กรุณาตรวจสอบข้อมูลการเข้าสู่ระบบให้ถูกต้อง</span>
+            </div>
+
             <form @submit.prevent="submit" class="space-y-6 relative z-10">
                 <div>
                     <InputLabel for="email" value="อีเมล (Email)" class="text-[#4A148C] font-extrabold text-base pl-1" />
                     <div class="relative mt-2">
                         <span class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400 peer-focus:text-[#7A2F8F] transition-colors">
-                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6" :class="{'text-red-400': translatedErrors.email}">
                               <path d="M1.5 8.67v8.58a3 3 0 003 3h15a3 3 0 003-3V8.67l-8.928 5.493a3 3 0 01-3.144 0L1.5 8.67z" />
                               <path d="M22.5 6.908V6.75a3 3 0 00-3-3h-15a3 3 0 00-3 3v.158l9.714 5.978a1.5 1.5 0 001.572 0L22.5 6.908z" />
                             </svg>
@@ -75,6 +109,7 @@ const submit = () => {
                             id="email"
                             type="email"
                             class="peer block w-full pl-12 py-3.5 border-2 border-gray-200 bg-gray-50/50 focus:border-[#7A2F8F] focus:ring-4 focus:ring-[#7A2F8F]/20 focus:bg-white rounded-2xl shadow-sm transition-all font-bold text-gray-700 text-lg placeholder:text-gray-400 placeholder:font-medium"
+                            :class="{'border-red-400 focus:border-red-500 focus:ring-red-500/20 bg-red-50/50': translatedErrors.email}"
                             v-model="form.email"
                             required
                             autofocus
@@ -82,14 +117,14 @@ const submit = () => {
                             placeholder="ระบุอีเมลของคุณ..."
                         />
                     </div>
-                    <InputError class="mt-2 pl-1 font-bold" :message="form.errors.email" />
+                    <InputError class="mt-2 pl-1 font-bold text-red-500" :message="translatedErrors.email" />
                 </div>
 
                 <div>
                     <InputLabel for="password" value="รหัสผ่าน (Password)" class="text-[#4A148C] font-extrabold text-base pl-1" />
                     <div class="relative mt-2">
                         <span class="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none text-gray-400 peer-focus:text-[#7A2F8F] transition-colors">
-                           <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6">
+                            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="w-6 h-6" :class="{'text-red-400': translatedErrors.password}">
                               <path fill-rule="evenodd" d="M12 1.5a5.25 5.25 0 00-5.25 5.25v3a3 3 0 00-3 3v6.75a3 3 0 003 3h10.5a3 3 0 003-3v-6.75a3 3 0 00-3-3v-3c0-2.9-2.35-5.25-5.25-5.25zm3.75 8.25v-3a3.75 3.75 0 10-7.5 0v3h7.5z" clip-rule="evenodd" />
                             </svg>
                         </span>
@@ -97,13 +132,14 @@ const submit = () => {
                             id="password"
                             type="password"
                             class="peer block w-full pl-12 py-3.5 border-2 border-gray-200 bg-gray-50/50 focus:border-[#7A2F8F] focus:ring-4 focus:ring-[#7A2F8F]/20 focus:bg-white rounded-2xl shadow-sm transition-all font-bold text-gray-700 text-lg placeholder:text-gray-400 placeholder:font-medium"
+                            :class="{'border-red-400 focus:border-red-500 focus:ring-red-500/20 bg-red-50/50': translatedErrors.password}"
                             v-model="form.password"
                             required
                             autocomplete="current-password"
                             placeholder="ระบุรหัสผ่าน..."
                         />
                     </div>
-                    <InputError class="mt-2 pl-1 font-bold" :message="form.errors.password" />
+                    <InputError class="mt-2 pl-1 font-bold text-red-500" :message="translatedErrors.password" />
                 </div>
 
                 <div class="flex items-center justify-between py-2">
@@ -158,3 +194,13 @@ const submit = () => {
         </div>
     </div>
 </template>
+
+<style scoped>
+.animate-fade-in {
+    animation: fadeIn 0.3s ease-out;
+}
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+</style>

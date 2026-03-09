@@ -27,7 +27,7 @@ const isEditing = ref(false);
 const modalTitle = ref('');
 
 const form = useForm({
-    id: null, name: '', description: '', type: 'project', budget: 0, progress: 0,
+    id: null, name: '', type: 'project', budget: 0, progress: 0,
     status: 'in_active', planned_start_date: '', planned_end_date: '',
     parent_id: null, division_id: '', department_id: '', pm_name: '',
     project_manager_id: null, weight: 1
@@ -67,6 +67,36 @@ const handleClickOutside = (e) => {
 
 onMounted(() => document.addEventListener('click', handleClickOutside));
 onUnmounted(() => document.removeEventListener('click', handleClickOutside));
+
+// 🚀🚀🚀 ระบบ Custom Confirm Modal สวยๆ 🚀🚀🚀
+const confirmDialog = ref({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'ยืนยัน',
+    colorClass: 'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+    icon: 'trash',
+    onConfirm: null
+});
+
+const openConfirm = (title, message, confirmText, colorClass, icon, onConfirmAction) => {
+    confirmDialog.value = {
+        isOpen: true,
+        title,
+        message,
+        confirmText,
+        colorClass,
+        icon,
+        onConfirm: onConfirmAction
+    };
+};
+
+const executeConfirm = () => {
+    if (confirmDialog.value.onConfirm) {
+        confirmDialog.value.onConfirm();
+    }
+    confirmDialog.value.isOpen = false;
+};
 
 // เปิด Modal สร้างใหม่
 const openCreateModal = () => {
@@ -113,13 +143,25 @@ const openEditModal = (item) => {
     showCreateModal.value = true;
 };
 
+// ✅ ใช้ Custom Confirm Modal สำหรับปิดหน้าต่างแบบปลอดภัย
 const closeModalSafely = () => {
     if (form.isDirty) {
-        if (confirm('ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?')) {
-            showCreateModal.value = false; form.reset(); form.clearErrors();
-        }
+        openConfirm(
+            'ละทิ้งการเปลี่ยนแปลง?',
+            'ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?',
+            'ละทิ้งข้อมูล',
+            'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/30',
+            'warning',
+            () => {
+                showCreateModal.value = false;
+                form.reset();
+                form.clearErrors();
+            }
+        );
     } else {
-        showCreateModal.value = false; form.reset(); form.clearErrors();
+        showCreateModal.value = false;
+        form.reset();
+        form.clearErrors();
     }
 };
 
@@ -223,6 +265,29 @@ const openMoveModal = (item) => {
         />
 
         <Teleport to="body">
+
+            <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="confirmDialog.isOpen = false"></div>
+                <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in p-8 text-center transform scale-100 transition-transform">
+
+                    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"
+                         :class="confirmDialog.icon === 'trash' ? 'bg-red-100 text-red-500' : 'bg-yellow-100 text-yellow-500'">
+                        <svg v-if="confirmDialog.icon === 'trash'" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        <svg v-else class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+
+                    <h3 class="text-2xl font-black text-gray-800 mb-2">{{ confirmDialog.title }}</h3>
+                    <p class="text-sm text-gray-500 mb-8 leading-relaxed">{{ confirmDialog.message }}</p>
+
+                    <div class="flex gap-3 justify-center">
+                        <button @click="confirmDialog.isOpen = false" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition flex-1">ยกเลิก</button>
+                        <button @click="executeConfirm" class="px-5 py-3 text-white rounded-xl font-bold transition flex-1 shadow-lg transform hover:-translate-y-0.5" :class="confirmDialog.colorClass">
+                            {{ confirmDialog.confirmText }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <div v-if="showCreateModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="closeModalSafely"></div>
 
@@ -286,6 +351,7 @@ const openMoveModal = (item) => {
                                     <option value="">-- เลือกกอง --</option>
                                     <option v-for="div in divisions" :key="div.id" :value="div.id">{{ div.name }}</option>
                                 </select>
+                                <div v-if="form.errors.division_id" class="text-red-500 text-xs mt-1">{{ form.errors.division_id }}</div>
                             </div>
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">แผนก</label>
@@ -293,6 +359,7 @@ const openMoveModal = (item) => {
                                     <option value="">-- ไม่ระบุ --</option>
                                     <option v-for="dept in modalDepartments" :key="dept.id" :value="dept.id">{{ dept.name }}</option>
                                 </select>
+                                <div v-if="form.errors.department_id" class="text-red-500 text-xs mt-1">{{ form.errors.department_id }}</div>
                             </div>
                         </div>
 
@@ -303,25 +370,30 @@ const openMoveModal = (item) => {
                                 @update:id="(id) => form.project_manager_id = id"
                                 placeholder="ค้นหาจากชื่อ User..."
                             />
+                            <div v-if="form.errors.project_manager_id" class="text-red-500 text-xs mt-1">{{ form.errors.project_manager_id }}</div>
                         </div>
 
                         <div class="grid grid-cols-2 gap-4">
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">ประเภทงาน <span class="text-red-500">*</span></label>
                                 <select v-model="form.type" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.type}" required>
+                                    <option v-if="!workItemTypes || workItemTypes.length === 0" value="project">โครงการ (Default)</option>
                                     <option v-for="type in workItemTypes" :key="type.id" :value="type.key">{{ type.name }}</option>
                                 </select>
+                                <div v-if="form.errors.type" class="text-red-500 text-xs mt-1">{{ form.errors.type }}</div>
                             </div>
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">งบประมาณ</label>
                                 <input v-model="form.budget" type="number" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.budget}">
+                                <div v-if="form.errors.budget" class="text-red-500 text-xs mt-1">{{ form.errors.budget }}</div>
                             </div>
                         </div>
 
-                        <div class="grid grid-cols-2 gap-4">
+                        <div class="grid grid-cols-2 gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">น้ำหนัก (Weight)</label>
                                 <input v-model="form.weight" type="number" step="0.01" min="0" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500': form.errors.weight}">
+                                <div v-if="form.errors.weight" class="text-red-500 text-xs mt-1">{{ form.errors.weight }}</div>
                             </div>
                             <div>
                                 <label class="block text-sm font-bold text-gray-700 mb-1">สถานะ</label>

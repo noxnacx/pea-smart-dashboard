@@ -20,26 +20,68 @@ const countChildren = (item) => {
     return count;
 };
 
+// 🚀🚀🚀 ระบบ Custom Confirm Modal สวยๆ 🚀🚀🚀
+const confirmDialog = ref({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'ยืนยัน',
+    colorClass: 'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+    icon: 'trash',
+    onConfirm: null
+});
+
+const openConfirm = (title, message, confirmText, colorClass, icon, onConfirmAction) => {
+    confirmDialog.value = {
+        isOpen: true,
+        title,
+        message,
+        confirmText,
+        colorClass,
+        icon,
+        onConfirm: onConfirmAction
+    };
+};
+
+const executeConfirm = () => {
+    if (confirmDialog.value.onConfirm) {
+        confirmDialog.value.onConfirm();
+    }
+    confirmDialog.value.isOpen = false;
+};
+
+// ✅ เปลี่ยนเป็น Custom Confirm สำหรับกู้คืน
 const restoreItem = (item) => {
     const childCount = countChildren(item);
     const msg = childCount > 0
-        ? `ยืนยันการกู้คืน "${item.name}"\nพร้อมกับงานย่อยที่อยู่ภายใต้อีก ${childCount} รายการ ใช่หรือไม่?`
+        ? `ระบบจะทำการกู้คืน "${item.name}" พร้อมกับงานย่อยที่อยู่ภายใต้อีก ${childCount} รายการ ยืนยันใช่หรือไม่?`
         : `คุณต้องการกู้คืน "${item.name}" ให้กลับไปทำงานต่อใช่หรือไม่?`;
 
-    if (confirm(msg)) {
-        useForm({}).post(route('trash.restore.work-item', item.id));
-    }
+    openConfirm(
+        'ยืนยันการกู้คืนข้อมูล',
+        msg,
+        'กู้คืนข้อมูล',
+        'bg-green-500 hover:bg-green-600 shadow-green-500/30',
+        'restore', // ใช้ไอคอน restore (ตั้งชื่อไว้เฉยๆ เพื่อไปใช้ใน v-if ข้างล่าง)
+        () => useForm({}).post(route('trash.restore.work-item', item.id))
+    );
 };
 
+// ✅ เปลี่ยนเป็น Custom Confirm สำหรับลบถาวร
 const forceDeleteItem = (item) => {
     const childCount = countChildren(item);
     const msg = childCount > 0
-        ? `🚨 คำเตือน: คุณกำลังจะลบทิ้งถาวร "${item.name}"\nพร้อมกับงานย่อยที่อยู่ภายใต้อีก ${childCount} รายการ\n\nการกระทำนี้ไม่สามารถกู้คืนได้ ยืนยันใช่หรือไม่?`
-        : `🚨 คำเตือน: ข้อมูล "${item.name}" จะถูกลบทิ้งถาวรและไม่สามารถกู้คืนได้อีก ยืนยันใช่หรือไม่?`;
+        ? `ข้อมูล "${item.name}" พร้อมกับงานย่อยที่อยู่ภายใต้อีก ${childCount} รายการ จะถูกลบทิ้งถาวรจากระบบ\nการกระทำนี้ไม่สามารถย้อนกลับได้ ยืนยันใช่หรือไม่?`
+        : `ข้อมูล "${item.name}" จะถูกลบทิ้งถาวรและไม่สามารถกู้คืนได้อีก ยืนยันใช่หรือไม่?`;
 
-    if (confirm(msg)) {
-        useForm({}).delete(route('trash.force-delete.work-item', item.id));
-    }
+    openConfirm(
+        '🚨 ยืนยันการลบถาวร',
+        msg,
+        'ลบถาวร',
+        'bg-red-600 hover:bg-red-700 shadow-red-600/30',
+        'trash',
+        () => useForm({}).delete(route('trash.force-delete.work-item', item.id))
+    );
 };
 
 const formatDate = (dateString) => {
@@ -64,7 +106,7 @@ const formatDate = (dateString) => {
                 </div>
             </div>
 
-            <div v-if="$page.props.flash?.success" class="bg-green-100 text-green-700 p-4 rounded-xl font-bold flex items-center gap-2 border border-green-200">
+            <div v-if="$page.props.flash?.success" class="bg-green-100 text-green-700 p-4 rounded-xl font-bold flex items-center gap-2 border border-green-200 animate-fade-in">
                 ✅ {{ $page.props.flash.success }}
             </div>
 
@@ -138,5 +180,33 @@ const formatDate = (dateString) => {
             </div>
 
         </div>
+
+        <Teleport to="body">
+            <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="confirmDialog.isOpen = false"></div>
+                <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in p-8 text-center transform scale-100 transition-transform">
+
+                    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"
+                         :class="confirmDialog.icon === 'trash' ? 'bg-red-100 text-red-500' : (confirmDialog.icon === 'restore' ? 'bg-green-100 text-green-500' : 'bg-yellow-100 text-yellow-500')">
+
+                        <svg v-if="confirmDialog.icon === 'trash'" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+
+                        <svg v-else-if="confirmDialog.icon === 'restore'" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15"/></svg>
+
+                        <svg v-else class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+
+                    <h3 class="text-2xl font-black text-gray-800 mb-2">{{ confirmDialog.title }}</h3>
+                    <p class="text-sm text-gray-500 mb-8 leading-relaxed whitespace-pre-line">{{ confirmDialog.message }}</p>
+
+                    <div class="flex gap-3 justify-center">
+                        <button @click="confirmDialog.isOpen = false" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition flex-1">ยกเลิก</button>
+                        <button @click="executeConfirm" class="px-5 py-3 text-white rounded-xl font-bold transition flex-1 shadow-lg transform hover:-translate-y-0.5" :class="confirmDialog.colorClass">
+                            {{ confirmDialog.confirmText }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </Teleport>
     </PeaSidebarLayout>
 </template>

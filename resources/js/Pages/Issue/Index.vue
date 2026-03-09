@@ -12,6 +12,7 @@ const props = defineProps({
 const search = ref(props.filters.search || '');
 const filterType = ref(props.filters.type || '');
 const filterStatus = ref(props.filters.status || '');
+const filterSeverity = ref(props.filters.severity || ''); // ✅ เพิ่มตัวแปรเก็บค่าความรุนแรง
 
 // Helpers
 const formatDate = (d) => new Date(d).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' });
@@ -23,20 +24,29 @@ const getSeverityBadge = (s) => ({
     low: 'bg-green-100 text-green-700 border-green-200'
 }[s] || 'bg-gray-100');
 
-// ✅ เพิ่ม in_progress ตรงนี้
+// สีของป้ายสถานะ
 const getStatusBadge = (s) => ({
     open: 'bg-blue-100 text-blue-700',
-    in_progress: 'bg-amber-100 text-amber-700', // สีส้ม/เหลืองเข้ม
+    in_progress: 'bg-amber-100 text-amber-700',
     resolved: 'bg-green-100 text-green-700',
     mitigated: 'bg-purple-100 text-purple-700'
 }[s] || 'bg-gray-100');
 
-// Search Logic
-watch([search, filterType, filterStatus], debounce(() => {
+// ฟังก์ชันแปลงสถานะเป็นภาษาไทย
+const getStatusTextTh = (s) => ({
+    open: 'รอแก้ไข',
+    in_progress: 'กำลังดำเนินการ',
+    resolved: 'แก้ไขแล้ว',
+    mitigated: 'บรรเทาแล้ว'
+}[s] || s);
+
+// Search Logic (✅ เพิ่ม filterSeverity เข้าไปใน Watch)
+watch([search, filterType, filterStatus, filterSeverity], debounce(() => {
     router.get(route('issues.index'), {
         search: search.value,
         type: filterType.value,
-        status: filterStatus.value
+        status: filterStatus.value,
+        severity: filterSeverity.value // ✅ ส่งค่าความรุนแรงไปให้ Backend
     }, { preserveState: true, replace: true });
 }, 300));
 </script>
@@ -58,17 +68,26 @@ watch([search, filterType, filterStatus], debounce(() => {
                     <span class="absolute left-3 top-2.5 text-gray-400">🔍</span>
                     <input v-model="search" class="w-full pl-10 pr-4 py-2 rounded-lg border border-gray-300 focus:ring-purple-500 focus:border-purple-500" placeholder="ค้นหาชื่อปัญหา หรือโครงการ...">
                 </div>
+
                 <select v-model="filterType" class="rounded-lg border-gray-300 focus:ring-purple-500 focus:border-purple-500">
                     <option value="">ทุกประเภท</option>
                     <option value="issue">🔥 ปัญหา (Issue)</option>
                     <option value="risk">⚠️ ความเสี่ยง (Risk)</option>
                 </select>
 
+                <select v-model="filterSeverity" class="rounded-lg border-gray-300 focus:ring-purple-500 focus:border-purple-500">
+                    <option value="">ทุกระดับความรุนแรง</option>
+                    <option value="critical">🔴 Critical (วิกฤต)</option>
+                    <option value="high">🟠 High (สูง)</option>
+                    <option value="medium">🟡 Medium (ปานกลาง)</option>
+                    <option value="low">🟢 Low (ต่ำ)</option>
+                </select>
+
                 <select v-model="filterStatus" class="rounded-lg border-gray-300 focus:ring-purple-500 focus:border-purple-500">
                     <option value="">ทุกสถานะ</option>
-                    <option value="open">Open</option>
-                    <option value="in_progress">In Progress</option>
-                    <option value="resolved">Resolved</option>
+                    <option value="open">รอแก้ไข (Open)</option>
+                    <option value="in_progress">กำลังดำเนินการ (In Progress)</option>
+                    <option value="resolved">แก้ไขแล้ว (Resolved)</option>
                 </select>
             </div>
 
@@ -113,8 +132,8 @@ watch([search, filterType, filterStatus], debounce(() => {
                                 {{ issue.user?.name || '-' }}
                             </td>
                             <td class="p-4">
-                                <span class="text-[10px] font-bold px-2 py-1 rounded uppercase" :class="getStatusBadge(issue.status)">
-                                    {{ issue.status === 'in_progress' ? 'In Progress' : issue.status }}
+                                <span class="text-[10px] font-bold px-2 py-1 rounded" :class="getStatusBadge(issue.status)">
+                                    {{ getStatusTextTh(issue.status) }}
                                 </span>
                             </td>
                             <td class="p-4 text-right">

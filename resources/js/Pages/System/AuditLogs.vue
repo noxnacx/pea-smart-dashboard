@@ -67,6 +67,21 @@ const actionColor = (action) => {
     }
 };
 
+// ✅ เพิ่มฟังก์ชันแปลง Action เป็นภาษาไทยให้ตรงกับตัวกรอง
+const getActionTextTh = (action) => {
+    switch(action) {
+        case 'CREATE': return 'สร้างข้อมูล';
+        case 'UPDATE': return 'แก้ไขข้อมูล';
+        case 'UPDATE_PROGRESS': return 'อัปเดตความคืบหน้า';
+        case 'DELETE': return 'ลบข้อมูล';
+        case 'RESTORE': return 'กู้คืนข้อมูล';
+        case 'EXPORT':
+        case 'DOWNLOAD': return 'ดาวน์โหลด/ส่งออก';
+        case 'UPLOAD': return 'อัปโหลดไฟล์';
+        default: return action;
+    }
+};
+
 const getRoleBadge = (role) => {
     switch(role) {
         case 'admin': return 'bg-purple-100 text-[#7A2F8F] border-purple-200';
@@ -103,12 +118,13 @@ const getRoleBadge = (role) => {
                     <label class="block text-xs font-bold text-gray-500 mb-1">การกระทำ (Action)</label>
                     <select v-model="form.action" class="w-full rounded-lg border-gray-300 text-sm focus:ring-[#7A2F8F] focus:border-[#7A2F8F]">
                         <option value="">ทั้งหมด</option>
-                        <option value="CREATE">สร้าง (Create)</option>
-                        <option value="UPDATE">แก้ไข (Update)</option>
-                        <option value="UPDATE_PROGRESS">อัปเดตความคืบหน้า (Progress)</option>
-                        <option value="DELETE">ลบ (Delete)</option>
-                        <option value="RESTORE">กู้คืนข้อมูล (Restore)</option>
-                        <option value="EXPORT">ดาวน์โหลด/ส่งออก (Export)</option>
+                        <option value="CREATE">สร้างข้อมูล</option>
+                        <option value="UPDATE">แก้ไขข้อมูล</option>
+                        <option value="UPDATE_PROGRESS">อัปเดตความคืบหน้า</option>
+                        <option value="DELETE">ลบข้อมูล</option>
+                        <option value="RESTORE">กู้คืนข้อมูล</option>
+                        <option value="EXPORT">ดาวน์โหลด/ส่งออก</option>
+                        <option value="UPLOAD">อัปโหลดไฟล์</option>
                     </select>
                 </div>
                 <div>
@@ -142,7 +158,7 @@ const getRoleBadge = (role) => {
                             <th class="p-4 w-40 border-l border-gray-100">ผู้ทำรายการ</th>
                             <th class="p-4 w-32 border-l border-gray-100 text-center">ตำแหน่ง</th>
                             <th class="p-4 w-32 border-l border-gray-100">IP Address</th>
-                            <th class="p-4 w-24 text-center border-l border-gray-100">Action</th>
+                            <th class="p-4 w-32 text-center border-l border-gray-100">Action</th>
                             <th class="p-4 w-40 border-l border-gray-100">ประเภท</th>
                             <th class="p-4 border-l border-gray-100 w-full">รายละเอียด</th>
                         </tr>
@@ -152,32 +168,32 @@ const getRoleBadge = (role) => {
                             <td colspan="8" class="p-8 text-center text-gray-400">ไม่พบประวัติการใช้งานตามเงื่อนไข</td>
                         </tr>
                         <tr v-for="log in logs.data" :key="log.id" class="hover:bg-purple-50 transition">
-                            <td class="p-4 text-gray-600 font-mono">{{ getDate(log.created_at) }}</td>
-                            <td class="p-4 text-gray-500 font-mono border-l border-gray-100">{{ getTime(log.created_at) }}</td>
+                            <td class="p-4 text-gray-600 font-mono align-top">{{ getDate(log.created_at) }}</td>
+                            <td class="p-4 text-gray-500 font-mono border-l border-gray-100 align-top">{{ getTime(log.created_at) }}</td>
 
-                            <td class="p-4 border-l border-gray-100 font-bold text-[#4A148C] text-sm truncate max-w-[200px]" :title="log.user ? log.user.name : 'System'">
+                            <td class="p-4 border-l border-gray-100 font-bold text-[#4A148C] text-sm truncate max-w-[200px] align-top" :title="log.user ? log.user.name : 'System'">
                                 {{ log.user ? log.user.name : 'System/Guest' }}
                             </td>
 
-                            <td class="p-4 border-l border-gray-100 text-center">
-                                <span v-if="log.user" class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border" :class="getRoleBadge(log.user.role)">{{ log.user.role }}</span>
+                            <td class="p-4 border-l border-gray-100 text-center align-top">
+                                <span v-if="log.user" class="text-[10px] px-2 py-0.5 rounded-full font-bold uppercase border whitespace-nowrap" :class="getRoleBadge(log.user.role)">{{ log.user.role }}</span>
                                 <span v-else class="text-gray-400 text-xs">-</span>
                             </td>
 
-                            <td class="p-4 text-gray-400 text-xs font-mono border-l border-gray-100">{{ log.ip_address || '-' }}</td>
+                            <td class="p-4 text-gray-400 text-xs font-mono border-l border-gray-100 align-top">{{ log.ip_address || '-' }}</td>
 
-                            <td class="p-4 text-center border-l border-gray-100">
-                                <span class="px-2 py-1 rounded text-[10px] font-bold border" :class="actionColor(log.action)">
-                                    {{ (log.action === 'DOWNLOAD' || log.action === 'EXPORT') ? 'EXPORT' : log.action }}
+                            <td class="p-4 text-center border-l border-gray-100 align-top">
+                                <span class="inline-flex items-center justify-center whitespace-nowrap px-3 py-1.5 rounded-lg text-[11px] font-bold border shadow-sm" :class="actionColor(log.action)">
+                                    {{ getActionTextTh(log.action) }}
                                 </span>
                             </td>
 
-                            <td class="p-4 border-l border-gray-100 text-xs">
-                                <span class="font-bold text-gray-700 block">{{ log.model_type }}</span>
-                                <span class="text-gray-400 text-[10px]" v-if="log.model_id > 0">ID: #{{ log.model_id }}</span>
+                            <td class="p-4 border-l border-gray-100 text-xs align-top">
+                                <span class="font-bold text-gray-700 block whitespace-nowrap">{{ log.model_type }}</span>
+                                <span class="text-gray-400 text-[10px] whitespace-nowrap" v-if="log.model_id > 0">ID: #{{ log.model_id }}</span>
                             </td>
 
-                            <td class="p-4 border-l border-gray-100 text-xs text-gray-600 whitespace-normal min-w-[350px]">
+                            <td class="p-4 border-l border-gray-100 text-xs text-gray-600 whitespace-normal min-w-[350px] align-top">
 
                                 <div v-if="log.target_name && log.action !== 'RESTORE'" class="font-bold text-[#4A148C] mb-2 pb-1 border-b border-gray-100 flex items-center gap-2">
                                     📂 {{ log.target_name }}
@@ -245,7 +261,7 @@ const getRoleBadge = (role) => {
                               class="px-3 py-1 rounded text-xs border transition"
                               :class="link.active ? 'bg-[#7A2F8F] text-white border-[#7A2F8F]' : (link.url ? 'bg-white hover:bg-gray-100 text-gray-600 border-gray-300' : 'text-gray-400 border-gray-200')"/>
                     </div>
-                    <div class="text-xs text-gray-500">แสดง {{ logs.from }} ถึง {{ logs.to }} จากทั้งหมด {{ logs.total }} รายการ</div>
+                    <div class="text-xs text-gray-500 font-bold">แสดง {{ logs.from }} ถึง {{ logs.to }} จากทั้งหมด {{ logs.total }} รายการ</div>
                 </div>
             </div>
 

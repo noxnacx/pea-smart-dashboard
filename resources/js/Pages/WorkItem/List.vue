@@ -19,6 +19,8 @@ const userRole = computed(() => page.props.auth.user.role);
 const userId = computed(() => page.props.auth.user.id);
 
 const canEdit = computed(() => ['admin', 'pm', 'project_manager'].includes(userRole.value));
+
+// ✅ ฟังก์ชันเช็คสิทธิ์รายตัว (ราย Item)
 const canManageItem = (item) => {
     if (userRole.value === 'admin') return true;
     if (['pm', 'project_manager'].includes(userRole.value)) return item.project_manager_id === userId.value;
@@ -63,7 +65,7 @@ watch(filterForm, throttle(() => {
 
 const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', in_active: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
 
-// ✅ ฟังก์ชันแปลสถานะเป็นภาษาไทย
+// ฟังก์ชันแปลสถานะเป็นภาษาไทย
 const getStatusText = (status) => ({
     completed: 'เสร็จสมบูรณ์',
     delayed: 'ล่าช้า',
@@ -74,7 +76,6 @@ const getStatusText = (status) => ({
 
 const formatDate = (date) => date ? new Date(date).toLocaleDateString('th-TH', { day: 'numeric', month: 'short', year: '2-digit' }) : '-';
 const formatDateForInput = (dateString) => dateString ? String(dateString).split('T')[0].split(' ')[0] : '';
-const formatFileSize = (bytes) => { if(bytes===0) return '0 B'; const k=1024, i=Math.floor(Math.log(bytes)/Math.log(k)); return parseFloat((bytes/Math.pow(k,i)).toFixed(2))+' '+['B','KB','MB','GB'][i]; };
 
 const hasActiveIssues = (issues) => issues?.some(i => i.type === 'issue' && i.status !== 'resolved');
 const hasActiveRisks = (issues) => issues?.some(i => i.type === 'risk' && i.status !== 'resolved');
@@ -104,10 +105,64 @@ onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 const showModal = ref(false);
 const isEditing = ref(false);
 const modalTitle = ref('');
-const form = useForm({ id: null, name: '', description: '', type: props.type === 'my-work' ? 'project' : props.type, budget: 0, progress: 0, status: 'in_active', planned_start_date: '', planned_end_date: '', parent_id: null, division_id: '', department_id: '', pm_name: '', project_manager_id: null, weight: 1 });
+
+// ✅ ฟอร์มสร้าง/แก้ไขงานหลัก (เอา Description ออกแล้วตามคำสั่ง)
+const form = useForm({ id: null, name: '', type: props.type === 'my-work' ? 'project' : props.type, budget: 0, progress: 0, status: 'in_active', planned_start_date: '', planned_end_date: '', parent_id: null, division_id: '', department_id: '', pm_name: '', project_manager_id: null, weight: 1 });
 
 const modalDepartments = computed(() => { if (!form.division_id) return []; const div = props.divisions.find(d => d.id == form.division_id); return div ? div.departments : []; });
-const closeModalSafely = () => { if (form.isDirty) { if (confirm('ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?')) { showModal.value = false; form.reset(); form.clearErrors(); } } else { showModal.value = false; form.reset(); form.clearErrors(); } };
+
+
+// 🚀🚀🚀 ระบบ Custom Confirm Modal สวยๆ แทน Alert ของเบราว์เซอร์ 🚀🚀🚀
+const confirmDialog = ref({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'ยืนยัน',
+    colorClass: 'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+    icon: 'trash',
+    onConfirm: null
+});
+
+const openConfirm = (title, message, confirmText, colorClass, icon, onConfirmAction) => {
+    confirmDialog.value = {
+        isOpen: true,
+        title,
+        message,
+        confirmText,
+        colorClass,
+        icon,
+        onConfirm: onConfirmAction
+    };
+};
+
+const executeConfirm = () => {
+    if (confirmDialog.value.onConfirm) {
+        confirmDialog.value.onConfirm();
+    }
+    confirmDialog.value.isOpen = false;
+};
+
+// นำ Custom Confirm มาใช้ตอนปิด Modal แบบปลอดภัย
+const closeModalSafely = () => {
+    if (form.isDirty) {
+        openConfirm(
+            'ละทิ้งการเปลี่ยนแปลง?',
+            'ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?',
+            'ละทิ้งข้อมูล',
+            'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/30',
+            'warning',
+            () => {
+                showModal.value = false;
+                form.reset();
+                form.clearErrors();
+            }
+        );
+    } else {
+        showModal.value = false;
+        form.reset();
+        form.clearErrors();
+    }
+};
 
 const openCreateModal = () => {
     isEditing.value = false; form.reset(); form.clearErrors();
@@ -119,7 +174,7 @@ const openCreateModal = () => {
 
 const openEditModal = (item) => {
     isEditing.value = true; form.clearErrors(); modalTitle.value = `✏️ แก้ไข: ${item.name}`;
-    form.id = item.id; form.name = item.name; form.description = item.description || ''; form.type = item.type; form.budget = item.budget; form.progress = item.progress; form.status = item.status; form.planned_start_date = formatDateForInput(item.planned_start_date); form.planned_end_date = formatDateForInput(item.planned_end_date); form.parent_id = item.parent_id; form.division_id = item.division_id || ''; form.department_id = item.department_id || ''; form.pm_name = item.project_manager ? item.project_manager.name : ''; form.project_manager_id = item.project_manager_id || null; form.weight = item.weight || 1;
+    form.id = item.id; form.name = item.name; form.type = item.type; form.budget = item.budget; form.progress = item.progress; form.status = item.status; form.planned_start_date = formatDateForInput(item.planned_start_date); form.planned_end_date = formatDateForInput(item.planned_end_date); form.parent_id = item.parent_id; form.division_id = item.division_id || ''; form.department_id = item.department_id || ''; form.pm_name = item.project_manager ? item.project_manager.name : ''; form.project_manager_id = item.project_manager_id || null; form.weight = item.weight || 1;
     if (item.parent) {
         const parentType = props.workItemTypes.find(t => t.key === item.parent.type);
         const parentTypeLabel = parentType ? parentType.name : item.parent.type;
@@ -141,25 +196,44 @@ const handleStatusToggle = (e) => {
 };
 
 const submit = () => { const options = { onSuccess: () => { showModal.value = false; showSuccessModal.value = true; setTimeout(() => showSuccessModal.value = false, 2000); } }; if (form.id) form.put(route('work-items.update', form.id), options); else form.post(route('work-items.store'), options); };
-const deleteItem = (id) => { if (confirm('ยืนยันลบข้อมูลนี้? (ย้ายไปถังขยะ)')) useForm({}).delete(route('work-items.destroy', id)); };
+
+// นำ Custom Confirm มาใช้ตอนลบข้อมูล
+const deleteItem = (id) => {
+    openConfirm(
+        'ยืนยันการลบข้อมูล',
+        'คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลนี้? (ข้อมูลจะถูกย้ายไปที่ถังขยะ)',
+        'ลบข้อมูล',
+        'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+        'trash',
+        () => useForm({}).delete(route('work-items.destroy', id))
+    );
+};
 
 const selectedItems = ref([]);
-const toggleSelectAll = (e) => { selectedItems.value = e.target.checked ? props.items.data.map(i => i.id) : []; };
+const manageableItems = computed(() => { return props.items.data.filter(i => canManageItem(i)); });
+const toggleSelectAll = (e) => { selectedItems.value = e.target.checked ? manageableItems.value.map(i => i.id) : []; };
 
 const isBulkManageModalOpen = ref(false);
-const bulkForm = useForm({ ids: [], action: '', progress: 0, comment: '', bulk_status_mode: 'no_change', type: '', pm_name: '', project_manager_id: null, division_id: '', department_id: '', description: '', weight: '' });
+const bulkForm = useForm({ ids: [], action: '', progress: 0, comment: '', bulk_status_mode: 'no_change', type: '', pm_name: '', project_manager_id: null, division_id: '', department_id: '', weight: '' });
 
 const openBulkManage = () => {
     bulkForm.reset(); bulkForm.clearErrors(); bulkForm.ids = selectedItems.value; isBulkManageModalOpen.value = true;
 };
 
-// ✅ แก้บัคปุ่มจัดการกลุ่ม ใส่ .ids = selectedItems.value
+// นำ Custom Confirm มาใช้ตอนลบข้อมูลแบบกลุ่ม
 const submitBulkDelete = () => {
-    if(confirm(`ยืนยันลบ ${selectedItems.value.length} รายการ?`)) {
-        bulkForm.ids = selectedItems.value;
-        bulkForm.action = 'delete';
-        bulkForm.post(route('work-items.bulk'), { onSuccess: () => { isBulkManageModalOpen.value = false; selectedItems.value = []; showSuccessModal.value = true; setTimeout(() => showSuccessModal.value = false, 2000); } });
-    }
+    openConfirm(
+        'ยืนยันลบข้อมูลแบบกลุ่ม',
+        `คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลที่เลือกจำนวน ${selectedItems.value.length} รายการ? (ย้ายไปถังขยะ)`,
+        'ลบข้อมูลทั้งหมด',
+        'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+        'trash',
+        () => {
+            bulkForm.ids = selectedItems.value;
+            bulkForm.action = 'delete';
+            bulkForm.post(route('work-items.bulk'), { onSuccess: () => { isBulkManageModalOpen.value = false; selectedItems.value = []; showSuccessModal.value = true; setTimeout(() => showSuccessModal.value = false, 2000); } });
+        }
+    );
 };
 
 const submitBulkUpdate = () => {
@@ -229,16 +303,41 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                 </div>
             </div>
 
-            <div v-if="selectedItems.length > 0" class="bg-yellow-50 border border-yellow-200 p-3 rounded-lg flex justify-between items-center animate-fade-in">
-                <span class="text-sm font-bold text-yellow-800">เลือกไว้ {{ selectedItems.length }} รายการ</span>
-                <button @click="openBulkManage" class="bg-yellow-500 hover:bg-yellow-600 text-white px-4 py-1.5 rounded-lg text-sm font-bold shadow-sm">จัดการข้อมูลที่เลือก</button>
+            <div v-if="selectedItems.length > 0" class="bg-gradient-to-r from-[#4A148C] to-[#7A2F8F] p-4 rounded-2xl shadow-lg flex flex-col md:flex-row justify-between items-center gap-4 animate-fade-in relative overflow-hidden">
+                <div class="absolute -right-10 -top-10 w-32 h-32 bg-white opacity-10 rounded-full blur-2xl pointer-events-none"></div>
+                <div class="absolute -left-10 -bottom-10 w-24 h-24 bg-[#FDB913] opacity-20 rounded-full blur-xl pointer-events-none"></div>
+
+                <div class="flex items-center gap-4 relative z-10">
+                    <div class="w-12 h-12 bg-white/20 rounded-full flex items-center justify-center border border-white/30 shadow-inner">
+                        <span class="text-2xl">📦</span>
+                    </div>
+                    <div>
+                        <h4 class="font-black text-white text-lg tracking-wide">เลือกข้อมูลแล้ว <span class="text-[#FDB913] text-xl">{{ selectedItems.length }}</span> รายการ</h4>
+                        <p class="text-xs text-purple-200 font-medium">คุณสามารถแก้ไขรายละเอียดทั้งหมดได้พร้อมกัน (Bulk Edit)</p>
+                    </div>
+                </div>
+
+                <div class="flex items-center gap-3 relative z-10 w-full md:w-auto">
+                    <button @click="selectedItems = []" class="flex-1 md:flex-none px-4 py-2.5 bg-white/10 hover:bg-white/20 text-white rounded-xl text-sm font-bold transition border border-white/20 backdrop-blur-sm">
+                        ยกเลิก
+                    </button>
+                    <button @click="openBulkManage" class="flex-1 md:flex-none px-6 py-2.5 bg-[#FDB913] hover:bg-yellow-400 text-[#4A148C] rounded-xl text-sm font-black shadow-lg shadow-yellow-500/30 transition transform hover:-translate-y-0.5 flex items-center justify-center gap-2">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z"></path><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z"></path></svg>
+                        จัดการแบบกลุ่ม
+                    </button>
+                </div>
             </div>
 
             <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <table class="w-full text-left border-collapse">
                     <thead class="bg-gray-50 text-xs uppercase text-gray-500 font-bold border-b border-gray-200">
                         <tr>
-                            <th v-if="canEdit" class="px-6 py-4 w-10 text-center"><input type="checkbox" @change="toggleSelectAll" :checked="items.data.length > 0 && selectedItems.length === items.data.length" class="rounded border-gray-300 text-[#7A2F8F] focus:ring-[#7A2F8F]"></th>
+                            <th v-if="canEdit" class="px-6 py-4 w-10 text-center">
+                                <input type="checkbox" @change="toggleSelectAll"
+                                       :checked="manageableItems.length > 0 && selectedItems.length === manageableItems.length"
+                                       :disabled="manageableItems.length === 0"
+                                       class="rounded border-gray-300 text-[#7A2F8F] focus:ring-[#7A2F8F] cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed">
+                            </th>
                             <th class="px-6 py-4">ชื่อรายการ</th>
                             <th class="px-6 py-4 text-center">ผู้ดูแล (PM)</th>
                             <th class="px-6 py-4 text-center">สถานะ</th>
@@ -251,9 +350,11 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                     <tbody class="divide-y divide-gray-100 text-sm">
                         <tr v-if="items.data.length === 0"><td :colspan="canEdit ? 8 : 7" class="px-6 py-8 text-center text-gray-400">ไม่พบข้อมูล</td></tr>
                         <tr v-for="item in items.data" :key="item.id" class="hover:bg-purple-50 transition group" :class="{'opacity-50 bg-gray-50 grayscale': item.status === 'cancelled', 'bg-purple-50/50': selectedItems.includes(item.id)}">
+
                             <td v-if="canEdit" class="px-6 py-4 text-center">
-                                <input type="checkbox" v-model="selectedItems" :value="item.id" class="rounded border-gray-300 text-[#7A2F8F] focus:ring-[#7A2F8F] cursor-pointer">
+                                <input v-if="canManageItem(item)" type="checkbox" v-model="selectedItems" :value="item.id" class="rounded border-gray-300 text-[#7A2F8F] focus:ring-[#7A2F8F] cursor-pointer">
                             </td>
+
                             <td class="px-6 py-4">
                                 <div class="flex items-center gap-3">
                                     <div class="w-10 h-10 rounded bg-gray-100 flex items-center justify-center text-[#7A2F8F] font-bold text-lg shrink-0"
@@ -333,6 +434,29 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
         </div>
 
         <Teleport to="body">
+
+            <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="confirmDialog.isOpen = false"></div>
+                <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in p-8 text-center transform scale-100 transition-transform">
+
+                    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"
+                         :class="confirmDialog.icon === 'trash' ? 'bg-red-100 text-red-500' : 'bg-yellow-100 text-yellow-500'">
+                        <svg v-if="confirmDialog.icon === 'trash'" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        <svg v-else class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+
+                    <h3 class="text-2xl font-black text-gray-800 mb-2">{{ confirmDialog.title }}</h3>
+                    <p class="text-sm text-gray-500 mb-8 leading-relaxed">{{ confirmDialog.message }}</p>
+
+                    <div class="flex gap-3 justify-center">
+                        <button @click="confirmDialog.isOpen = false" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition flex-1">ยกเลิก</button>
+                        <button @click="executeConfirm" class="px-5 py-3 text-white rounded-xl font-bold transition flex-1 shadow-lg transform hover:-translate-y-0.5" :class="confirmDialog.colorClass">
+                            {{ confirmDialog.confirmText }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
             <div v-if="showModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="closeModalSafely"></div>
 
@@ -385,11 +509,6 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
                             <label class="block text-sm font-bold text-gray-700 mb-1">ชื่อรายการ <span class="text-red-500">*</span></label>
                             <input v-model="form.name" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] focus:ring-[#7A2F8F]" :class="{'border-red-500 focus:ring-red-500': form.errors.name}" required>
                             <div v-if="form.errors.name" class="text-red-500 text-xs mt-1">{{ form.errors.name }}</div>
-                        </div>
-
-                        <div>
-                            <label class="block text-sm font-bold text-gray-700 mb-1">รายละเอียด (Description)</label>
-                            <textarea v-model="form.description" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm" :class="{'border-red-500': form.errors.description}" rows="3" placeholder="ระบุรายละเอียด..."></textarea>
                         </div>
 
                         <div class="grid grid-cols-2 gap-4 bg-purple-50 p-3 rounded-lg border border-purple-100">
@@ -533,11 +652,11 @@ const openQuickView = (item, type) => { const activeItems = item.issues?.filter(
             </div>
 
             <div v-if="showSuccessModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/30 backdrop-blur-sm animate-fade-in">
-                <div class="bg-white rounded-2xl shadow-2xl p-8 flex flex-col items-center">
-                    <div class="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mb-4">
-                        <svg class="w-10 h-10 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 13l4 4L19 7"/></svg>
+                <div class="bg-white rounded-3xl shadow-2xl p-10 flex flex-col items-center transform scale-100 transition-transform">
+                    <div class="w-20 h-20 bg-green-100 rounded-full flex items-center justify-center mb-5 shadow-inner">
+                        <svg class="w-12 h-12 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="3" d="M5 13l4 4L19 7"/></svg>
                     </div>
-                    <h3 class="text-xl font-bold text-gray-800">สำเร็จ!</h3>
+                    <h3 class="text-2xl font-black text-gray-800">สำเร็จ!</h3>
                 </div>
             </div>
 
