@@ -17,7 +17,8 @@ use App\Http\Controllers\CommentController;
 use App\Http\Controllers\TrashController;
 use App\Http\Controllers\WorkItemTypeController;
 use App\Http\Controllers\MilestoneController;
-use App\Http\Controllers\StrategicAlignmentController; // ✅ นำเข้า Controller ใหม่
+use App\Http\Controllers\StrategicAlignmentController;
+use App\Http\Controllers\KpiController; // ✅ นำเข้า Controller KPI ใหม่
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -89,6 +90,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
     Route::get('/api/strategies/tree', [WorkItemController::class, 'getTree'])->name('api.strategies.tree');
     Route::get('/api/project-managers/search', [WorkItemController::class, 'searchProjectManagers'])->name('api.pm.search');
     Route::get('/work-items/{workItem}/gantt-data', [WorkItemController::class, 'ganttData'])->name('work-items.gantt-data');
+    Route::get('/api/kpis/search', [KpiController::class, 'searchApi'])->name('api.kpis.search'); // ✅ ดึงข้อมูล KPI แบบ Dynamic
 
     // --- Reports Export ---
     Route::prefix('reports')->name('reports.')->group(function () {
@@ -134,6 +136,9 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::delete('/work-items/{workItem}', [WorkItemController::class, 'destroy'])->name('work-items.destroy');
         Route::post('/work-items/bulk-action', [WorkItemController::class, 'bulkAction'])->name('work-items.bulk');
         Route::put('/work-items/{workItem}/move', [WorkItemController::class, 'move'])->name('work-items.move');
+
+        // ✅ อัปโหลดรูป Architecture แบบ AJAX
+        Route::post('/work-items/{workItem}/upload-architecture', [WorkItemController::class, 'uploadArchitectureImage'])->name('work-items.upload-architecture');
 
         // --- Attachments ---
         Route::post('/work-items/{workItem}/attachments', [AttachmentController::class, 'store'])->name('attachments.store');
@@ -183,8 +188,11 @@ Route::middleware(['auth', 'verified'])->group(function () {
         // --- ตั้งค่าประเภทงาน (Dynamic Hierarchy) ---
         Route::resource('work-item-types', WorkItemTypeController::class)->except(['create', 'show', 'edit']);
 
-        // ✅ --- ตั้งค่ายุทธศาสตร์ (Strategic Alignments) ---
+        // --- ตั้งค่ายุทธศาสตร์ (Strategic Alignments) ---
         Route::resource('strategic-alignments', StrategicAlignmentController::class)->except(['create', 'show', 'edit']);
+
+        // ✅ --- จัดการตัวชี้วัด (KPIs) ---
+        Route::resource('kpis', KpiController::class)->except(['create', 'show', 'edit']);
 
         // --- ระบบถังขยะ (Soft Deletes / Recycle Bin) ---
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');

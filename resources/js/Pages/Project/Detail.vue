@@ -1,6 +1,8 @@
 <script setup>
 import { Head, Link, useForm, usePage, router } from '@inertiajs/vue3';
-import { ref, computed, onMounted, onUnmounted } from 'vue';
+import { ref, computed, onMounted, onUnmounted, watch } from 'vue';
+import axios from 'axios';
+import { debounce } from 'lodash';
 import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
 import GanttChart from '@/Components/GanttChart.vue';
 import PmAutocomplete from '@/Components/PmAutocomplete.vue';
@@ -52,7 +54,6 @@ const projectHealth = computed(() => {
     if (status === 'cancelled') return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'ยกเลิกโครงการ', icon: '⚪' };
     if (currentProgress >= 100 || status === 'completed') return { color: 'bg-green-500', bg: 'bg-green-50', text: 'เสร็จสมบูรณ์', icon: '🏆' };
 
-    // ดักตรงนี้! ถ้ายาวกว่ากำหนด + ยังไม่เสร็จ = แสดงป้ายแดงว่าล่าช้าเลย
     if (endDate && now > endDate && currentProgress < 100) return { color: 'bg-red-600', bg: 'bg-red-50', text: 'ล่าช้า (Overdue)', icon: '🔥' };
 
     if (currentProgress > 0) return { color: 'bg-blue-500', bg: 'bg-blue-50', text: 'กำลังดำเนินการ', icon: '⏳' };
@@ -98,7 +99,6 @@ const breadcrumbs = computed(() => {
     return crumbs.reverse();
 });
 
-// 🚀 ระบบจัดกลุ่ม Auto Description
 const autoDescriptionData = computed(() => {
     const children = props.item.children || [];
     const validChildren = children.filter(c => c.status !== 'cancelled');
@@ -170,7 +170,6 @@ const getTaskStatusBg = (task) => {
     return 'bg-gray-400';
 };
 
-// 🚀 --- Progress History (Time Machine Logic) ---
 const progressHistFilter = ref('all');
 const specificDate = ref('');
 
@@ -194,7 +193,6 @@ const filteredProgressHistories = computed(() => {
     });
 });
 
-// 🚀 --- ตัวแปรจัดการ Checkbox (Bulk Action) ---
 const selectedChildren = ref([]);
 const toggleAllChildren = (e) => {
     if (e.target.checked && props.item.children) {
@@ -212,7 +210,6 @@ const canBulkUpdateProgress = computed(() => {
     });
 });
 
-// 🚀🚀🚀 ระบบ Custom Confirm Modal สวยๆ แทน Alert ของเบราว์เซอร์ 🚀🚀🚀
 const confirmDialog = ref({
     isOpen: false,
     title: '',
@@ -232,7 +229,6 @@ const executeConfirm = () => {
     confirmDialog.value.isOpen = false;
 };
 
-// Modal แบบกลุ่ม
 const showBulkManageModal = ref(false);
 const showBulkEditModal = ref(false);
 const showBulkProgressModal = ref(false);
@@ -240,7 +236,6 @@ const showBulkProgressModal = ref(false);
 const bulkForm = useForm({ ids: [], action: '', description: '', division_id: '', department_id: '', project_manager_id: null, pm_name: '', type: '', weight: '', bulk_status_mode: 'no_change' });
 const bulkProgressForm = useForm({ ids: [], action: 'update_progress', progress: 0, comment: '' });
 
-// ✅ เปลี่ยนเป็น Custom Confirm
 const submitBulkDeleteFromMenu = () => {
     showBulkManageModal.value = false;
     openConfirm(
@@ -299,17 +294,25 @@ const parentNameDisplay = ref('');
 
 const form = useForm({ id: null, parent_id: null, name: '', type: 'task', budget: 0, progress: 0, status: 'in_active', is_active: true, planned_start_date: '', planned_end_date: '', division_id: '', department_id: '', pm_name: '', project_manager_id: null, weight: 1 });
 
+// ✅ ขยาย Form ของรายละเอียดให้ครอบคลุม 13 หัวข้อ
 const isEditingDetails = ref(false);
 const detailsForm = useForm({
     rationale: props.item.rationale || '',
     objective: props.item.objective || '',
     alignment: props.item.alignment || '',
     scope_output: props.item.scope_output || '',
+    responsible_agency: props.item.responsible_agency || '',
+    budget_framework: props.item.budget_framework || '',
+    kpi_details: props.item.kpi_details || '',
+    expected_benefits: props.item.expected_benefits || '',
+    potential_impacts: props.item.potential_impacts || '',
+    success_factors: props.item.success_factors || '',
+    capability: props.item.capability || '',
+    estimated_timeline: props.item.estimated_timeline || '',
     is_manual_description: props.item.is_manual_description || false,
     description: props.item.description || ''
 });
 
-// ระบบค้นหายุทธศาสตร์
 const searchAlignmentStr = ref('');
 const showAlignmentDropdown = ref(false);
 const alignmentDropdownRef = ref(null);
@@ -331,18 +334,108 @@ const selectAlignment = (strategy) => {
     showAlignmentDropdown.value = false;
 };
 
-const handleAlignmentClickOutside = (e) => {
+// 🎯 ระบบค้นหา KPI แบบ Dynamic AJAX ตามประเภทงาน
+const searchKpiStr = ref('');
+const showKpiDropdown = ref(false);
+const kpiDropdownRef = ref(null);
+const kpiSearchResults = ref([]);
+const isSearchingKpi = ref(false);
+
+const searchKpis = debounce(async (query) => {
+    if (!query) {
+        kpiSearchResults.value = [];
+        return;
+    }
+    isSearchingKpi.value = true;
+    try {
+        const response = await axios.get(route('api.kpis.search'), {
+            params: { search: query, work_item_type: props.item.type }
+        });
+        kpiSearchResults.value = response.data;
+    } catch (error) {
+        console.error("Error searching KPIs:", error);
+    } finally {
+        isSearchingKpi.value = false;
+    }
+}, 300);
+
+watch(searchKpiStr, (newVal) => {
+    if (newVal) {
+        showKpiDropdown.value = true;
+        searchKpis(newVal);
+    } else {
+        kpiSearchResults.value = [];
+    }
+});
+
+const selectKpi = (kpi) => {
+    const textToAdd = `📌 ${kpi.name}\n${kpi.description ? '(' + kpi.description + ')' : ''}`;
+    if (detailsForm.kpi_details) {
+        detailsForm.kpi_details += `\n\n${textToAdd}`;
+    } else {
+        detailsForm.kpi_details = textToAdd;
+    }
+    searchKpiStr.value = '';
+    showKpiDropdown.value = false;
+};
+
+const archImagePreview = ref(props.item.architecture_image ? `/storage/${props.item.architecture_image}` : null);
+const archImageFile = ref(null);
+const isUploadingArch = ref(false);
+
+const handleArchImageChange = (e) => {
+    const file = e.target.files[0];
+    if (file) {
+        archImageFile.value = file;
+        const reader = new FileReader();
+        reader.onload = (e) => archImagePreview.value = e.target.result;
+        reader.readAsDataURL(file);
+    }
+};
+
+const removeArchImage = () => {
+    archImageFile.value = null;
+    archImagePreview.value = props.item.architecture_image ? `/storage/${props.item.architecture_image}` : null;
+};
+
+const handleClickOutside = (e) => {
     if (alignmentDropdownRef.value && !alignmentDropdownRef.value.contains(e.target)) {
         showAlignmentDropdown.value = false;
     }
+    if (kpiDropdownRef.value && !kpiDropdownRef.value.contains(e.target)) {
+        showKpiDropdown.value = false;
+    }
 };
-onMounted(() => document.addEventListener('click', handleAlignmentClickOutside));
-onUnmounted(() => document.removeEventListener('click', handleAlignmentClickOutside));
+onMounted(() => document.addEventListener('click', handleClickOutside));
+onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 
-const submitDetails = () => {
+const submitDetails = async () => {
+    if (archImageFile.value) {
+        isUploadingArch.value = true;
+        const formData = new FormData();
+        formData.append('architecture_image', archImageFile.value);
+
+        try {
+            await axios.post(route('work-items.upload-architecture', props.item.id), formData, {
+                headers: { 'Content-Type': 'multipart/form-data' }
+            });
+            archImageFile.value = null;
+        } catch (err) {
+            console.error('Upload Error:', err);
+            alert('เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ');
+            isUploadingArch.value = false;
+            return;
+        }
+        isUploadingArch.value = false;
+    }
+
     detailsForm.put(route('work-items.update', props.item.id), {
         preserveScroll: true,
-        onSuccess: () => { isEditingDetails.value = false; showSuccessModal.value = true; setTimeout(() => showSuccessModal.value = false, 2000); }
+        onSuccess: () => {
+            isEditingDetails.value = false;
+            showSuccessModal.value = true;
+            setTimeout(() => { showSuccessModal.value = false; router.reload(); }, 2000);
+        }
     });
 };
 
@@ -399,7 +492,6 @@ const submitManualMilestone = () => {
     else manualForm.post(route('milestones.store', props.item.id), options);
 };
 
-// ✅ เปลี่ยนเป็น Custom Confirm
 const deleteManualMilestone = () => {
     openConfirm(
         'ยืนยันลบการแก้ไข',
@@ -434,7 +526,6 @@ const filteredFiles = computed(() => fileFilter.value==='all' ? props.item.attac
 const modalDepartments = computed(() => { if (!form.division_id) return []; const div = props.divisions?.find(d => d.id == form.division_id); return div ? div.departments : []; });
 const bulkEditDepartments = computed(() => { if (!bulkForm.division_id) return []; const div = props.divisions?.find(d => d.id == bulkForm.division_id); return div ? div.departments : []; });
 
-// ✅ เปลี่ยนเป็น Custom Confirm ทั้งหมด
 const closeMainModalSafely = () => {
     if (form.isDirty) {
         openConfirm('ละทิ้งการเปลี่ยนแปลง?', 'ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?', 'ละทิ้งข้อมูล', 'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/30', 'warning', () => { showModal.value = false; form.reset(); form.clearErrors(); });
@@ -461,7 +552,6 @@ const openCreateModal = () => { isEditing.value = false; modalTitle.value = `ส
 const openEditModal = (t) => { isEditing.value=true; modalTitle.value=`แก้ไข: ${t.name}`; form.clearErrors(); form.id=t.id; form.name=t.name; form.type=t.type; form.budget=t.budget; form.progress=t.progress; form.status=t.status; form.is_active=t.is_active !== false; form.planned_start_date=formatDateForInput(t.planned_start_date); form.planned_end_date=formatDateForInput(t.planned_end_date); form.parent_id = t.parent_id; parentNameDisplay.value = t.id === props.item.id ? (props.item.parent ? props.item.parent.name : '-') : props.item.name; form.division_id = t.division_id || ''; form.department_id = t.department_id || ''; form.pm_name = t.project_manager ? t.project_manager.name : ''; form.project_manager_id = t.project_manager_id || null; form.weight = t.weight !== undefined ? t.weight : 1; showModal.value=true; };
 const submit = () => { const options = { onSuccess: () => { showModal.value = false; showSuccessModal.value = true; setTimeout(() => showSuccessModal.value = false, 2000); } }; if (isEditing.value) { form.put(route('work-items.update', form.id), options); } else { form.post(route('work-items.store'), options); } };
 
-// ✅ เปลี่ยนเป็น Custom Confirm
 const deleteItem = (id) => {
     openConfirm('ยืนยันการลบข้อมูล', 'คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลนี้? (ข้อมูลจะถูกย้ายไปที่ถังขยะ)', 'ลบข้อมูล', 'bg-red-500 hover:bg-red-600 shadow-red-500/30', 'trash', () => useForm({}).delete(route('work-items.destroy', id)));
 };
@@ -471,14 +561,12 @@ const openEditIssue = (issue) => { showViewIssueModal.value=false; isEditing.val
 const openViewIssue = (issue) => { selectedIssue.value=issue; showViewIssueModal.value=true; };
 const submitIssue = () => { if(issueForm.no_end_date) { issueForm.end_date = null; } isEditing.value ? issueForm.put(route('issues.update', issueForm.id), {onSuccess:()=>showIssueModal.value=false}) : issueForm.post(route('issues.store', props.item.id), {onSuccess:()=>showIssueModal.value=false}); };
 
-// ✅ เปลี่ยนเป็น Custom Confirm
 const deleteIssue = (id) => {
     openConfirm('ยืนยันการลบปัญหา/ความเสี่ยง', 'คุณแน่ใจหรือไม่ว่าต้องการลบข้อมูลนี้?', 'ลบข้อมูล', 'bg-red-500 hover:bg-red-600 shadow-red-500/30', 'trash', () => { showViewIssueModal.value=false; useForm({}).delete(route('issues.destroy', id)); });
 };
 
 const uploadFile = () => { if(fileForm.file) { fileForm.post(route('attachments.store', props.item.id), { onSuccess: () => fileForm.reset() }); } };
 
-// ✅ เปลี่ยนเป็น Custom Confirm
 const deleteFile = (id) => {
     openConfirm('ยืนยันการลบไฟล์', 'คุณแน่ใจหรือไม่ว่าต้องการลบไฟล์แนบนี้?', 'ลบไฟล์', 'bg-red-500 hover:bg-red-600 shadow-red-500/30', 'trash', () => useForm({}).delete(route('attachments.destroy', id)));
 };
@@ -686,13 +774,15 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
             </div>
 
             <div v-show="activeTab==='details'" class="bg-white p-8 rounded-xl shadow-sm border border-gray-200 animate-fade-in space-y-8">
-                <div class="flex justify-between items-center border-b border-gray-100 pb-4">
+
+                <div class="flex justify-between items-center border-b border-gray-100 pb-4 sticky top-0 bg-white z-10">
                     <div>
                         <h3 class="font-bold text-[#4A148C] text-lg">📝 รายละเอียดเชิงลึก และวัตถุประสงค์</h3>
-                        <p class="text-xs text-gray-500 mt-1">ข้อมูลเชิงกลยุทธ์และผลลัพธ์ที่คาดหวังของโครงการ</p>
+                        <p class="text-xs text-gray-500 mt-1">ข้อมูลเชิงกลยุทธ์, KPI และผลลัพธ์ที่คาดหวังของโครงการ</p>
                     </div>
-                    <button v-if="canEdit" @click="toggleEditDetails" :disabled="detailsForm.processing" class="px-6 py-2 rounded-lg text-sm font-bold shadow transition" :class="isEditingDetails ? 'bg-[#7A2F8F] text-white hover:bg-purple-800' : 'bg-[#FDB913] text-[#4A148C] hover:bg-yellow-400'">
-                        {{ isEditingDetails ? (detailsForm.processing ? 'กำลังบันทึก...' : '💾 บันทึกรายละเอียด') : '✏️ แก้ไขรายละเอียด' }}
+                    <button v-if="canEdit" @click="toggleEditDetails" :disabled="detailsForm.processing || isUploadingArch" class="px-6 py-2 rounded-lg text-sm font-bold shadow transition flex items-center gap-2" :class="isEditingDetails ? 'bg-[#7A2F8F] text-white hover:bg-purple-800' : 'bg-[#FDB913] text-[#4A148C] hover:bg-yellow-400'">
+                        <span v-if="detailsForm.processing || isUploadingArch" class="animate-spin w-4 h-4 border-2 border-white border-t-transparent rounded-full"></span>
+                        {{ isEditingDetails ? ((detailsForm.processing || isUploadingArch) ? 'กำลังบันทึก...' : '💾 บันทึกรายละเอียด') : '✏️ แก้ไขรายละเอียด' }}
                     </button>
                 </div>
 
@@ -706,70 +796,195 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                     <textarea v-if="isEditingDetails && detailsForm.is_manual_description" v-model="detailsForm.description" rows="3" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="พิมพ์สิ่งที่คุณต้องการให้คนอื่นเห็น..."></textarea>
                     <div v-else class="bg-white p-4 rounded-lg border border-gray-200 text-sm text-gray-600 whitespace-pre-line font-mono shadow-sm">
                         <span v-if="!item.is_manual_description" class="text-xs text-blue-600 font-bold mb-2 block bg-blue-50 p-1.5 rounded w-fit">🤖 โหมด Auto (ดึงจากงานย่อยที่กำลังดำเนินการ)</span>
-                        {{ item.is_manual_description ? (item.description || 'ยังไม่มีรายละเอียดโครงการ') : generatedAutoDescription }}
+                        {{ item.is_manual_description ? (item.description || 'ยังไม่มีรายละเอียดโครงการ') : item.auto_description }}
                     </div>
                 </div>
 
-                <div v-if="isEditingDetails" class="grid grid-cols-1 md:grid-cols-2 gap-8">
+                <div v-if="isEditingDetails" class="grid grid-cols-1 md:grid-cols-2 gap-8 bg-gray-50/50 p-6 rounded-2xl border border-gray-100">
+
                     <div>
-                        <label class="block font-bold text-gray-800 mb-2">1. หลักการ และเหตุผล (Rationale)</label>
-                        <textarea v-model="detailsForm.rationale" rows="6" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ระบุเหตุผลความจำเป็นที่ต้องมีโครงการนี้..."></textarea>
+                        <label class="block font-bold text-gray-800 mb-2">1. หลักการ และเหตุผล</label>
+                        <textarea v-model="detailsForm.rationale" rows="4" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ระบุเหตุผลความจำเป็นที่ต้องมีโครงการนี้..."></textarea>
                     </div>
                     <div>
-                        <label class="block font-bold text-gray-800 mb-2">2. วัตถุประสงค์ของแผนงาน (Objective)</label>
-                        <textarea v-model="detailsForm.objective" rows="6" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ระบุเป้าหมายที่ต้องการบรรลุ..."></textarea>
+                        <label class="block font-bold text-gray-800 mb-2">2. วัตถุประสงค์ของแผนงาน</label>
+                        <textarea v-model="detailsForm.objective" rows="4" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ระบุเป้าหมายที่ต้องการบรรลุ..."></textarea>
                     </div>
 
-                    <div class="flex flex-col">
-                        <label class="block font-bold text-gray-800 mb-2">3. ความสอดคล้องต่อยุทธศาสตร์ (Alignment)</label>
-                        <div class="relative mb-2" ref="alignmentDropdownRef">
+                    <div class="flex flex-col relative" ref="alignmentDropdownRef">
+                        <label class="block font-bold text-gray-800 mb-2">3. ความสอดคล้องต่อยุทธศาสตร์</label>
+                        <div class="relative mb-2">
+                            <input type="text" v-model="searchAlignmentStr" @focus="showAlignmentDropdown = true" class="w-full rounded-lg border-purple-300 focus:border-purple-500 focus:ring-purple-500 text-sm shadow-sm pr-10" placeholder="พิมพ์ค้นหา KEY เช่น SO1 หรือพิมพ์ข้อความ...">
+                            <svg class="w-5 h-5 text-gray-400 absolute right-3 top-2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                        </div>
+                        <div v-if="showAlignmentDropdown" class="absolute z-20 w-full mt-16 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
+                            <ul class="py-1 text-sm text-gray-700">
+                                <li v-if="filteredAlignments.length === 0" class="px-4 py-3 text-gray-400 italic text-center">ไม่พบยุทธศาสตร์ที่ค้นหา</li>
+                                <li v-for="st in filteredAlignments" :key="st.id" @click="selectAlignment(st)" class="px-4 py-3 hover:bg-purple-50 cursor-pointer border-b border-gray-50 last:border-0 transition">
+                                    <div class="font-bold text-[#4A148C]">{{ st.key }}</div>
+                                    <div class="text-xs text-gray-500 mt-1 line-clamp-2">{{ st.description }}</div>
+                                </li>
+                            </ul>
+                        </div>
+                        <textarea v-model="detailsForm.alignment" rows="4" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm flex-1" placeholder="ข้อมูลยุทธศาสตร์ที่เลือกจะแสดงที่นี่..."></textarea>
+                    </div>
+
+                    <div>
+                        <label class="block font-bold text-gray-800 mb-2">4. ขอบเขตงานและผลลัพธ์ที่คาดหวัง</label>
+                        <textarea v-model="detailsForm.scope_output" rows="6" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ขอบเขตการทำงาน และ Output..."></textarea>
+                    </div>
+
+                    <div class="md:col-span-2 bg-white p-5 rounded-xl border border-gray-200 shadow-sm">
+                        <label class="block font-bold text-gray-800 mb-2 flex items-center gap-2">
+                            <span>🖼️</span> 5. การเปลี่ยนแปลงสถาปัตยกรรมองค์กรที่เกี่ยวข้อง
+                        </label>
+
+                        <div class="flex flex-col md:flex-row gap-6 items-start">
+                            <div class="flex-1 w-full">
+                                <div class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition cursor-pointer relative"
+                                     @click="$refs.fileInput.click()">
+                                    <input type="file" ref="fileInput" @change="handleArchImageChange" accept="image/*" class="hidden">
+                                    <div v-if="!archImagePreview" class="text-gray-400">
+                                        <svg class="mx-auto h-12 w-12 mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                        <p class="font-bold text-sm text-[#7A2F8F]">คลิกเพื่อเลือกไฟล์รูปภาพ</p>
+                                        <p class="text-xs mt-1">PNG, JPG, GIF ขนาดไม่เกิน 5MB</p>
+                                    </div>
+                                    <div v-else class="relative w-full">
+                                        <img :src="archImagePreview" class="max-h-[300px] mx-auto rounded shadow-sm object-contain" alt="Preview">
+                                        <button @click.stop="removeArchImage" class="absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-red-600 shadow-md">
+                                            &times;
+                                        </button>
+                                        <div v-if="archImageFile" class="mt-3 text-sm text-green-600 font-bold bg-green-50 py-1 px-3 rounded-lg inline-block">
+                                            ✅ รอการบันทึก: {{ archImageFile.name }}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </div>
+
+                    <div>
+                        <label class="block font-bold text-gray-800 mb-2">6. หน่วยงานรับผิดชอบ</label>
+                        <input type="text" v-model="detailsForm.responsible_agency" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ระบุหน่วยงาน...">
+                    </div>
+                    <div>
+                        <label class="block font-bold text-gray-800 mb-2">7. กรอบงบประมาณ</label>
+                        <textarea v-model="detailsForm.budget_framework" rows="2" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="อธิบายกรอบงบประมาณคร่าวๆ..."></textarea>
+                    </div>
+
+                    <div class="md:col-span-2 flex flex-col relative" ref="kpiDropdownRef">
+                        <label class="block font-bold text-gray-800 mb-2">8. ตัวชี้วัดการดำเนินงาน และค่าเป้าหมาย (KPI)</label>
+                        <div class="bg-blue-50 border border-blue-100 p-4 rounded-xl mb-2">
                             <div class="relative">
-                                <input type="text" v-model="searchAlignmentStr" @focus="showAlignmentDropdown = true"
-                                    class="w-full rounded-lg border-purple-300 focus:border-purple-500 focus:ring-purple-500 text-sm shadow-sm pr-10"
-                                    placeholder="พิมพ์ค้นหา KEY เช่น SO1 หรือพิมพ์ข้อความ...">
-                                <svg class="w-5 h-5 text-gray-400 absolute right-3 top-2 pointer-events-none" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                                <input type="text" v-model="searchKpiStr" @focus="if(searchKpiStr) showKpiDropdown = true;" class="w-full rounded-lg border-blue-300 focus:border-blue-500 focus:ring-blue-500 text-sm shadow-sm pr-10" :placeholder="`🔍 พิมพ์เพื่อค้นหา KPI สำหรับงานระดับ '${item.type}'...`">
+                                <span v-if="isSearchingKpi" class="absolute right-3 top-2.5 flex h-4 w-4">
+                                  <span class="animate-ping absolute inline-flex h-full w-full rounded-full bg-blue-400 opacity-75"></span>
+                                  <span class="relative inline-flex rounded-full h-4 w-4 bg-blue-500"></span>
+                                </span>
                             </div>
 
-                            <div v-if="showAlignmentDropdown" class="absolute z-20 w-full mt-1 bg-white border border-gray-200 rounded-lg shadow-xl max-h-60 overflow-y-auto">
-                                <ul class="py-1 text-sm text-gray-700">
-                                    <li v-if="filteredAlignments.length === 0" class="px-4 py-3 text-gray-400 italic text-center">ไม่พบยุทธศาสตร์ที่ค้นหา</li>
-                                    <li v-for="st in filteredAlignments" :key="st.id" @click="selectAlignment(st)" class="px-4 py-3 hover:bg-purple-50 cursor-pointer border-b border-gray-50 last:border-0 transition">
-                                        <div class="font-bold text-[#4A148C]">{{ st.key }}</div>
-                                        <div class="text-xs text-gray-500 mt-1 line-clamp-2">{{ st.description }}</div>
+                            <div v-if="showKpiDropdown" class="absolute z-20 w-full mt-2 bg-white border border-gray-200 rounded-lg shadow-2xl max-h-60 overflow-y-auto">
+                                <ul class="py-2 text-sm text-gray-700">
+                                    <li v-if="isSearchingKpi" class="px-4 py-3 text-gray-400 text-center">กำลังค้นหา...</li>
+                                    <li v-else-if="kpiSearchResults.length === 0" class="px-4 py-3 text-gray-400 italic text-center">ไม่พบ KPI ที่ตรงกับเงื่อนไขนี้</li>
+                                    <li v-for="kpi in kpiSearchResults" :key="kpi.id" @click="selectKpi(kpi)" class="px-5 py-3 hover:bg-blue-50 cursor-pointer border-b border-gray-50 last:border-0 transition">
+                                        <div class="font-bold text-blue-700">{{ kpi.name }}</div>
+                                        <div class="text-xs text-gray-500 mt-1 line-clamp-2">{{ kpi.description }}</div>
                                     </li>
                                 </ul>
                             </div>
                         </div>
-
-                        <textarea v-model="detailsForm.alignment" rows="4" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm flex-1" placeholder="ข้อมูลที่เลือกจะมาแสดงตรงนี้ หรือสามารถพิมพ์เพิ่มเติมเองได้..."></textarea>
+                        <textarea v-model="detailsForm.kpi_details" rows="5" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ข้อมูลตัวชี้วัดที่เลือกจะแสดงที่นี่ (สามารถพิมพ์เพิ่มเติมได้)..."></textarea>
                     </div>
 
                     <div>
-                        <label class="block font-bold text-gray-800 mb-2">4. ขอบเขตงานและผลลัพธ์ (Scope & Output)</label>
-                        <textarea v-model="detailsForm.scope_output" rows="6" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ขอบเขตการทำงาน และ Output ที่คาดหวัง..."></textarea>
+                        <label class="block font-bold text-gray-800 mb-2">9. ผลประโยชน์ที่คาดว่าจะได้รับ</label>
+                        <textarea v-model="detailsForm.expected_benefits" rows="4" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ระบุผลประโยชน์..."></textarea>
                     </div>
-                </div>
-                <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-8">
-                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:border-[#7A2F8F] transition">
-                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2"><span>📌</span> 1. หลักการ และเหตุผล</h4>
-                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.rationale || '-' }}</p>
+                    <div>
+                        <label class="block font-bold text-gray-800 mb-2">10. ผลกระทบที่อาจเกิดขึ้น</label>
+                        <textarea v-model="detailsForm.potential_impacts" rows="4" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ระบุผลกระทบด้านบวก/ลบ..."></textarea>
                     </div>
-                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:border-[#7A2F8F] transition">
-                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2"><span>🎯</span> 2. วัตถุประสงค์ของแผนงาน</h4>
-                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.objective || '-' }}</p>
+
+                    <div>
+                        <label class="block font-bold text-gray-800 mb-2">11. ปัจจัยความสำเร็จ</label>
+                        <textarea v-model="detailsForm.success_factors" rows="3" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ปัจจัยที่ทำให้โครงการสำเร็จ..."></textarea>
                     </div>
-                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:border-[#7A2F8F] transition">
-                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2"><span>🔗</span> 3. ความสอดคล้องต่อยุทธศาสตร์</h4>
-                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.alignment || '-' }}</p>
+                    <div>
+                        <label class="block font-bold text-gray-800 mb-2">12. ขีดความสามารถพนักงาน (Capability)</label>
+                        <textarea v-model="detailsForm.capability" rows="3" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="ทักษะที่จำเป็นในการดำเนินการ..."></textarea>
                     </div>
-                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:border-[#7A2F8F] transition">
-                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2"><span>📦</span> 4. ขอบเขตงานและผลลัพธ์ที่คาดหวัง</h4>
-                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.scope_output || '-' }}</p>
+
+                    <div class="md:col-span-2">
+                        <label class="block font-bold text-gray-800 mb-2">13. ระยะเวลาดำเนินการ แผนงาน และผลลัพธ์ในแต่ละช่วง</label>
+                        <textarea v-model="detailsForm.estimated_timeline" rows="4" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="อธิบายไทม์ไลน์คร่าวๆ..."></textarea>
                     </div>
+
                 </div>
 
-                <div class="bg-blue-50 border-l-4 border-blue-500 p-4 rounded text-sm text-blue-800">
-                    💡 <b>เคล็ดลับ:</b> หากต้องการแนบรูปภาพประกอบตารางหรือ Flowchart โปรดใช้งานแท็บ <b>"เอกสาร (Files)"</b> และเลือกหมวดหมู่เป็น <b>"ทั่วไป"</b>
+                <div v-else class="grid grid-cols-1 md:grid-cols-2 gap-6 bg-gray-50/30 p-2 rounded-xl">
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">1. หลักการ และเหตุผล</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.rationale || '-' }}</p>
+                    </div>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">2. วัตถุประสงค์ของแผนงาน</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.objective || '-' }}</p>
+                    </div>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">3. ความสอดคล้องต่อยุทธศาสตร์</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.alignment || '-' }}</p>
+                    </div>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">4. ขอบเขตงานและผลลัพธ์ที่คาดหวัง</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.scope_output || '-' }}</p>
+                    </div>
+
+                    <div class="md:col-span-2 bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">5. การเปลี่ยนแปลงสถาปัตยกรรมองค์กร</h4>
+                        <div v-if="item.architecture_image" class="mt-4 flex justify-center bg-gray-50 p-4 rounded-xl border border-gray-100">
+                            <a :href="`/storage/${item.architecture_image}`" target="_blank" title="คลิกเพื่อดูรูปขนาดเต็ม">
+                                <img :src="`/storage/${item.architecture_image}`" class="max-h-[400px] object-contain rounded shadow-sm hover:scale-[1.02] transition-transform cursor-pointer border border-gray-200">
+                            </a>
+                        </div>
+                        <p v-else class="text-sm text-gray-400 italic text-center py-8 bg-gray-50 rounded-xl border border-dashed">- ไม่มีการแนบรูปภาพสถาปัตยกรรม -</p>
+                    </div>
+
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">6. หน่วยงานรับผิดชอบ</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.responsible_agency || '-' }}</p>
+                    </div>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">7. กรอบงบประมาณ</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.budget_framework || '-' }}</p>
+                    </div>
+
+                    <div class="md:col-span-2 bg-blue-50/30 p-5 border border-blue-100 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-blue-700 mb-3 text-sm border-b border-blue-200 pb-2 flex items-center gap-2 group-hover:text-blue-800">8. ตัวชี้วัดการดำเนินงาน และค่าเป้าหมาย (KPI)</h4>
+                        <p class="text-sm text-gray-700 whitespace-pre-line leading-relaxed font-medium">{{ item.kpi_details || '-' }}</p>
+                    </div>
+
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">9. ผลประโยชน์ที่คาดว่าจะได้รับ</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.expected_benefits || '-' }}</p>
+                    </div>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">10. ผลกระทบที่อาจเกิดขึ้น</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.potential_impacts || '-' }}</p>
+                    </div>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">11. ปัจจัยความสำเร็จ</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.success_factors || '-' }}</p>
+                    </div>
+                    <div class="bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">12. ขีดความสามารถของพนักงาน (Capability)</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.capability || '-' }}</p>
+                    </div>
+
+                    <div class="md:col-span-2 bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
+                        <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">13. ระยะเวลาดำเนินการ แผนงาน และผลลัพธ์ในแต่ละช่วง</h4>
+                        <p class="text-sm text-gray-600 whitespace-pre-line leading-relaxed">{{ item.estimated_timeline || '-' }}</p>
+                    </div>
                 </div>
             </div>
 
@@ -972,29 +1187,6 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
         </div>
 
         <Teleport to="body">
-
-            <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[110] flex items-center justify-center p-4">
-                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="confirmDialog.isOpen = false"></div>
-                <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in p-8 text-center transform scale-100 transition-transform">
-
-                    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"
-                         :class="confirmDialog.icon === 'trash' ? 'bg-red-100 text-red-500' : 'bg-yellow-100 text-yellow-500'">
-                        <svg v-if="confirmDialog.icon === 'trash'" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
-                        <svg v-else class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
-                    </div>
-
-                    <h3 class="text-2xl font-black text-gray-800 mb-2">{{ confirmDialog.title }}</h3>
-                    <p class="text-sm text-gray-500 mb-8 leading-relaxed">{{ confirmDialog.message }}</p>
-
-                    <div class="flex gap-3 justify-center">
-                        <button @click="confirmDialog.isOpen = false" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition flex-1">ยกเลิก</button>
-                        <button @click="executeConfirm" class="px-5 py-3 text-white rounded-xl font-bold transition flex-1 shadow-lg transform hover:-translate-y-0.5" :class="confirmDialog.colorClass">
-                            {{ confirmDialog.confirmText }}
-                        </button>
-                    </div>
-                </div>
-            </div>
-
             <div v-if="showBulkManageModal" class="fixed inset-0 z-[100] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="showBulkManageModal = false"></div>
                 <div class="bg-white rounded-2xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in">
@@ -1231,6 +1423,28 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                             <button @click="closeProgressModalSafely" class="px-5 py-2.5 bg-white border border-gray-300 rounded-lg text-gray-700 font-bold text-sm hover:bg-gray-50 shadow-sm transition">ยกเลิก</button>
                             <button @click="submitProgressUpdate" :disabled="updateProgressForm.processing" class="px-5 py-2.5 bg-[#7A2F8F] text-white rounded-lg font-bold text-sm shadow-md disabled:opacity-50 hover:bg-purple-800 transition">อัปเดตงาน</button>
                         </div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="confirmDialog.isOpen = false"></div>
+                <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in p-8 text-center transform scale-100 transition-transform">
+
+                    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"
+                         :class="confirmDialog.icon === 'trash' ? 'bg-red-100 text-red-500' : 'bg-yellow-100 text-yellow-500'">
+                        <svg v-if="confirmDialog.icon === 'trash'" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        <svg v-else class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+
+                    <h3 class="text-2xl font-black text-gray-800 mb-2">{{ confirmDialog.title }}</h3>
+                    <p class="text-sm text-gray-500 mb-8 leading-relaxed whitespace-pre-line">{{ confirmDialog.message }}</p>
+
+                    <div class="flex gap-3 justify-center">
+                        <button @click="confirmDialog.isOpen = false" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition flex-1">ยกเลิก</button>
+                        <button @click="executeConfirm" class="px-5 py-3 text-white rounded-xl font-bold transition flex-1 shadow-lg transform hover:-translate-y-0.5" :class="confirmDialog.colorClass">
+                            {{ confirmDialog.confirmText }}
+                        </button>
                     </div>
                 </div>
             </div>

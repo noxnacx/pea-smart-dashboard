@@ -198,6 +198,17 @@ class WorkItemController extends Controller
             'objective' => 'nullable|string',
             'alignment' => 'nullable|string',
             'scope_output' => 'nullable|string',
+
+            // ✅ เพิ่มฟิลด์ใหม่ทั้ง 8 ตัวให้ Validate ผ่าน
+            'responsible_agency' => 'nullable|string',
+            'budget_framework' => 'nullable|string',
+            'kpi_details' => 'nullable|string',
+            'expected_benefits' => 'nullable|string',
+            'potential_impacts' => 'nullable|string',
+            'success_factors' => 'nullable|string',
+            'capability' => 'nullable|string',
+            'estimated_timeline' => 'nullable|string',
+
             'progress' => 'nullable|numeric|min:0|max:100',
             'status' => 'sometimes|required|string',
             'budget' => 'nullable|numeric',
@@ -259,7 +270,7 @@ class WorkItemController extends Controller
                        "📊 ความคืบหน้า: " . $workItem->progress . "%" . "\n" .
                        "🚩 สถานะ: " . $workItem->status . "\n" .
                        "👤 แก้ไขโดย: " . auth()->user()->name;
-                LineService::sendPushMessage($msg);
+                \App\Services\LineService::sendPushMessage($msg);
             } catch (\Exception $e) {}
         }
 
@@ -776,5 +787,25 @@ class WorkItemController extends Controller
         }
 
         return back()->with('success', 'จัดการข้อมูลที่เลือกเรียบร้อยแล้ว');
+    }
+
+    // รับหน้าที่จัดการอัปโหลดภาพ Architecture
+    public function uploadArchitectureImage(Request $request, WorkItem $workItem)
+    {
+        $request->validate([
+            'architecture_image' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120', // จำกัด 5MB
+        ]);
+
+        // ลบรูปเก่าทิ้ง (ถ้ามี)
+        if ($workItem->architecture_image) {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($workItem->architecture_image);
+        }
+
+        // เซฟรูปลงโฟลเดอร์ architectures
+        $path = $request->file('architecture_image')->store('architectures', 'public');
+
+        $workItem->update(['architecture_image' => $path]);
+
+        return response()->json(['success' => true, 'path' => $path]);
     }
 }

@@ -44,7 +44,6 @@ const isRouteActive = (name) => {
 onMounted(() => window.addEventListener('keydown', handleKeydown));
 onUnmounted(() => window.removeEventListener('keydown', handleKeydown));
 
-
 // 🚀🚀🚀 ระบบ Custom Confirm Modal สวยๆ 🚀🚀🚀
 const confirmDialog = ref({
     isOpen: false,
@@ -231,6 +230,13 @@ const handleLogout = () => {
                         จัดการความสอดคล้องยุทธศาสตร์
                     </Link>
 
+                    <Link :href="route('kpis.index')"
+                          class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
+                          :class="route().current('kpis.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
+                        <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" /></svg>
+                        จัดการตัวชี้วัด (KPIs)
+                    </Link>
+
                     <Link :href="route('users.index')"
                           class="flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 font-medium group"
                           :class="route().current('users.*') ? 'bg-[#FDB913] text-[#4A148C] shadow-lg translate-x-1' : 'text-purple-100 hover:bg-purple-800/50 hover:text-white hover:translate-x-1'">
@@ -270,7 +276,7 @@ const handleLogout = () => {
             </div>
         </aside>
 
-        <main class="flex-1 flex flex-col min-w-0 overflow-hidden">
+        <main class="flex-1 flex flex-col min-w-0 overflow-hidden relative">
              <div class="md:hidden bg-[#4A148C] text-white p-4 flex justify-between items-center shadow-lg sticky top-0 z-30">
                 <div class="flex items-center gap-2">
                     <div class="w-10 h-10 bg-white rounded-lg flex items-center justify-center border border-[#FDB913] p-1 overflow-hidden">
@@ -288,7 +294,7 @@ const handleLogout = () => {
                 </div>
             </div>
 
-            <div v-if="showingNavigationDropdown" class="md:hidden bg-[#380d6b] text-white border-b border-purple-800 shadow-xl absolute w-full z-40 top-[60px] max-h-[80vh] overflow-y-auto">
+            <div v-if="showingNavigationDropdown" class="md:hidden bg-[#380d6b] text-white border-b border-purple-800 shadow-xl absolute w-full z-40 top-[70px] max-h-[80vh] overflow-y-auto">
                  <nav class="px-4 py-4 space-y-2">
                     <Link :href="route('dashboard')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">Dashboard</Link>
 
@@ -311,7 +317,7 @@ const handleLogout = () => {
                     <Link :href="route('issues.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ปัญหาและความเสี่ยง</Link>
 
                     <div class="px-4 text-[10px] text-purple-400 font-bold uppercase mt-2">System</div>
-                    <button @click="isSearchOpen = true" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-purple-800 rounded-lg">
+                    <button @click="isSearchOpen = true; showingNavigationDropdown = false" class="w-full text-left flex items-center gap-3 px-4 py-3 hover:bg-purple-800 rounded-lg">
                         <svg class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
                         ค้นหาอัจฉริยะ
                     </button>
@@ -327,12 +333,14 @@ const handleLogout = () => {
 
                         <Link :href="route('strategic-alignments.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">จัดการความสอดคล้องยุทธศาสตร์</Link>
 
+                        <Link :href="route('kpis.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">จัดการตัวชี้วัด (KPIs)</Link>
+
                         <Link :href="route('users.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">ผู้ใช้งาน</Link>
                         <Link :href="route('audit-logs.index')" class="block px-4 py-3 hover:bg-purple-800 rounded-lg">Audit Logs</Link>
                         <Link :href="route('trash.index')" class="block px-4 py-3 mt-2 bg-red-900/30 text-red-300 hover:bg-red-600 hover:text-white rounded-lg">ถังขยะ (Recycle Bin)</Link>
                     </template>
 
-                    <div class="border-t border-purple-800 mt-2 pt-2">
+                    <div class="border-t border-purple-800 mt-2 pt-2 pb-4">
                          <button @click="handleLogout" class="block w-full text-left px-4 py-3 text-red-300 hover:text-red-100 font-bold">ออกจากระบบ</button>
                     </div>
                  </nav>
@@ -344,7 +352,7 @@ const handleLogout = () => {
         </main>
 
         <Teleport to="body">
-            <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[9999] flex items-center justify-center p-4">
+            <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[99999] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="confirmDialog.isOpen = false"></div>
                 <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in p-8 text-center transform scale-100 transition-transform">
 

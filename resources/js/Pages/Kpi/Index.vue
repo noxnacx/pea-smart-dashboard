@@ -1,0 +1,278 @@
+<script setup>
+import { Head, Link, useForm, router } from '@inertiajs/vue3';
+import { ref, watch } from 'vue';
+import { debounce } from 'lodash';
+import PeaSidebarLayout from '@/Layouts/PeaSidebarLayout.vue';
+
+const props = defineProps({
+    kpis: Object,
+    workItemTypes: Array,
+    filters: Object
+});
+
+const showModal = ref(false);
+const isEditing = ref(false);
+const modalTitle = ref('');
+
+// ฟอร์มรองรับ array ของประเภทงาน (work_item_type_keys)
+const form = useForm({
+    id: null,
+    name: '',
+    description: '',
+    work_item_type_keys: []
+});
+
+// 🚀 ระบบค้นหา
+const search = ref(props.filters?.search || '');
+watch(search, debounce((value) => {
+    router.get(
+        route('kpis.index'),
+        { search: value },
+        { preserveState: true, replace: true }
+    );
+}, 500));
+
+// 🚀🚀🚀 ระบบ Custom Confirm Modal สวยๆ 🚀🚀🚀
+const confirmDialog = ref({
+    isOpen: false,
+    title: '',
+    message: '',
+    confirmText: 'ยืนยัน',
+    colorClass: 'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+    icon: 'trash',
+    onConfirm: null
+});
+
+const openConfirm = (title, message, confirmText, colorClass, icon, onConfirmAction) => {
+    confirmDialog.value = {
+        isOpen: true,
+        title,
+        message,
+        confirmText,
+        colorClass,
+        icon,
+        onConfirm: onConfirmAction
+    };
+};
+
+const executeConfirm = () => {
+    if (confirmDialog.value.onConfirm) {
+        confirmDialog.value.onConfirm();
+    }
+    confirmDialog.value.isOpen = false;
+};
+
+// นำ Custom Confirm มาใช้ตอนปิด Modal แบบปลอดภัย
+const closeModalSafely = () => {
+    if (form.isDirty) {
+        openConfirm(
+            'ละทิ้งการเปลี่ยนแปลง?',
+            'ข้อมูลมีการเปลี่ยนแปลงและยังไม่ได้บันทึก ต้องการปิดหน้าต่างนี้ใช่หรือไม่?',
+            'ละทิ้งข้อมูล',
+            'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/30',
+            'warning',
+            () => {
+                showModal.value = false;
+                form.reset();
+                form.clearErrors();
+            }
+        );
+    } else {
+        showModal.value = false;
+        form.reset();
+        form.clearErrors();
+    }
+};
+
+const openCreate = () => {
+    isEditing.value = false;
+    modalTitle.value = '✨ เพิ่มตัวชี้วัด (KPI) ใหม่';
+    form.reset();
+    form.clearErrors();
+    form.work_item_type_keys = []; // รีเซ็ต Tag
+    showModal.value = true;
+};
+
+const openEdit = (item) => {
+    isEditing.value = true;
+    modalTitle.value = `✏️ แก้ไขตัวชี้วัด`;
+    form.clearErrors();
+    form.id = item.id;
+    form.name = item.name;
+    form.description = item.description || '';
+    // ดึง key จาก relation ที่ผูกไว้ มาใส่ใน Checkbox
+    form.work_item_type_keys = item.work_item_types ? item.work_item_types.map(t => t.key) : [];
+    showModal.value = true;
+};
+
+const submit = () => {
+    if (isEditing.value) {
+        form.put(route('kpis.update', form.id), { onSuccess: () => showModal.value = false });
+    } else {
+        form.post(route('kpis.store'), { onSuccess: () => showModal.value = false });
+    }
+};
+
+const deleteItem = (id) => {
+    openConfirm(
+        'ยืนยันการลบข้อมูล',
+        'คุณแน่ใจหรือไม่ว่าต้องการลบตัวชี้วัด (KPI) นี้?\nข้อมูลนี้จะถูกลบออกจากระบบและโครงการที่เคยผูกไว้',
+        'ลบข้อมูล',
+        'bg-red-500 hover:bg-red-600 shadow-red-500/30',
+        'trash',
+        () => useForm({}).delete(route('kpis.destroy', id))
+    );
+};
+</script>
+
+<template>
+    <Head title="จัดการตัวชี้วัดการดำเนินงาน (KPIs)" />
+    <PeaSidebarLayout>
+        <div class="py-8 px-6 max-w-[1600px] mx-auto space-y-6">
+
+            <div class="flex flex-col md:flex-row justify-between items-start md:items-end border-b border-gray-200 pb-6 gap-4">
+                <div>
+                    <h2 class="text-3xl font-black text-[#4A148C]">📊 จัดการตัวชี้วัดและค่าเป้าหมาย (KPIs)</h2>
+                    <p class="text-gray-500 mt-1">กำหนดตัวชี้วัดส่วนกลาง และผูกประเภทงานเพื่อนำไปประเมินผลโครงการ</p>
+                </div>
+                <button @click="openCreate" class="bg-[#FDB913] hover:bg-yellow-400 text-[#4A148C] font-bold px-5 py-2.5 rounded-xl shadow-md transition-all flex items-center gap-2 transform hover:-translate-y-0.5 whitespace-nowrap">
+                    <span class="text-xl leading-none">+</span> เพิ่มตัวชี้วัด
+                </button>
+            </div>
+
+            <div class="bg-white p-4 rounded-xl shadow-sm border border-gray-200 flex items-center">
+                <div class="relative w-full max-w-md">
+                    <div class="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                        <svg class="h-5 w-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"/></svg>
+                    </div>
+                    <input v-model="search" type="text" class="pl-10 w-full rounded-lg border-gray-300 focus:ring-[#7A2F8F] focus:border-[#7A2F8F] shadow-sm text-sm" placeholder="ค้นหาชื่อตัวชี้วัด หรือรายละเอียด..." />
+                </div>
+            </div>
+
+            <div class="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                <table class="w-full text-left border-collapse">
+                    <thead class="bg-gray-50 text-xs uppercase text-gray-500 border-b border-gray-200">
+                        <tr>
+                            <th class="px-6 py-4 font-black tracking-wider">ชื่อตัวชี้วัด (KPI)</th>
+                            <th class="px-6 py-4 font-black tracking-wider">รายละเอียดเพิ่มเติม</th>
+                            <th class="px-6 py-4 w-64 font-black tracking-wider">รองรับประเภทงาน (Tags)</th>
+                            <th class="px-6 py-4 text-center w-32 font-black tracking-wider">จัดการ</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-gray-100 text-sm">
+                        <tr v-if="!kpis.data || kpis.data.length === 0">
+                            <td colspan="4" class="px-6 py-12 text-center text-gray-400">
+                                <div class="text-4xl mb-3 opacity-30">📊</div>
+                                ไม่พบข้อมูลตัวชี้วัด
+                            </td>
+                        </tr>
+                        <tr v-for="item in kpis.data" :key="item.id" class="hover:bg-purple-50 transition duration-150">
+                            <td class="px-6 py-4 font-bold text-gray-800 text-base align-top">{{ item.name }}</td>
+                            <td class="px-6 py-4 text-gray-500 whitespace-pre-line leading-relaxed align-top">{{ item.description || '-' }}</td>
+                            <td class="px-6 py-4 align-top">
+                                <div class="flex flex-wrap gap-1.5">
+                                    <template v-if="item.work_item_types && item.work_item_types.length > 0">
+                                        <span v-for="type in item.work_item_types" :key="type.id"
+                                              class="text-[10px] px-2.5 py-1 rounded-md border font-bold whitespace-nowrap shadow-sm"
+                                              :style="`background-color: ${type.color_code}15; color: ${type.color_code}; border-color: ${type.color_code}40;`">
+                                            {{ type.icon }} {{ type.name }}
+                                        </span>
+                                    </template>
+                                    <span v-else class="text-xs text-gray-400 italic bg-gray-50 px-2 py-1 rounded border border-dashed">- ไม่ได้ผูกประเภทงาน -</span>
+                                </div>
+                            </td>
+                            <td class="px-6 py-4 text-center align-top">
+                                <div class="flex justify-center gap-2">
+                                    <button @click="openEdit(item)" class="p-1.5 rounded-lg hover:bg-blue-100 text-blue-600 transition" title="แก้ไข">✏️</button>
+                                    <button @click="deleteItem(item.id)" class="p-1.5 rounded-lg hover:bg-red-100 text-red-600 transition" title="ลบ">🗑️</button>
+                                </div>
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+
+                <div class="px-6 py-4 border-t border-gray-100 flex justify-between items-center bg-gray-50" v-if="kpis.links && kpis.links.length > 3">
+                    <div class="flex flex-wrap gap-1">
+                        <Link v-for="(link, key) in kpis.links" :key="key" :href="link.url || '#'" v-html="link.label"
+                              class="px-3 py-1.5 rounded-lg text-sm font-bold transition-colors border shadow-sm"
+                              :class="link.active ? 'bg-[#7A2F8F] text-white border-[#7A2F8F]' : 'bg-white text-gray-600 border-gray-300 hover:bg-purple-50 hover:text-[#7A2F8F]'"
+                              :preserve-scroll="true" />
+                    </div>
+                    <div class="text-xs text-gray-500 font-medium">
+                        แสดง <span class="font-bold text-gray-800">{{ kpis.from || 0 }}</span> ถึง <span class="font-bold text-gray-800">{{ kpis.to || 0 }}</span> จากทั้งหมด <span class="font-bold text-gray-800">{{ kpis.total }}</span> รายการ
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <Teleport to="body">
+
+            <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[110] flex items-center justify-center p-4">
+                <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="confirmDialog.isOpen = false"></div>
+                <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in p-8 text-center transform scale-100 transition-transform">
+
+                    <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"
+                         :class="confirmDialog.icon === 'trash' ? 'bg-red-100 text-red-500' : 'bg-yellow-100 text-yellow-500'">
+                        <svg v-if="confirmDialog.icon === 'trash'" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
+                        <svg v-else class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
+                    </div>
+
+                    <h3 class="text-2xl font-black text-gray-800 mb-2">{{ confirmDialog.title }}</h3>
+                    <p class="text-sm text-gray-500 mb-8 leading-relaxed whitespace-pre-line">{{ confirmDialog.message }}</p>
+
+                    <div class="flex gap-3 justify-center">
+                        <button @click="confirmDialog.isOpen = false" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition flex-1">ยกเลิก</button>
+                        <button @click="executeConfirm" class="px-5 py-3 text-white rounded-xl font-bold transition flex-1 shadow-lg transform hover:-translate-y-0.5" :class="confirmDialog.colorClass">
+                            {{ confirmDialog.confirmText }}
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div v-if="showModal" class="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm" @click.self="closeModalSafely">
+                <div class="bg-white rounded-2xl w-full max-w-2xl overflow-hidden shadow-2xl animate-fade-in relative z-10 flex flex-col max-h-[90vh]">
+                    <div class="p-6 bg-[#4A148C] text-white flex justify-between items-center border-b-4 border-[#FDB913] shrink-0">
+                        <h3 class="text-lg font-bold">{{ modalTitle }}</h3>
+                        <button @click="closeModalSafely" class="text-white hover:text-yellow-400 font-bold text-2xl leading-none">&times;</button>
+                    </div>
+
+                    <form @submit.prevent="submit" class="p-8 space-y-6 overflow-y-auto custom-scrollbar flex-1">
+
+                        <div>
+                            <label class="block text-sm font-bold text-gray-800 mb-2">ชื่อตัวชี้วัด (KPI) / เป้าหมาย <span class="text-red-500">*</span></label>
+                            <input v-model="form.name" class="w-full border-gray-300 rounded-lg focus:border-[#7A2F8F] focus:ring-[#7A2F8F] shadow-sm font-bold text-lg" required placeholder="เช่น ความสำเร็จของการพัฒนา Architecture...">
+                            <div v-if="form.errors.name" class="text-red-500 text-xs mt-1">{{ form.errors.name }}</div>
+                        </div>
+
+                        <div>
+                            <label class="block text-sm font-bold text-gray-700 mb-2">รายละเอียดเพิ่มเติม</label>
+                            <textarea v-model="form.description" rows="3" class="w-full border-gray-300 rounded-lg focus:border-[#7A2F8F] focus:ring-[#7A2F8F] shadow-sm leading-relaxed" placeholder="อธิบายเกณฑ์การวัดผลเพิ่มเติม (ถ้ามี)..."></textarea>
+                        </div>
+
+                        <div class="bg-purple-50/50 border border-purple-100 p-4 rounded-xl">
+                            <label class="block text-sm font-bold text-[#4A148C] mb-1">🏷️ อนุญาตให้ใช้งานในระดับใดบ้าง?</label>
+                            <p class="text-xs text-gray-500 mb-3">เมื่อผู้ใช้สร้างงานในระดับที่เลือก จะสามารถค้นหาและดึง KPI ข้อนี้ไปใช้ได้</p>
+
+                            <div class="flex flex-wrap gap-3 mt-2">
+                                <label v-for="type in workItemTypes" :key="type.id" class="flex items-center bg-white border border-gray-200 px-4 py-2.5 rounded-xl cursor-pointer hover:bg-purple-50 hover:border-purple-300 transition shadow-sm group select-none">
+                                    <input type="checkbox" :value="type.key" v-model="form.work_item_type_keys" class="mr-3 w-5 h-5 rounded text-[#7A2F8F] focus:ring-[#7A2F8F] border-gray-300 transition">
+                                    <span class="text-sm font-bold text-gray-700 group-hover:text-[#4A148C] flex items-center gap-2">
+                                        <span class="text-lg leading-none">{{ type.icon }}</span> {{ type.name }}
+                                    </span>
+                                </label>
+                            </div>
+                        </div>
+
+                        <div class="flex justify-end gap-3 pt-6 border-t border-gray-100 mt-4 shrink-0">
+                            <button type="button" @click="closeModalSafely" class="px-5 py-2.5 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition">ยกเลิก</button>
+                            <button type="submit" class="px-5 py-2.5 bg-[#4A148C] hover:bg-purple-800 text-white rounded-xl font-bold shadow-md transition transform hover:-translate-y-0.5" :disabled="form.processing">
+                                <span v-if="form.processing">กำลังบันทึก...</span>
+                                <span v-else>บันทึกข้อมูล</span>
+                            </button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+        </Teleport>
+    </PeaSidebarLayout>
+</template>

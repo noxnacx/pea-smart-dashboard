@@ -28,12 +28,21 @@ class WorkItem extends Model
         'weight',
         'is_active',
         'description',
-        // ✅ เพิ่มฟิลด์ใหม่สำหรับรายละเอียดโครงการ (Phase 1 & 2)
         'is_manual_description',
+        // ✅ 13 ฟิลด์ใหม่สำหรับรายละเอียดโครงการ
         'rationale',
         'objective',
         'alignment',
         'scope_output',
+        'architecture_image',
+        'responsible_agency',
+        'budget_framework',
+        'kpi_details',
+        'expected_benefits',
+        'potential_impacts',
+        'success_factors',
+        'capability',
+        'estimated_timeline',
     ];
 
     protected $guarded = [];
@@ -44,11 +53,10 @@ class WorkItem extends Model
         'actual_start_date' => 'date',
         'actual_end_date' => 'date',
         'is_active' => 'boolean',
-        'is_manual_description' => 'boolean', // ✅ Cast เป็น Boolean
+        'is_manual_description' => 'boolean',
         'weight' => 'float',
     ];
 
-    // ✅ ส่ง auto_description ไปให้ Vue ใช้ด้วย
     protected $appends = ['ev', 'pv', 'sv', 'performance_status', 'auto_description'];
 
     // --- Relationship ---
@@ -133,7 +141,6 @@ class WorkItem extends Model
     {
         if ($this->status === 'cancelled') return $this->description;
 
-        // ค้นหางานลูกทั้งหมดที่ไม่ถูกยกเลิก และไม่ใช่รอเริ่ม
         $children = collect($this->children)->whereNotIn('status', ['cancelled', 'in_active']);
 
         if ($children->isEmpty()) {
@@ -171,7 +178,6 @@ class WorkItem extends Model
     }
 
     // --- Calculation Logic ---
-
     public function getEvAttribute()
     {
         return $this->budget * ($this->progress / 100);
@@ -233,7 +239,6 @@ class WorkItem extends Model
             }
         }
 
-        // ✅ เก็บประวัติถ้า % เปลี่ยน (Phase 1 & 2)
         if ($oldProgress != $this->progress) {
             $this->progressHistories()->create(['progress' => $this->progress]);
         }
