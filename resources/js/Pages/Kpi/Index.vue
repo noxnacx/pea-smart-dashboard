@@ -14,7 +14,6 @@ const showModal = ref(false);
 const isEditing = ref(false);
 const modalTitle = ref('');
 
-// ฟอร์มรองรับ array ของประเภทงาน (work_item_type_keys)
 const form = useForm({
     id: null,
     name: '',
@@ -22,7 +21,6 @@ const form = useForm({
     work_item_type_keys: []
 });
 
-// 🚀 ระบบค้นหา
 const search = ref(props.filters?.search || '');
 watch(search, debounce((value) => {
     router.get(
@@ -32,7 +30,6 @@ watch(search, debounce((value) => {
     );
 }, 500));
 
-// 🚀🚀🚀 ระบบ Custom Confirm Modal สวยๆ 🚀🚀🚀
 const confirmDialog = ref({
     isOpen: false,
     title: '',
@@ -44,25 +41,14 @@ const confirmDialog = ref({
 });
 
 const openConfirm = (title, message, confirmText, colorClass, icon, onConfirmAction) => {
-    confirmDialog.value = {
-        isOpen: true,
-        title,
-        message,
-        confirmText,
-        colorClass,
-        icon,
-        onConfirm: onConfirmAction
-    };
+    confirmDialog.value = { isOpen: true, title, message, confirmText, colorClass, icon, onConfirm: onConfirmAction };
 };
 
 const executeConfirm = () => {
-    if (confirmDialog.value.onConfirm) {
-        confirmDialog.value.onConfirm();
-    }
+    if (confirmDialog.value.onConfirm) confirmDialog.value.onConfirm();
     confirmDialog.value.isOpen = false;
 };
 
-// นำ Custom Confirm มาใช้ตอนปิด Modal แบบปลอดภัย
 const closeModalSafely = () => {
     if (form.isDirty) {
         openConfirm(
@@ -71,25 +57,18 @@ const closeModalSafely = () => {
             'ละทิ้งข้อมูล',
             'bg-yellow-500 hover:bg-yellow-600 shadow-yellow-500/30',
             'warning',
-            () => {
-                showModal.value = false;
-                form.reset();
-                form.clearErrors();
-            }
+            () => { showModal.value = false; form.reset(); form.clearErrors(); }
         );
     } else {
-        showModal.value = false;
-        form.reset();
-        form.clearErrors();
+        showModal.value = false; form.reset(); form.clearErrors();
     }
 };
 
 const openCreate = () => {
     isEditing.value = false;
     modalTitle.value = '✨ เพิ่มตัวชี้วัด (KPI) ใหม่';
-    form.reset();
-    form.clearErrors();
-    form.work_item_type_keys = []; // รีเซ็ต Tag
+    form.reset(); form.clearErrors();
+    form.work_item_type_keys = [];
     showModal.value = true;
 };
 
@@ -100,7 +79,6 @@ const openEdit = (item) => {
     form.id = item.id;
     form.name = item.name;
     form.description = item.description || '';
-    // ดึง key จาก relation ที่ผูกไว้ มาใส่ใน Checkbox
     form.work_item_type_keys = item.work_item_types ? item.work_item_types.map(t => t.key) : [];
     showModal.value = true;
 };
@@ -183,6 +161,9 @@ const deleteItem = (id) => {
                             </td>
                             <td class="px-6 py-4 text-center align-top">
                                 <div class="flex justify-center gap-2">
+                                    <Link :href="route('kpis.show', item.id)" class="p-1.5 rounded-lg hover:bg-purple-100 text-purple-600 transition" title="ดูโครงการที่เกี่ยวข้อง">
+                                        👁️
+                                    </Link>
                                     <button @click="openEdit(item)" class="p-1.5 rounded-lg hover:bg-blue-100 text-blue-600 transition" title="แก้ไข">✏️</button>
                                     <button @click="deleteItem(item.id)" class="p-1.5 rounded-lg hover:bg-red-100 text-red-600 transition" title="ลบ">🗑️</button>
                                 </div>
@@ -206,20 +187,16 @@ const deleteItem = (id) => {
         </div>
 
         <Teleport to="body">
-
             <div v-if="confirmDialog.isOpen" class="fixed inset-0 z-[110] flex items-center justify-center p-4">
                 <div class="absolute inset-0 bg-gray-900/60 backdrop-blur-sm" @click="confirmDialog.isOpen = false"></div>
                 <div class="bg-white rounded-3xl w-full max-w-sm overflow-hidden shadow-2xl relative z-10 animate-fade-in p-8 text-center transform scale-100 transition-transform">
-
                     <div class="w-20 h-20 rounded-full flex items-center justify-center mx-auto mb-5 shadow-inner"
                          :class="confirmDialog.icon === 'trash' ? 'bg-red-100 text-red-500' : 'bg-yellow-100 text-yellow-500'">
                         <svg v-if="confirmDialog.icon === 'trash'" class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"/></svg>
                         <svg v-else class="w-10 h-10" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z"/></svg>
                     </div>
-
                     <h3 class="text-2xl font-black text-gray-800 mb-2">{{ confirmDialog.title }}</h3>
                     <p class="text-sm text-gray-500 mb-8 leading-relaxed whitespace-pre-line">{{ confirmDialog.message }}</p>
-
                     <div class="flex gap-3 justify-center">
                         <button @click="confirmDialog.isOpen = false" class="px-5 py-3 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-xl font-bold transition flex-1">ยกเลิก</button>
                         <button @click="executeConfirm" class="px-5 py-3 text-white rounded-xl font-bold transition flex-1 shadow-lg transform hover:-translate-y-0.5" :class="confirmDialog.colorClass">
@@ -237,7 +214,6 @@ const deleteItem = (id) => {
                     </div>
 
                     <form @submit.prevent="submit" class="p-8 space-y-6 overflow-y-auto custom-scrollbar flex-1">
-
                         <div>
                             <label class="block text-sm font-bold text-gray-800 mb-2">ชื่อตัวชี้วัด (KPI) / เป้าหมาย <span class="text-red-500">*</span></label>
                             <input v-model="form.name" class="w-full border-gray-300 rounded-lg focus:border-[#7A2F8F] focus:ring-[#7A2F8F] shadow-sm font-bold text-lg" required placeholder="เช่น ความสำเร็จของการพัฒนา Architecture...">

@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Kpi;
 use App\Models\WorkItemType;
+use App\Models\WorkItem;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -144,5 +145,45 @@ class KpiController extends Controller
         $kpis = $query->limit(20)->get(['id', 'name', 'description']);
 
         return response()->json($kpis);
+    }
+
+    public function show(Request $request, \App\Models\Kpi $kpi)
+    {
+        $searchName = $kpi->name;
+
+        $query = \App\Models\WorkItem::with(['workType', 'projectManager', 'division'])
+            ->where('kpi_details', 'ILIKE', "%{$searchName}%");
+
+        // ✅ ระบบกรองข้อมูล (Filters)
+        if ($request->filled('search')) $query->where('name', 'ILIKE', "%{$request->search}%");
+        if ($request->filled('type')) $query->where('type', $request->type);
+        if ($request->filled('status')) $query->where('status', $request->status);
+        if ($request->filled('division_id')) $query->where('division_id', $request->division_id);
+
+        // ✅ กรองด้วย % ความคืบหน้า
+        if ($request->filled('progress')) {
+            $prog = $request->progress;
+            if ($prog === '0') $query->where('progress', 0);
+            elseif ($prog === '1-25') $query->whereBetween('progress', [1, 25]);
+            elseif ($prog === '26-50') $query->whereBetween('progress', [26, 50]);
+            elseif ($prog === '51-75') $query->whereBetween('progress', [51, 75]);
+            elseif ($prog === '76-99') $query->whereBetween('progress', [76, 99]);
+            elseif ($prog === '100') $query->where('progress', 100);
+        }
+
+        // ✅ เปลี่ยนเป็น 10 รายการต่อหน้า
+        $workItems = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString();
+
+        // ส่งข้อมูลตัวเลือกไปทำ Dropdown
+        $divisions = \App\Models\Division::orderBy('name')->get(['id', 'name']);
+        $workItemTypes = \App\Models\WorkItemType::orderBy('level_order')->get(['key', 'name', 'icon']);
+
+        return inertia('Kpi/Show', [
+            'modelData' => $kpi,
+            'workItems' => $workItems,
+            'divisions' => $divisions,
+            'workItemTypes' => $workItemTypes,
+            'filters' => $request->only(['search', 'type', 'status', 'division_id', 'progress']),
+        ]);
     }
 }

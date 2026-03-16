@@ -790,22 +790,43 @@ class WorkItemController extends Controller
     }
 
     // รับหน้าที่จัดการอัปโหลดภาพ Architecture
+    // รับหน้าที่จัดการอัปโหลดภาพ Architecture (รองรับหลายรูป)
     public function uploadArchitectureImage(Request $request, WorkItem $workItem)
     {
         $request->validate([
-            'architecture_image' => 'required|image|mimes:jpeg,png,jpg,gif|max:5120', // จำกัด 5MB
+            'architecture_images.*' => 'image|mimes:jpeg,png,jpg,gif|max:5120', // จำกัด 5MB ต่อรูป
+            'kept_paths' => 'nullable|string'
         ]);
 
-        // ลบรูปเก่าทิ้ง (ถ้ามี)
-        if ($workItem->architecture_image) {
-            \Illuminate\Support\Facades\Storage::disk('public')->delete($workItem->architecture_image);
+        // ดึง Path ของรูปเดิมที่ User ต้องการเก็บไว้ (ไม่โดนกดกากบาทลบทิ้ง)
+        $keptPaths = $request->kept_paths ? json_decode($request->kept_paths, true) : [];
+        if (!is_array($keptPaths)) $keptPaths = [];
+
+        $newPaths = [];
+        // อัปโหลดไฟล์รูปใหม่ที่เพิ่งถูกเพิ่มเข้ามา
+        if ($request->hasFile('architecture_images')) {
+            foreach ($request->file('architecture_images') as $file) {
+                $newPaths[] = $file->store('architectures', 'public');
+            }
         }
 
-        // เซฟรูปลงโฟลเดอร์ architectures
-        $path = $request->file('architecture_image')->store('architectures', 'public');
+        // รวมรูปเก่าที่เก็บไว้ + รูปใหม่ที่เพิ่งอัปโหลด
+        $finalPaths = array_merge($keptPaths, $newPaths);
 
-        $workItem->update(['architecture_image' => $path]);
+        // หาว่ามีรูปเก่ารูปไหนบ้างที่หายไป (ถูกลบ) เพื่อตามไปลบไฟล์จริงออกจาก Storage ให้เซิร์ฟเวอร์ไม่หนัก
+        $oldPaths = $workItem->architecture_image ? json_decode($workItem->architecture_image, true) : [];
+        if (!is_array($oldPaths)) {
+            $oldPaths = $workItem->architecture_image ? [$workItem->architecture_image] : [];
+        }
 
-        return response()->json(['success' => true, 'path' => $path]);
+        $pathsToDelete = array_diff($oldPaths, $keptPaths);
+        foreach ($pathsToDelete as $delPath) {
+            \Illuminate\Support\Facades\Storage::disk('public')->delete($delPath);
+        }
+
+        // บันทึก Path ทั้งหมดกลับเป็น JSON ลงตารางเดิม
+        $workItem->update(['architecture_image' => json_encode($finalPaths)]);
+
+        return response()->json(['success' => true, 'paths' => $finalPaths]);
     }
 }

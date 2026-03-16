@@ -18,7 +18,7 @@ use App\Http\Controllers\TrashController;
 use App\Http\Controllers\WorkItemTypeController;
 use App\Http\Controllers\MilestoneController;
 use App\Http\Controllers\StrategicAlignmentController;
-use App\Http\Controllers\KpiController; // ✅ นำเข้า Controller KPI ใหม่
+use App\Http\Controllers\KpiController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
@@ -42,7 +42,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // 🌍 1. General Access (เข้าถึงได้ทุกคนที่ Login ทั้ง Admin และ PM)
     // =========================================================================
 
-    // --- Dashboard ---
     Route::get('/admin/dashboard', [DashboardController::class, 'adminDashboard'])->name('dashboard');
 
     // --- ระบบแจ้งเตือน (Notifications) ---
@@ -53,7 +52,7 @@ Route::middleware(['auth', 'verified'])->group(function () {
 
     // --- Work Items Read-Only (รายการงาน) ---
     Route::get('/work-items', [WorkItemController::class, 'index'])->name('work-items.index');
-    Route::get('/my-works', [WorkItemController::class, 'myWorks'])->name('my-works.index'); // งานของฉัน
+    Route::get('/my-works', [WorkItemController::class, 'myWorks'])->name('my-works.index');
     Route::get('/plans', [WorkItemController::class, 'list'])->defaults('type', 'plan')->name('plans.index');
     Route::get('/projects', [WorkItemController::class, 'list'])->defaults('type', 'project')->name('projects.index');
     Route::get('/strategies', [WorkItemController::class, 'strategies'])->name('strategies.index');
@@ -86,36 +85,29 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // 📤 2. Exports & Data API
     // =========================================================================
 
-    // --- API สำหรับดึงข้อมูล ---
     Route::get('/api/strategies/tree', [WorkItemController::class, 'getTree'])->name('api.strategies.tree');
     Route::get('/api/project-managers/search', [WorkItemController::class, 'searchProjectManagers'])->name('api.pm.search');
     Route::get('/work-items/{workItem}/gantt-data', [WorkItemController::class, 'ganttData'])->name('work-items.gantt-data');
-    Route::get('/api/kpis/search', [KpiController::class, 'searchApi'])->name('api.kpis.search'); // ✅ ดึงข้อมูล KPI แบบ Dynamic
+    Route::get('/api/kpis/search', [KpiController::class, 'searchApi'])->name('api.kpis.search');
 
-    // --- Reports Export ---
     Route::prefix('reports')->name('reports.')->group(function () {
-        // Progress
         Route::get('/progress/pdf', [ReportController::class, 'exportProgressPdf'])->name('progress.pdf');
         Route::get('/progress/excel', [ReportController::class, 'exportProgressExcel'])->name('progress.excel');
         Route::get('/progress/csv', [ReportController::class, 'exportProgressCsv'])->name('progress.csv');
 
-        // Issues
         Route::get('/issues/pdf', [ReportController::class, 'exportIssuesPdf'])->name('issues.pdf');
         Route::get('/issues/excel', [ReportController::class, 'exportIssuesExcel'])->name('issues.excel');
         Route::get('/issues/csv', [ReportController::class, 'exportIssuesCsv'])->name('issues.csv');
 
-        // Executive
         Route::get('/executive/pdf', [ReportController::class, 'exportExecutivePdf'])->name('executive.pdf');
         Route::get('/executive/excel', [ReportController::class, 'exportExecutiveExcel'])->name('executive.excel');
         Route::get('/executive/csv', [ReportController::class, 'exportExecutiveCsv'])->name('executive.csv');
 
-        // Tree View (โครงสร้างยุทธศาสตร์)
         Route::get('/tree/pdf', [ReportController::class, 'exportTreePdf'])->name('tree.pdf');
         Route::get('/tree/excel', [ReportController::class, 'exportTreeExcel'])->name('tree.excel');
         Route::get('/tree/csv', [ReportController::class, 'exportTreeCsv'])->name('tree.csv');
     });
 
-    // --- Single Item Exports & Downloads ---
     Route::get('/work-items/{workItem}/export-pdf', [ReportController::class, 'exportWorkItemPdf'])->name('work-items.export-pdf');
     Route::get('/work-items/{workItem}/export-milestone', [ReportController::class, 'exportMilestonePdf'])->name('work-items.export-milestone');
     Route::post('/work-items/{workItem}/log-export', [WorkItemController::class, 'logExport'])->name('work-items.log-export');
@@ -128,7 +120,6 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // =========================================================================
     Route::middleware(['can:manage-work'])->group(function () {
 
-        // --- Work Items (CRUD) ---
         Route::get('/work-items/create', [WorkItemController::class, 'create'])->name('work-items.create');
         Route::post('/work-items', [WorkItemController::class, 'store'])->name('work-items.store');
         Route::get('/work-items/{workItem}/edit', [WorkItemController::class, 'edit'])->name('work-items.edit');
@@ -137,19 +128,15 @@ Route::middleware(['auth', 'verified'])->group(function () {
         Route::post('/work-items/bulk-action', [WorkItemController::class, 'bulkAction'])->name('work-items.bulk');
         Route::put('/work-items/{workItem}/move', [WorkItemController::class, 'move'])->name('work-items.move');
 
-        // ✅ อัปโหลดรูป Architecture แบบ AJAX
         Route::post('/work-items/{workItem}/upload-architecture', [WorkItemController::class, 'uploadArchitectureImage'])->name('work-items.upload-architecture');
 
-        // --- Attachments ---
         Route::post('/work-items/{workItem}/attachments', [AttachmentController::class, 'store'])->name('attachments.store');
         Route::delete('/attachments/{attachment}', [AttachmentController::class, 'destroy'])->name('attachments.destroy');
 
-        // --- Issues ---
         Route::post('/work-items/{workItem}/issues', [IssueController::class, 'store'])->name('issues.store');
         Route::put('/issues/{issue}', [IssueController::class, 'update'])->name('issues.update');
         Route::delete('/issues/{issue}', [IssueController::class, 'destroy'])->name('issues.destroy');
 
-        // --- Milestones ---
         Route::post('/work-items/{workItem}/milestones', [MilestoneController::class, 'store'])->name('milestones.store');
         Route::put('/milestones/{milestone}', [MilestoneController::class, 'update'])->name('milestones.update');
         Route::delete('/milestones/{milestone}', [MilestoneController::class, 'destroy'])->name('milestones.destroy');
@@ -163,38 +150,26 @@ Route::middleware(['auth', 'verified'])->group(function () {
     // =========================================================================
     Route::middleware(['can:manage-system'])->group(function () {
 
-        // --- System Logs ---
         Route::get('/audit-logs', [AuditLogController::class, 'index'])->name('audit-logs.index');
-
-        // --- Users ---
         Route::resource('users', UserController::class)->except(['create', 'edit', 'show']);
-
-        // --- Organization Structure ---
         Route::get('/organization', [OrganizationController::class, 'index'])->name('organization.index');
 
-        // Divisions
         Route::post('/divisions', [OrganizationController::class, 'storeDivision'])->name('divisions.store');
         Route::put('/divisions/{division}', [OrganizationController::class, 'updateDivision'])->name('divisions.update');
         Route::delete('/divisions/{division}', [OrganizationController::class, 'destroyDivision'])->name('divisions.destroy');
 
-        // Departments
         Route::post('/departments', [OrganizationController::class, 'storeDepartment'])->name('departments.store');
         Route::put('/departments/{department}', [OrganizationController::class, 'updateDepartment'])->name('departments.update');
         Route::delete('/departments/{department}', [OrganizationController::class, 'destroyDepartment'])->name('departments.destroy');
 
-        // PM Directory
         Route::delete('/pm/{id}', [ProjectManagerController::class, 'destroy'])->name('pm.destroy');
 
-        // --- ตั้งค่าประเภทงาน (Dynamic Hierarchy) ---
         Route::resource('work-item-types', WorkItemTypeController::class)->except(['create', 'show', 'edit']);
 
-        // --- ตั้งค่ายุทธศาสตร์ (Strategic Alignments) ---
-        Route::resource('strategic-alignments', StrategicAlignmentController::class)->except(['create', 'show', 'edit']);
+        // ✅ ปลดล็อก show
+        Route::resource('strategic-alignments', StrategicAlignmentController::class)->except(['create', 'edit']);
+        Route::resource('kpis', KpiController::class)->except(['create', 'edit']);
 
-        // ✅ --- จัดการตัวชี้วัด (KPIs) ---
-        Route::resource('kpis', KpiController::class)->except(['create', 'show', 'edit']);
-
-        // --- ระบบถังขยะ (Soft Deletes / Recycle Bin) ---
         Route::get('/trash', [TrashController::class, 'index'])->name('trash.index');
         Route::post('/trash/work-items/{id}/restore', [TrashController::class, 'restoreWorkItem'])->name('trash.restore.work-item');
         Route::delete('/trash/work-items/{id}/force-delete', [TrashController::class, 'forceDeleteWorkItem'])->name('trash.force-delete.work-item');

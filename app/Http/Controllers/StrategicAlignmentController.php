@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\StrategicAlignment;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
+use App\Models\WorkItem;
 
 class StrategicAlignmentController extends Controller
 {
@@ -57,5 +58,44 @@ class StrategicAlignmentController extends Controller
     {
         $strategicAlignment->delete();
         return back()->with('success', 'ลบข้อมูลสำเร็จ');
+    }
+    public function show(Request $request, \App\Models\StrategicAlignment $strategicAlignment)
+    {
+        $searchKey = "[{$strategicAlignment->key}]";
+
+        $query = \App\Models\WorkItem::with(['workType', 'projectManager', 'division'])
+            ->where('alignment', 'ILIKE', "%{$searchKey}%");
+
+        // ✅ ระบบกรองข้อมูล (Filters)
+        if ($request->filled('search')) $query->where('name', 'ILIKE', "%{$request->search}%");
+        if ($request->filled('type')) $query->where('type', $request->type);
+        if ($request->filled('status')) $query->where('status', $request->status);
+        if ($request->filled('division_id')) $query->where('division_id', $request->division_id);
+
+        // ✅ กรองด้วย % ความคืบหน้า
+        if ($request->filled('progress')) {
+            $prog = $request->progress;
+            if ($prog === '0') $query->where('progress', 0);
+            elseif ($prog === '1-25') $query->whereBetween('progress', [1, 25]);
+            elseif ($prog === '26-50') $query->whereBetween('progress', [26, 50]);
+            elseif ($prog === '51-75') $query->whereBetween('progress', [51, 75]);
+            elseif ($prog === '76-99') $query->whereBetween('progress', [76, 99]);
+            elseif ($prog === '100') $query->where('progress', 100);
+        }
+
+        // ✅ เปลี่ยนเป็น 10 รายการต่อหน้า
+        $workItems = $query->orderBy('created_at', 'desc')->paginate(10)->withQueryString();
+
+        // ส่งข้อมูลตัวเลือกไปทำ Dropdown
+        $divisions = \App\Models\Division::orderBy('name')->get(['id', 'name']);
+        $workItemTypes = \App\Models\WorkItemType::orderBy('level_order')->get(['key', 'name', 'icon']);
+
+        return inertia('StrategicAlignment/Show', [
+            'modelData' => $strategicAlignment,
+            'workItems' => $workItems,
+            'divisions' => $divisions,
+            'workItemTypes' => $workItemTypes,
+            'filters' => $request->only(['search', 'type', 'status', 'division_id', 'progress']),
+        ]);
     }
 }

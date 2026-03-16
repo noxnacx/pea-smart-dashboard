@@ -45,11 +45,44 @@ const formatFileSize = (bytes) => {
 const getStatusText = (status) => ({ completed: 'เสร็จสมบูรณ์', delayed: 'ล่าช้า', in_active: 'รอเริ่มดำเนินการ', in_progress: 'กำลังดำเนินการ', cancelled: 'ยกเลิก', pending: 'รอเริ่มดำเนินการ' }[status] || status);
 const statusColor = (status) => ({ completed: 'bg-green-100 text-green-700', delayed: 'bg-red-100 text-red-700', in_active: 'bg-gray-100 text-gray-600', pending: 'bg-gray-100 text-gray-600', in_progress: 'bg-blue-100 text-blue-700', cancelled: 'bg-gray-200 text-gray-500' }[status] || 'bg-gray-100');
 
+// 🚀 ฟังก์ชันอัจฉริยะคำนวณสถานะตามความจริง (Real-time Status)
+const getRealStatus = (task) => {
+    if (!task) return 'in_active';
+    if (task.status === 'cancelled') return 'cancelled';
+    if (task.progress >= 100 || task.status === 'completed') return 'completed';
+
+    const now = new Date().setHours(0,0,0,0);
+    const endDate = task.planned_end_date ? new Date(task.planned_end_date).setHours(0,0,0,0) : null;
+
+    if (task.status === 'delayed' || (endDate && now > endDate && task.progress < 100)) {
+        return 'delayed';
+    }
+
+    if (task.status === 'in_progress' || (task.progress > 0 && task.progress < 100)) {
+        return 'in_progress';
+    }
+
+    return task.status || 'in_active';
+};
+
+const getDotColor = (status) => {
+    const colors = {
+        completed: 'bg-green-500',
+        delayed: 'bg-red-500',
+        in_progress: 'bg-blue-500',
+        in_active: 'bg-gray-400',
+        pending: 'bg-gray-400',
+        cancelled: 'bg-gray-300'
+    };
+    return colors[status] || 'bg-gray-400';
+};
+
 const projectHealth = computed(() => {
     const { status, planned_start_date, planned_end_date, progress } = props.item;
     const currentProgress = Number(progress) || 0;
-    const now = new Date().getTime();
-    const endDate = planned_end_date ? new Date(planned_end_date).getTime() : null;
+    const now = new Date().setHours(0,0,0,0);
+    const endDate = planned_end_date ? new Date(planned_end_date).setHours(0,0,0,0) : null;
+    const startDate = planned_start_date ? new Date(planned_start_date).setHours(0,0,0,0) : null;
 
     if (status === 'cancelled') return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'ยกเลิกโครงการ', icon: '⚪' };
     if (currentProgress >= 100 || status === 'completed') return { color: 'bg-green-500', bg: 'bg-green-50', text: 'เสร็จสมบูรณ์', icon: '🏆' };
@@ -57,9 +90,9 @@ const projectHealth = computed(() => {
     if (endDate && now > endDate && currentProgress < 100) return { color: 'bg-red-600', bg: 'bg-red-50', text: 'ล่าช้า (Overdue)', icon: '🔥' };
 
     if (currentProgress > 0) return { color: 'bg-blue-500', bg: 'bg-blue-50', text: 'กำลังดำเนินการ', icon: '⏳' };
-    if (!planned_start_date || !planned_end_date) return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'รอเริ่มดำเนินการ', icon: '📅' };
+    if (!startDate || !endDate) return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'รอเริ่มดำเนินการ', icon: '📅' };
 
-    if (now < new Date(planned_start_date).getTime()) return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'รอเริ่มดำเนินการ', icon: '⏳' };
+    if (now < startDate) return { color: 'bg-gray-400', bg: 'bg-gray-50', text: 'รอเริ่มดำเนินการ', icon: '⏳' };
     return { color: 'bg-yellow-500', bg: 'bg-yellow-50', text: 'ถึงกำหนดเริ่ม', icon: '🟡' };
 });
 
@@ -99,21 +132,43 @@ const breadcrumbs = computed(() => {
     return crumbs.reverse();
 });
 
-const autoDescriptionData = computed(() => {
+// 🚀 ระบบ Auto Description โฉมใหม่! (คำนวณจากสถานะจริง + ถ้าไม่มีลูกให้ดึงชื่องานมา)
+const displayDescription = computed(() => {
+    if (props.item.is_manual_description) {
+        return props.item.description || 'ยังไม่มีรายละเอียดโครงการ';
+    }
+
     const children = props.item.children || [];
     const validChildren = children.filter(c => c.status !== 'cancelled');
-    const now = new Date().getTime();
 
-    const delayed = validChildren.filter(c => c.status === 'delayed' || (c.planned_end_date && new Date(c.planned_end_date).getTime() < now && c.progress < 100));
-    const inProgress = validChildren.filter(c => (c.status === 'in_progress' || (c.progress > 0 && c.progress < 100)) && !delayed.includes(c));
-    const completed = validChildren.filter(c => c.status === 'completed' || c.progress >= 100);
+    // ถ้าไม่มีงานลูกเลย ให้เอาชื่องานมาแสดง
+    if (validChildren.length === 0) {
+        return props.item.name;
+    }
 
-    return {
-        delayed: delayed.slice(0, 3),
-        inProgress: inProgress.slice(0, 4),
-        completed: completed.slice(0, 3),
-        hasData: (delayed.length + inProgress.length + completed.length) > 0
-    };
+    const delayed = validChildren.filter(c => getRealStatus(c) === 'delayed');
+    const inProgress = validChildren.filter(c => getRealStatus(c) === 'in_progress');
+    const completed = validChildren.filter(c => getRealStatus(c) === 'completed');
+
+    let text = "";
+
+    if (delayed.length > 0) {
+        text += "🔴 งานที่กำลังล่าช้า:\n";
+        delayed.slice(0, 2).forEach(t => { text += `- ${t.name} (${t.progress || 0}%)\n`; });
+    }
+
+    if (inProgress.length > 0) {
+        if (text) text += "\n";
+        text += "🔵 กำลังดำเนินการ:\n";
+        inProgress.slice(0, 3).forEach(t => { text += `- ${t.name} (${t.progress || 0}%)\n`; });
+    }
+
+    if (text === "" && completed.length > 0) {
+        text += "🟢 ล่าสุด (เสร็จสมบูรณ์):\n";
+        completed.slice(0, 2).forEach(t => { text += `- ${t.name} (${t.progress || 0}%)\n`; });
+    }
+
+    return text === "" ? props.item.name : text.trim();
 });
 
 const groupedMilestones = computed(() => {
@@ -156,7 +211,9 @@ const getGroupStatusBg = (group) => {
         return 'bg-[#7A2F8F] border-white shadow-md';
     }
     if (!group.tasks || group.tasks.length === 0) return 'bg-gray-400 border-white';
-    const statuses = group.tasks.map(t => t.status);
+
+    // ✅ คำนวณสีกลุ่มจากสถานะจริงของงานลูก
+    const statuses = group.tasks.map(t => getRealStatus(t));
     if (statuses.some(s => s === 'delayed')) return 'bg-red-500 border-white shadow-md';
     if (statuses.some(s => s === 'in_progress')) return 'bg-blue-500 border-white shadow-md';
     if (statuses.length > 0 && statuses.every(s => s === 'completed')) return 'bg-green-500 border-white shadow-md';
@@ -164,9 +221,11 @@ const getGroupStatusBg = (group) => {
 };
 
 const getTaskStatusBg = (task) => {
-    if (task.status === 'completed' || task.progress === 100) return 'bg-green-500';
-    if (task.status === 'delayed') return 'bg-red-500';
-    if (task.status === 'in_progress' || task.progress > 0) return 'bg-blue-500';
+    // ✅ คำนวณสีจุดงานใน Milestone จากสถานะจริง
+    const s = getRealStatus(task);
+    if (s === 'completed') return 'bg-green-500';
+    if (s === 'delayed') return 'bg-red-500';
+    if (s === 'in_progress') return 'bg-blue-500';
     return 'bg-gray-400';
 };
 
@@ -294,7 +353,6 @@ const parentNameDisplay = ref('');
 
 const form = useForm({ id: null, parent_id: null, name: '', type: 'task', budget: 0, progress: 0, status: 'in_active', is_active: true, planned_start_date: '', planned_end_date: '', division_id: '', department_id: '', pm_name: '', project_manager_id: null, weight: 1 });
 
-// ✅ ขยาย Form ของรายละเอียดให้ครอบคลุม 13 หัวข้อ
 const isEditingDetails = ref(false);
 const detailsForm = useForm({
     rationale: props.item.rationale || '',
@@ -334,7 +392,6 @@ const selectAlignment = (strategy) => {
     showAlignmentDropdown.value = false;
 };
 
-// 🎯 ระบบค้นหา KPI แบบ Dynamic AJAX ตามประเภทงาน
 const searchKpiStr = ref('');
 const showKpiDropdown = ref(false);
 const kpiDropdownRef = ref(null);
@@ -379,23 +436,49 @@ const selectKpi = (kpi) => {
     showKpiDropdown.value = false;
 };
 
-const archImagePreview = ref(props.item.architecture_image ? `/storage/${props.item.architecture_image}` : null);
-const archImageFile = ref(null);
+
+// 📸 ระบบอัปโหลดรูปภาพสถาปัตยกรรม (รองรับหลายรูปภาพ)
+const existingArchImages = computed(() => {
+    if (!props.item.architecture_image) return [];
+    try {
+        const parsed = JSON.parse(props.item.architecture_image);
+        return Array.isArray(parsed) ? parsed : [props.item.architecture_image];
+    } catch (e) {
+        return [props.item.architecture_image];
+    }
+});
+
+const archImagesView = computed(() => existingArchImages.value);
+const archImages = ref([]);
 const isUploadingArch = ref(false);
 
+const initArchImages = () => {
+    archImages.value = existingArchImages.value.map(path => ({
+        isExisting: true,
+        path: path,
+        url: `/storage/${path}`
+    }));
+};
+initArchImages();
+
+watch(isEditingDetails, (newVal) => {
+    if (newVal) initArchImages();
+});
+
 const handleArchImageChange = (e) => {
-    const file = e.target.files[0];
-    if (file) {
-        archImageFile.value = file;
+    const files = Array.from(e.target.files);
+    files.forEach(file => {
         const reader = new FileReader();
-        reader.onload = (e) => archImagePreview.value = e.target.result;
+        reader.onload = (ev) => {
+            archImages.value.push({ isExisting: false, file: file, url: ev.target.result });
+        };
         reader.readAsDataURL(file);
-    }
+    });
+    e.target.value = null;
 };
 
-const removeArchImage = () => {
-    archImageFile.value = null;
-    archImagePreview.value = props.item.architecture_image ? `/storage/${props.item.architecture_image}` : null;
+const removeArchImage = (index) => {
+    archImages.value.splice(index, 1);
 };
 
 const handleClickOutside = (e) => {
@@ -410,24 +493,27 @@ onMounted(() => document.addEventListener('click', handleClickOutside));
 onUnmounted(() => document.removeEventListener('click', handleClickOutside));
 
 const submitDetails = async () => {
-    if (archImageFile.value) {
-        isUploadingArch.value = true;
-        const formData = new FormData();
-        formData.append('architecture_image', archImageFile.value);
+    const newFiles = archImages.value.filter(img => !img.isExisting).map(img => img.file);
+    const keptPaths = archImages.value.filter(img => img.isExisting).map(img => img.path);
 
-        try {
-            await axios.post(route('work-items.upload-architecture', props.item.id), formData, {
-                headers: { 'Content-Type': 'multipart/form-data' }
-            });
-            archImageFile.value = null;
-        } catch (err) {
-            console.error('Upload Error:', err);
-            alert('เกิดข้อผิดพลาดในการอัปโหลดรูปภาพ');
-            isUploadingArch.value = false;
-            return;
-        }
+    isUploadingArch.value = true;
+
+    const formData = new FormData();
+    formData.append('kept_paths', JSON.stringify(keptPaths));
+    newFiles.forEach(file => formData.append('architecture_images[]', file));
+
+    try {
+        await axios.post(route('work-items.upload-architecture', props.item.id), formData, {
+            headers: { 'Content-Type': 'multipart/form-data' }
+        });
+    } catch (err) {
+        console.error('Upload Error:', err);
+        alert('เกิดข้อผิดพลาดในการจัดการรูปภาพ');
         isUploadingArch.value = false;
+        return;
     }
+
+    isUploadingArch.value = false;
 
     detailsForm.put(route('work-items.update', props.item.id), {
         preserveScroll: true,
@@ -604,45 +690,11 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
 
                         <div v-if="!item.is_manual_description" class="mt-4 bg-gray-50 p-4 rounded-lg border border-gray-200 text-sm font-mono shadow-inner">
                             <div class="text-[10px] font-bold text-gray-400 mb-3 uppercase tracking-widest flex items-center gap-1">
-                                <span class="text-xs">🤖</span> AUTO DESCRIPTION (ดึงจากงานย่อย)
+                                <span class="text-xs">🤖</span> AUTO DESCRIPTION (คำนวณจากสถานะจริงแบบ Real-time)
                             </div>
 
-                            <div v-if="autoDescriptionData.hasData" class="space-y-3">
-                                <div v-if="autoDescriptionData.delayed.length > 0">
-                                    <div class="flex items-center gap-2 mb-1">
-                                        <div class="w-3 h-3 rounded-full bg-red-500"></div>
-                                        <span class="font-bold text-gray-700">ล่าช้า:</span>
-                                    </div>
-                                    <ul class="pl-5 space-y-1 text-gray-600">
-                                        <li v-for="c in autoDescriptionData.delayed" :key="c.id" class="truncate">
-                                            - {{ c.name }} ({{ c.progress || 0 }}%)
-                                        </li>
-                                    </ul>
-                                </div>
-
-                                <div v-if="autoDescriptionData.inProgress.length > 0">
-                                    <div class="flex items-center gap-2 mb-1">
-                                        <div class="w-3 h-3 rounded-full bg-blue-500"></div>
-                                        <span class="font-bold text-gray-700">กำลังดำเนินการ:</span>
-                                    </div>
-                                    <ul class="pl-5 space-y-1 text-gray-600">
-                                        <li v-for="c in autoDescriptionData.inProgress" :key="c.id" class="truncate">
-                                            - {{ c.name }} ({{ c.progress || 0 }}%)
-                                        </li>
-                                    </ul>
-                                </div>
-
-                                <div v-if="autoDescriptionData.completed.length > 0 && autoDescriptionData.delayed.length === 0 && autoDescriptionData.inProgress.length === 0">
-                                    <div class="flex items-center gap-2 mb-1">
-                                        <div class="w-3 h-3 rounded-full bg-green-500"></div>
-                                        <span class="font-bold text-gray-700">ล่าสุด (เสร็จสมบูรณ์):</span>
-                                    </div>
-                                    <ul class="pl-5 space-y-1 text-gray-600">
-                                        <li v-for="c in autoDescriptionData.completed" :key="c.id" class="truncate">
-                                            - {{ c.name }} ({{ c.progress || 0 }}%)
-                                        </li>
-                                    </ul>
-                                </div>
+                            <div v-if="displayDescription !== item.name" class="whitespace-pre-line text-gray-600">
+                                {{ displayDescription }}
                             </div>
                             <div v-else class="text-gray-500 italic">
                                 💡 ยังไม่มีงานย่อยที่กำลังดำเนินการในขณะนี้
@@ -740,7 +792,8 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                                     </td>
                                     <td class="p-2 border-r border-dashed border-gray-200">
                                         <div class="flex items-center gap-1.5">
-                                            <div class="w-2 h-2 rounded-full shrink-0" :class="!child.is_active ? 'bg-gray-400' : 'bg-[#7A2F8F]'"></div>
+                                            <div class="w-2 h-2 rounded-full shrink-0 shadow-sm" :class="getDotColor(getRealStatus(child))"></div>
+
                                             <Link :href="route('work-items.show', child.id)" class="truncate hover:text-[#7A2F8F] font-bold text-gray-700 inline-flex items-center gap-1">
                                                 <span class="truncate" :title="child.name">{{ child.name }}</span> <span v-if="!child.is_active" class="text-[9px] text-gray-400 font-normal shrink-0">(ยกเลิก)</span>
                                                 <span v-if="hasChildDateWarning(child)" class="text-base shrink-0 cursor-help text-yellow-500" :title="`⚠️ ระยะเวลาไม่อยู่ในช่วงของงาน ${item.name}`">⚠️</span>
@@ -748,7 +801,7 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                                         </div>
                                     </td>
                                     <td class="p-2 text-center border-r border-dashed border-gray-200">
-                                        <div class="flex items-center justify-center gap-1.5" :title="`สถานะ: ${getStatusText(child.status)}`">
+                                        <div class="flex items-center justify-center gap-1.5" :title="`สถานะ: ${getStatusText(getRealStatus(child))}`">
                                             <div class="w-12 bg-gray-200 rounded-full h-2">
                                                 <div class="h-2 rounded-full transition-all duration-500" :class="!child.is_active ? 'bg-gray-400' : 'bg-[#7A2F8F]'" :style="{ width: (child.progress || 0) + '%' }"></div>
                                             </div>
@@ -795,8 +848,13 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                     </div>
                     <textarea v-if="isEditingDetails && detailsForm.is_manual_description" v-model="detailsForm.description" rows="3" class="w-full rounded-lg border-gray-300 focus:border-[#7A2F8F] text-sm shadow-sm" placeholder="พิมพ์สิ่งที่คุณต้องการให้คนอื่นเห็น..."></textarea>
                     <div v-else class="bg-white p-4 rounded-lg border border-gray-200 text-sm text-gray-600 whitespace-pre-line font-mono shadow-sm">
-                        <span v-if="!item.is_manual_description" class="text-xs text-blue-600 font-bold mb-2 block bg-blue-50 p-1.5 rounded w-fit">🤖 โหมด Auto (ดึงจากงานย่อยที่กำลังดำเนินการ)</span>
-                        {{ item.is_manual_description ? (item.description || 'ยังไม่มีรายละเอียดโครงการ') : item.auto_description }}
+                        <span v-if="!item.is_manual_description" class="text-xs text-blue-600 font-bold mb-2 block bg-blue-50 p-1.5 rounded w-fit">🤖 โหมด Auto (คำนวณจากสถานะจริงแบบ Real-time)</span>
+                        <div v-if="displayDescription !== item.name" class="whitespace-pre-line text-gray-600">
+                            {{ displayDescription }}
+                        </div>
+                        <div v-else class="text-gray-500 italic">
+                            💡 ยังไม่มีงานย่อยที่กำลังดำเนินการในขณะนี้
+                        </div>
                     </div>
                 </div>
 
@@ -839,24 +897,24 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                             <span>🖼️</span> 5. การเปลี่ยนแปลงสถาปัตยกรรมองค์กรที่เกี่ยวข้อง
                         </label>
 
-                        <div class="flex flex-col md:flex-row gap-6 items-start">
-                            <div class="flex-1 w-full">
-                                <div class="border-2 border-dashed border-gray-300 rounded-xl p-8 text-center hover:bg-gray-50 transition cursor-pointer relative"
-                                     @click="$refs.fileInput.click()">
-                                    <input type="file" ref="fileInput" @change="handleArchImageChange" accept="image/*" class="hidden">
-                                    <div v-if="!archImagePreview" class="text-gray-400">
-                                        <svg class="mx-auto h-12 w-12 mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
-                                        <p class="font-bold text-sm text-[#7A2F8F]">คลิกเพื่อเลือกไฟล์รูปภาพ</p>
-                                        <p class="text-xs mt-1">PNG, JPG, GIF ขนาดไม่เกิน 5MB</p>
-                                    </div>
-                                    <div v-else class="relative w-full">
-                                        <img :src="archImagePreview" class="max-h-[300px] mx-auto rounded shadow-sm object-contain" alt="Preview">
-                                        <button @click.stop="removeArchImage" class="absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-8 h-8 flex items-center justify-center hover:bg-red-600 shadow-md">
-                                            &times;
-                                        </button>
-                                        <div v-if="archImageFile" class="mt-3 text-sm text-green-600 font-bold bg-green-50 py-1 px-3 rounded-lg inline-block">
-                                            ✅ รอการบันทึก: {{ archImageFile.name }}
-                                        </div>
+                        <div class="flex flex-col gap-4">
+                            <div class="border-2 border-dashed border-gray-300 rounded-xl p-6 text-center hover:bg-gray-50 transition relative">
+                                <div @click="$refs.fileInput.click()" class="cursor-pointer py-2">
+                                    <input type="file" ref="fileInput" @change="handleArchImageChange" accept="image/*" multiple class="hidden">
+                                    <svg class="mx-auto h-12 w-12 mb-3 text-gray-300" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" /></svg>
+                                    <p class="font-bold text-sm text-[#7A2F8F]">คลิกเพื่อเลือกไฟล์รูปภาพ (เลือกได้หลายรูป)</p>
+                                    <p class="text-xs mt-1 text-gray-500">PNG, JPG, GIF ขนาดไม่เกิน 5MB</p>
+                                </div>
+                            </div>
+
+                            <div v-if="archImages.length > 0" class="grid grid-cols-2 md:grid-cols-3 gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100">
+                                <div v-for="(img, idx) in archImages" :key="idx" class="relative group border border-gray-200 rounded-lg p-2 bg-white shadow-sm flex flex-col items-center justify-center">
+                                    <img :src="img.url" class="h-32 object-contain rounded" alt="Preview">
+                                    <button @click.prevent="removeArchImage(idx)" type="button" class="absolute -top-3 -right-3 bg-red-500 text-white rounded-full w-7 h-7 flex items-center justify-center hover:bg-red-600 shadow-md opacity-0 group-hover:opacity-100 transition-opacity">
+                                        &times;
+                                    </button>
+                                    <div v-if="!img.isExisting" class="absolute bottom-2 right-2 text-[10px] text-green-600 font-bold bg-green-50 py-0.5 px-2 rounded border border-green-200">
+                                        ใหม่
                                     </div>
                                 </div>
                             </div>
@@ -942,9 +1000,9 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
 
                     <div class="md:col-span-2 bg-white p-5 border border-gray-200 rounded-xl shadow-sm hover:shadow-md transition group">
                         <h4 class="font-black text-[#4A148C] mb-3 text-sm border-b pb-2 flex items-center gap-2 group-hover:text-purple-600">5. การเปลี่ยนแปลงสถาปัตยกรรมองค์กร</h4>
-                        <div v-if="item.architecture_image" class="mt-4 flex justify-center bg-gray-50 p-4 rounded-xl border border-gray-100">
-                            <a :href="`/storage/${item.architecture_image}`" target="_blank" title="คลิกเพื่อดูรูปขนาดเต็ม">
-                                <img :src="`/storage/${item.architecture_image}`" class="max-h-[400px] object-contain rounded shadow-sm hover:scale-[1.02] transition-transform cursor-pointer border border-gray-200">
+                        <div v-if="archImagesView.length > 0" class="mt-4 flex flex-wrap gap-4 bg-gray-50 p-4 rounded-xl border border-gray-100 justify-center">
+                            <a v-for="(img, idx) in archImagesView" :key="idx" :href="`/storage/${img}`" target="_blank" title="คลิกเพื่อดูรูปขนาดเต็ม">
+                                <img :src="`/storage/${img}`" class="h-48 object-contain rounded shadow-sm hover:scale-[1.02] transition-transform cursor-pointer border border-gray-200 bg-white p-1">
                             </a>
                         </div>
                         <p v-else class="text-sm text-gray-400 italic text-center py-8 bg-gray-50 rounded-xl border border-dashed">- ไม่มีการแนบรูปภาพสถาปัตยกรรม -</p>
@@ -1027,10 +1085,10 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                                     </div>
 
                                     <div v-if="group.manual" class="space-y-3">
-                                        <div class="flex items-start gap-2">
+                                        <div class="flex items-start gap-2 max-w-full">
                                             <div class="w-3 h-3 rounded-full mt-1 shrink-0 shadow-sm" :class="getGroupStatusBg(group).split(' ')[0]"></div>
-                                            <div class="flex-1">
-                                                <p class="text-xs font-bold leading-relaxed text-[#4A148C] whitespace-pre-line">{{ group.manual.title }}</p>
+                                            <div class="flex-1 min-w-0">
+                                                <p class="text-xs font-bold leading-relaxed text-[#4A148C] whitespace-pre-wrap break-words overflow-hidden">{{ group.manual.title }}</p>
                                                 <div class="mt-2 flex items-center gap-2">
                                                     <span class="text-[9px] bg-purple-100 text-purple-600 px-1.5 py-0.5 rounded border border-purple-200">แก้ไข Manual</span>
                                                     <span class="text-[9px] px-1.5 py-0.5 rounded font-bold border" :class="statusColor(group.manual.status)">{{ getStatusText(group.manual.status) }}</span>
@@ -1040,10 +1098,10 @@ const submitComment = () => { if(!commentForm.body.trim()) return; commentForm.p
                                     </div>
 
                                     <div v-else class="space-y-3">
-                                        <div v-for="task in group.tasks" :key="task.id" class="flex items-start gap-2">
+                                        <div v-for="task in group.tasks" :key="task.id" class="flex items-start gap-2 max-w-full">
                                             <div class="w-3 h-3 rounded-full mt-0.5 shrink-0 shadow-sm" :class="getTaskStatusBg(task)"></div>
-                                            <div class="flex-1">
-                                                <p class="text-xs font-bold leading-tight text-gray-700">{{ task.description ? task.description : task.name }}</p>
+                                            <div class="flex-1 min-w-0">
+                                                <p class="text-xs font-bold leading-tight text-gray-700 whitespace-pre-wrap break-words overflow-hidden">{{ task.description ? task.description : task.name }}</p>
                                             </div>
                                         </div>
                                     </div>
